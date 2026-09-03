@@ -936,6 +936,20 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* ---------- configurações gerais (chave/valor) ---------- */
+  lerConfig: function (chave) {
+    return this.cliente.from('config').select('valor').eq('chave', chave)
+      .then(function (r) {
+        if (r.error) Banco._erro(r.error);
+        return (r.data && r.data[0]) ? r.data[0].valor : null;
+      });
+  },
+
+  salvarConfig: function (chave, valor) {
+    return this.cliente.from('config').upsert({ chave: chave, valor: valor })
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+
   /* ---------- fornecedores de material terceirizado ---------- */
   listarFornecedores: function () {
     return this.cliente.from('fornecedores').select('*').order('nome')
@@ -1039,6 +1053,7 @@ const Sessao = {
   },
 
   sair: function () {
+    window._estoqueLiberado = false;   /* estoque volta a pedir a senha */
     this.atual = null;
     try { localStorage.removeItem(this.CHAVE); } catch (e) { /* sem problema */ }
   },
@@ -2247,6 +2262,8 @@ function TelaPainel() {
    Estoque: cadastro central de peças. O saldo anda sozinho:
    saída finalizada desconta, retorno finalizado devolve.
    ============================================================ */
+var SENHA_ESTOQUE_INICIAL = '123456';
+
 function TelaEstoque() {
   App.topo('ESTOQUE', 'Peças do galpão');
   var tela = U.$('#tela');
@@ -2259,6 +2276,94 @@ function TelaEstoque() {
     return;
   }
 
+  /* ---- senha própria do estoque ----
+     Primeiro acesso: a senha inicial é 123456 e o app OBRIGA a trocar.
+     Depois: pede a senha uma vez por sessão (até sair ou recarregar). */
+  if (!window._estoqueLiberado) {
+    Banco.lerConfig('senha_estoque')
+      .catch(function () { return null; })   /* tabela ainda não criada: trata como inicial */
+      .then(function (senha) {
+        senha = senha || SENHA_ESTOQUE_INICIAL;
+        if (senha === SENHA_ESTOQUE_INICIAL) trocarSenhaEstoque(true);
+        else pedirSenhaEstoque(senha);
+      });
+    return;
+  }
+  entrarNoEstoque();
+
+  function pedirSenhaEstoque(senhaCerta) {
+    var m = U.modal({
+      titulo: '🔒 Senha do estoque',
+      html: '<p class="mut peq" style="margin-bottom:12px">O cadastro do estoque é protegido. Digite a senha para entrar.</p>' +
+        '<input class="entrada" id="es-senha" type="password" inputmode="numeric" placeholder="Senha do estoque" autocomplete="off">' +
+        '<p id="es-senha-erro" class="aviso aviso--vermelho" style="margin-top:10px" hidden>Senha incorreta. Tente de novo.</p>',
+      pe: '<button class="btn btn--branco" data-x>Voltar</button>' +
+          '<button class="btn btn--verde" data-ok>ENTRAR</button>',
+      travado: true
+    });
+    var campo = m.querySelector('#es-senha');
+    campo.focus();
+    function tentar() {
+      if (campo.value === senhaCerta) {
+        window._estoqueLiberado = true;
+        m.fechar();
+        entrarNoEstoque();
+      } else {
+        m.querySelector('#es-senha-erro').hidden = false;
+        campo.value = ''; campo.focus();
+      }
+    }
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); App.voltar(); });
+    m.querySelector('[data-ok]').addEventListener('click', tentar);
+    campo.addEventListener('keydown', function (e) { if (e.key === 'Enter') tentar(); });
+  }
+
+  function trocarSenhaEstoque(primeiroAcesso) {
+    var m = U.modal({
+      titulo: primeiroAcesso ? '🔑 Primeiro acesso ao estoque' : '🔑 Trocar a senha do estoque',
+      html: (primeiroAcesso
+          ? '<p class="mut peq" style="margin-bottom:12px">A senha inicial do estoque é <b>123456</b>. ' +
+            'Por segurança, crie agora a sua senha — ela vale para todos os coordenadores.</p>'
+          : '<p class="mut peq" style="margin-bottom:12px">Defina a nova senha do estoque.</p>') +
+        '<label class="campo"><span class="campo__rot">Nova senha (mínimo 4 dígitos)</span>' +
+          '<input class="entrada" id="ns-1" type="password" inputmode="numeric" autocomplete="new-password"></label>' +
+        '<label class="campo"><span class="campo__rot">Repita a nova senha</span>' +
+          '<input class="entrada" id="ns-2" type="password" inputmode="numeric" autocomplete="new-password"></label>' +
+        '<p id="ns-erro" class="aviso aviso--vermelho" hidden></p>',
+      pe: '<button class="btn btn--branco" data-x>' + (primeiroAcesso ? 'Voltar' : 'Cancelar') + '</button>' +
+          '<button class="btn btn--verde" data-ok>SALVAR NOVA SENHA</button>',
+      travado: true
+    });
+    function erro(t) { var e = m.querySelector('#ns-erro'); e.textContent = t; e.hidden = false; }
+    m.querySelector('[data-x]').addEventListener('click', function () {
+      m.fechar();
+      if (primeiroAcesso) App.voltar(); else entrarNoEstoque();
+    });
+    m.querySelector('[data-ok]').addEventListener('click', function () {
+      var s1 = m.querySelector('#ns-1').value;
+      var s2 = m.querySelector('#ns-2').value;
+      if (s1.length < 4) return erro('A senha precisa de pelo menos 4 dígitos.');
+      if (s1 === SENHA_ESTOQUE_INICIAL) return erro('Escolha uma senha diferente da inicial (123456).');
+      if (s1 !== s2) return erro('As duas senhas não bateram. Digite igual nas duas caixas.');
+      var b = m.querySelector('[data-ok]');
+      b.disabled = true; b.textContent = 'Salvando...';
+      Banco.salvarConfig('senha_estoque', s1)
+        .then(function () {
+          window._estoqueLiberado = true;
+          m.fechar();
+          U.aviso('🔑 Senha do estoque ' + (primeiroAcesso ? 'criada' : 'trocada') + ' com sucesso.', 'ok', 5000);
+          entrarNoEstoque();
+        })
+        .catch(function (e2) {
+          b.disabled = false; b.textContent = 'SALVAR NOVA SENHA';
+          erro('Não deu para salvar: ' + e2.message + (primeiroAcesso ? ' (rode o SQL novo no Supabase)' : ''));
+        });
+    });
+  }
+
+  function entrarNoEstoque() {
+  tela.innerHTML = U.carregando('Somando o estoque...');
+  TelaEstoque._trocarSenha = function () { trocarSenhaEstoque(false); };
   Promise.all([Banco.listarEstoque(), Banco.listarMovimentos(), App.carregarBase()])
     .then(function (r) {
       var cadastro = r[0], movimentos = r[1];
@@ -2323,7 +2428,9 @@ function TelaEstoque() {
         }).join('');
       }
 
-      h += '<button class="btn btn--branco btn--bloco" style="margin-top:14px" onclick="App.voltar()">Voltar</button>';
+      h += '<div class="btn-linha" style="margin-top:14px">' +
+        '<button class="btn btn--branco" onclick="TelaEstoque._trocarSenha()">🔑 Trocar senha do estoque</button>' +
+        '<button class="btn btn--branco" onclick="App.voltar()">Voltar</button></div>';
       tela.innerHTML = h;
 
       var busca = U.$('#busca-estoque', tela);
@@ -2508,6 +2615,7 @@ function TelaEstoque() {
         '<br><span class="peq">Se for a primeira vez, rode o SQL novo no Supabase para criar as tabelas do estoque.</span></div></div>' +
         '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
     });
+  }
 }
 
 /* ============================================================
