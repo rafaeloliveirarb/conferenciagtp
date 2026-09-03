@@ -957,6 +957,11 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
+  apagarMovTerceirosConferencia: function (conferenciaId) {
+    return this.cliente.from('movimentos_terceiros').delete().eq('conferencia_id', conferenciaId)
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+
   atualizarMovTerceiro: function (id, campos) {
     return this.cliente.from('movimentos_terceiros').update(campos).eq('id', id).select()
       .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
@@ -2513,8 +2518,14 @@ function TelaFornecedor(fornecedorId) {
   var tela = U.$('#tela');
   tela.innerHTML = U.carregando('Somando o material do fornecedor...');
 
-  Promise.all([Banco.listarFornecedores(), Banco.listarMovTerceiros(), App.carregarBase()])
+  Promise.all([
+    Banco.listarFornecedores(),
+    Banco.listarMovTerceiros(),
+    App.carregarBase(),
+    Banco.listarEstoque().catch(function () { return []; })   /* nomenclatura oficial das peças */
+  ])
     .then(function (r) {
+      var catalogo = r[3] || [];
       var fornecedor = r[0].filter(function (f) { return f.id === fornecedorId; })[0];
       if (!fornecedor) { tela.innerHTML = '<div class="vazio"><h3>Fornecedor não encontrado</h3></div>'; return; }
       var movimentos = r[1].filter(function (m) { return m.fornecedor_id === fornecedorId; });
@@ -2622,16 +2633,42 @@ function TelaFornecedor(fornecedorId) {
       tela.innerHTML = h;
 
       /* ---------- modais de lançamento ---------- */
-      function campoMaterial(permitirNovo) {
-        var nomes = chaves.map(function (ch) { return saldos[ch].nome; });
-        if (permitirNovo || !nomes.length) {
-          return '<label class="campo"><span class="campo__rot">Material</span>' +
-            '<input class="entrada" id="mv-material" list="mv-lista" placeholder="Ex.: Piso 50x50 alugado">' +
-            '<datalist id="mv-lista">' + nomes.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') + '</datalist></label>';
+      function campoMaterial(chegada) {
+        if (chegada) {
+          /* Chegada usa a NOMENCLATURA DO ESTOQUE do coordenador, para o nome
+             do material bater em todo o sistema. Junta: catálogo do estoque +
+             materiais que este fornecedor já teve + opção de digitar um novo. */
+          var vistos = {};
+          var nomes = [];
+          catalogo.forEach(function (i) {
+            var ch = Terceiros.chave(i.nome);
+            if (vistos[ch]) return;
+            vistos[ch] = true;
+            nomes.push({ nome: i.nome, unidade: i.unidade || 'UN', doCatalogo: true });
+          });
+          chaves.forEach(function (ch) {
+            if (vistos[ch]) return;
+            vistos[ch] = true;
+            nomes.push({ nome: saldos[ch].nome, unidade: saldos[ch].unidade || 'UN', doCatalogo: false });
+          });
+          return '<label class="campo"><span class="campo__rot">Material ' +
+              '<span class="peq mut">(nomes do estoque do coordenador)</span></span>' +
+            '<select class="entrada" id="mv-material-sel">' +
+              '<option value="">— Escolher o material —</option>' +
+              nomes.map(function (n) {
+                return '<option value="' + U.esc(n.nome) + '" data-un="' + U.esc(n.unidade) + '">' +
+                  U.esc(n.nome) + (n.doCatalogo ? '' : ' (deste fornecedor)') + '</option>';
+              }).join('') +
+              '<option value="__outro">➕ Outro material (digitar o nome)</option>' +
+            '</select></label>' +
+            '<label class="campo" id="mv-material-outro-caixa" hidden>' +
+              '<span class="campo__rot">Nome do novo material</span>' +
+              '<input class="entrada" id="mv-material-outro" placeholder="Ex.: Piso 50x50 alugado"></label>';
         }
+        var nomesForn = chaves.map(function (ch) { return saldos[ch].nome; });
         return '<label class="campo"><span class="campo__rot">Material</span>' +
           '<select class="entrada" id="mv-material">' +
-            nomes.map(function (n) { return '<option value="' + U.esc(n) + '">' + U.esc(n) + '</option>'; }).join('') +
+            nomesForn.map(function (n) { return '<option value="' + U.esc(n) + '">' + U.esc(n) + '</option>'; }).join('') +
           '</select></label>';
       }
 
@@ -2684,8 +2721,37 @@ function TelaFornecedor(fornecedorId) {
           travado: true
         });
         m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+        /* chegada: escolher do catálogo preenche a unidade sozinho;
+           "Outro material" abre o campo para digitar */
+        var selMat = m.querySelector('#mv-material-sel');
+        if (selMat) selMat.addEventListener('change', function () {
+          var outroCaixa = m.querySelector('#mv-material-outro-caixa');
+          var unSel = m.querySelector('#mv-unidade');
+          if (selMat.value === '__outro') {
+            outroCaixa.hidden = false;
+            m.querySelector('#mv-material-outro').focus();
+          } else {
+            outroCaixa.hidden = true;
+            var opcao = selMat.options[selMat.selectedIndex];
+            if (unSel && opcao && opcao.dataset.un) unSel.value = opcao.dataset.un;
+          }
+        });
+
         m.querySelector('[data-ok]').addEventListener('click', function () {
-          var material = m.querySelector('#mv-material').value.trim().replace(/\s+/g, ' ');
+          var campoMat = m.querySelector('#mv-material');
+          var material;
+          if (campoMat) {
+            material = campoMat.value.trim().replace(/\s+/g, ' ');
+          } else {
+            var s2 = m.querySelector('#mv-material-sel');
+            material = s2.value === '__outro'
+              ? m.querySelector('#mv-material-outro').value.trim().replace(/\s+/g, ' ')
+              : s2.value.trim();
+            if (!material && s2.value !== '__outro') {
+              return U.aviso('Escolha o material na lista (ou "Outro" para digitar).', 'erro', 5000);
+            }
+          }
           var qtd = U.num(m.querySelector('#mv-qtd').value);
           var obs = m.querySelector('#mv-obs').value.trim();
           if (material.length < 2) return U.aviso('Informe o material.', 'erro');
@@ -4067,10 +4133,22 @@ function TelaConferencia(arg) {
   var embalagem = {};   /* produto_id -> como a conta foi feita (pallet/caixa) */
   var dano = {};        /* produto_id -> { qtd, desc, foto } (só no retorno) */
   var terc = {};        /* produto_id -> quantos do total contado são terceirizados */
+  var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
+  var fornecedoresT = [];
+  var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
   var desbloqueada = false;  /* o coordenador liberou a edição com a senha */
 
-  App.carregarEvento(eventoId).then(function (p) {
+  Promise.all([
+    App.carregarEvento(eventoId),
+    Banco.listarFornecedores().catch(function () { return []; }),
+    Banco.listarMovTerceiros().catch(function () { return []; })
+  ]).then(function (tudo) {
+    var p = tudo[0];
+    fornecedoresT = tudo[1];
+    var movsT = tudo[2];
+    saldosT = Terceiros.saldos(movsT);
+
     pacote = p;
     carregamento = (p.carregamentos || []).filter(function (c) { return c.id === carregamentoId; })[0] || null;
     if (!carregamento) throw new Error('Carregamento não encontrado. Volte e abra o evento de novo.');
@@ -4079,6 +4157,15 @@ function TelaConferencia(arg) {
     linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, carregamentoId);
     conferencia = Calculo.confDe(p.conferencias, carregamentoId, tipo);
     foto = conferencia ? (conferencia.foto_base64 || null) : null;
+
+    /* de qual fornecedor saiu o terceirizado (gravado na finalização anterior) */
+    if (conferencia) {
+      movsT.forEach(function (mv) {
+        if (mv.conferencia_id === conferencia.id && mv.produto_id) {
+          tercSel[mv.produto_id] = mv.fornecedor_id + '|' + Terceiros.chave(mv.material);
+        }
+      });
+    }
 
     /* preenche o que já estava salvo */
     linhas.forEach(function (l) {
@@ -4126,6 +4213,7 @@ function TelaConferencia(arg) {
         if (ras.embalagem) embalagem = ras.embalagem;
         if (ras.dano) dano = ras.dano;
         if (ras.terc) terc = ras.terc;
+        if (ras.tercSel) tercSel = ras.tercSel;
         if (ras.foto) foto = ras.foto;
         m.fechar();
         U.aviso('✓ Contagem recuperada. Toque em SALVAR para enviar ao sistema.', 'ok', 6000);
@@ -4150,7 +4238,7 @@ function TelaConferencia(arg) {
     clearTimeout(rascunhoTimer);
     rascunhoTimer = setTimeout(function () {
       Rascunho.guardar(carregamentoId, tipo, {
-        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, foto: foto
+        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel, foto: foto
       });
     }, 400);
   }
@@ -4488,6 +4576,14 @@ function TelaConferencia(arg) {
       el.addEventListener('click', function () { definir(el.dataset.id, 0); });
     });
 
+    U.$$('.js-terc-forn', tela).forEach(function (el) {
+      el.addEventListener('change', function () {
+        tercSel[el.dataset.id] = el.value;
+        guardarRascunho();
+        pintarTerc(el.dataset.id);
+      });
+    });
+
     /* terceirizado por item */
     U.$$('.js-terc-qtd', tela).forEach(function (el) {
       el.addEventListener('input', function () {
@@ -4706,22 +4802,80 @@ function TelaConferencia(arg) {
     '</div>';
   }
 
-  /* ---------- terceirizado por item: do total contado, quantos são de fora ---------- */
+  /* ---------- terceirizado por item: do total contado, quantos são de fora ----------
+     O seletor puxa o material lançado nas 📥 chegadas do módulo 🔗:
+     na saída sai do galpão do fornecedor; no retorno volta para ele. */
+  function opcoesTerc() {
+    var ops = [];
+    fornecedoresT.forEach(function (f) {
+      var itens = saldosT[f.id] || {};
+      Object.keys(itens).forEach(function (ch) {
+        var i = itens[ch];
+        var disp = cega ? (i.porEvento[eventoId] || 0) : i.noGalpao;
+        if (disp > 0) {
+          ops.push({
+            valor: f.id + '|' + ch,
+            rotulo: f.nome + ' — ' + i.nome + ' (' + U.fmt(disp) + (cega ? ' neste evento' : ' no galpão') + ')',
+            disp: disp, unidade: i.unidade, material: i.nome, fornecedor_id: f.id
+          });
+        }
+      });
+    });
+    return ops;
+  }
+
+  function opcaoDe(valor) {
+    if (!valor || valor === 'sem') return null;
+    var partes = valor.split('|');
+    var itens = saldosT[partes[0]] || {};
+    var i = itens[partes[1]];
+    if (!i) return null;
+    var f = fornecedoresT.filter(function (x) { return x.id === partes[0]; })[0];
+    return {
+      fornecedor_id: partes[0], material: i.nome, unidade: i.unidade,
+      fornecedor: f ? f.nome : '?',
+      disp: cega ? (i.porEvento[eventoId] || 0) : i.noGalpao
+    };
+  }
+
+  function seletorFornecedor(id) {
+    var ops = opcoesTerc();
+    var atual = tercSel[id] || '';
+    /* mantém a escolha antiga visível mesmo se o saldo zerou */
+    if (atual && atual !== 'sem' && !ops.some(function (o) { return o.valor === atual; })) {
+      var op = opcaoDe(atual);
+      if (op) ops.push({ valor: atual, rotulo: op.fornecedor + ' — ' + op.material + ' (0 disponível)', disp: 0 });
+    }
+    return '<select class="entrada js-terc-forn" data-id="' + id + '" style="margin-top:10px;font-size:15px">' +
+      '<option value=""' + (atual === '' ? ' selected' : '') + '>— De qual fornecedor? (escolher) —</option>' +
+      ops.map(function (o) {
+        return '<option value="' + U.esc(o.valor) + '"' + (atual === o.valor ? ' selected' : '') + '>' + U.esc(o.rotulo) + '</option>';
+      }).join('') +
+      '<option value="sem"' + (atual === 'sem' ? ' selected' : '') + '>Não foi lançado no módulo 🔗 (seguir sem vínculo)</option>' +
+    '</select>';
+  }
+
   function blocoTerc(l) {
     var id = l.produto.id;
-    /* produto inteiro terceirizado: só lembra, sem campo */
+    /* produto inteiro terceirizado: sem campo de quantidade, mas COM fornecedor */
     if (l.produto && l.produto.terceirizado) {
-      return '<div class="terc"><div class="terc__linha">' +
-        '<span class="terc__rot">🔗 Material 100% terceirizado — não mexe no estoque</span>' +
-      '</div></div>';
+      return '<div class="terc" data-id="' + id + '">' +
+        '<div class="terc__linha">' +
+          '<span class="terc__rot">🔗 Material 100% terceirizado — não mexe no estoque do galpão</span>' +
+        '</div>' +
+        seletorFornecedor(id) +
+        '<p class="terc__info js-terc-info" data-id="' + id + '"></p>' +
+      '</div>';
     }
     var v = terc[id] === undefined ? '' : terc[id];
+    var tem = U.num(v) > 0;
     return '<div class="terc" data-id="' + id + '">' +
       '<div class="terc__linha">' +
         '<span class="terc__rot">🔗 Deste total, quantos são terceirizados?</span>' +
         '<input class="terc__campo js-terc-qtd" data-id="' + id + '" type="number" inputmode="numeric" ' +
           'min="0" placeholder="0" value="' + U.esc(v) + '" aria-label="Quantidade terceirizada de ' + U.esc(l.nome) + '">' +
       '</div>' +
+      '<div class="js-terc-forn-caixa" data-id="' + id + '"' + (tem ? '' : ' hidden') + '>' + seletorFornecedor(id) + '</div>' +
       '<p class="terc__info js-terc-info" data-id="' + id + '"></p>' +
     '</div>';
   }
@@ -4730,18 +4884,37 @@ function TelaConferencia(arg) {
     var caixa = U.$('.terc[data-id="' + id + '"]', tela);
     if (!caixa) return;
     var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
+    var flag100 = !!(linha && linha.produto && linha.produto.terceirizado);
     var info = U.$('.js-terc-info', caixa);
-    var t = U.num(terc[id]);
+    var t = tercQtd(id);
     var total = valorTotal(id);
-    if (!t) { info.textContent = ''; return; }
-    if (total !== null && t > total) {
+
+    var fornCaixa = U.$('.js-terc-forn-caixa', caixa);
+    if (fornCaixa) fornCaixa.hidden = !(U.num(terc[id]) > 0);
+
+    if (!t) { if (info) info.textContent = ''; return; }
+    if (!flag100 && total !== null && U.num(terc[id]) > total) {
       info.style.color = 'var(--vermelho)';
-      info.textContent = '🔴 Terceirizado (' + U.fmt(t) + ') maior que o total contado (' + U.fmt(total) + '). Ajuste antes de finalizar.';
+      info.textContent = '🔴 Terceirizado (' + U.fmt(U.num(terc[id])) + ') maior que o total contado (' + U.fmt(total) + '). Ajuste antes de finalizar.';
+      return;
+    }
+
+    var op = opcaoDe(tercSel[id]);
+    var proprios = total === null ? null : total - t;
+    if (tercSel[id] === 'sem') {
+      info.style.color = 'var(--laranja)';
+      info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' sem vínculo com fornecedor (não vai abater do estoque de terceiros).';
+    } else if (op) {
+      var estoura = t > op.disp;
+      info.style.color = estoura ? 'var(--vermelho)' : 'var(--azul)';
+      info.textContent = (estoura
+        ? '🔴 ' + op.fornecedor + ' tem só ' + U.fmt(op.disp) + ' de ' + op.material + (cega ? ' neste evento' : ' no galpão') + '.'
+        : '🔗 ' + U.fmt(t) + ' de ' + op.fornecedor + ' (' + op.material + ')' +
+          (cega ? ' voltando para o galpão do fornecedor' : ' saindo do galpão do fornecedor') +
+          (proprios !== null && !flag100 ? ' · ' + U.fmt(proprios) + ' do nosso estoque' : ''));
     } else {
-      var proprios = total === null ? null : total - t;
-      info.style.color = 'var(--azul)';
-      info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' (fora do estoque)' +
-        (proprios !== null ? ' · ' + U.fmt(proprios) + ' do galpão' : '');
+      info.style.color = 'var(--laranja)';
+      info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' — escolha de qual fornecedor ' + (cega ? 'voltou' : 'saiu') + '.';
     }
   }
 
@@ -5117,6 +5290,35 @@ function TelaConferencia(arg) {
         U.aviso('⚠ A conferência foi finalizada, mas o estoque não atualizou (rode o SQL novo no Supabase).', 'erro', 7000);
       });
     }).then(function () {
+      /* ---- estoque DO FORNECEDOR: o terceirizado sai (saída) e volta (retorno) ----
+         Apaga os lançamentos antigos desta conferência antes: re-finalizar corrige. */
+      if (!finalizando) return;
+      return Banco.apagarMovTerceirosConferencia(conferencia.id).then(function () {
+        var lancamentos = [];
+        linhas.forEach(function (l) {
+          var id2 = l.produto.id;
+          var tq = Math.min(tercQtd(id2), valorTotal(id2) === null ? 0 : valorTotal(id2));
+          if (!(tq > 0)) return;
+          var op = opcaoDe(tercSel[id2]);
+          if (!op) return;   /* "sem vínculo" ou não lançado: só a etiqueta na conferência */
+          lancamentos.push({
+            fornecedor_id: op.fornecedor_id,
+            material: op.material,
+            unidade: op.unidade || 'UN',
+            tipo: tipo === 'saida' ? 'envio' : 'retorno',
+            quantidade: tq,
+            evento_id: eventoId,
+            conferencia_id: conferencia.id,
+            produto_id: id2,
+            observacao: 'Conferência de ' + (tipo === 'saida' ? 'saída' : 'retorno') + ' · ' + (l.nome || ''),
+            usuario_id: Sessao.atual.id
+          });
+        });
+        return Promise.all(lancamentos.map(function (mv) { return Banco.criarMovTerceiro(mv); }));
+      }).catch(function () {
+        U.aviso('⚠ Conferência finalizada, mas o estoque do fornecedor não atualizou (rode o SQL novo).', 'erro', 7000);
+      });
+    }).then(function () {
       /* chegou ao servidor: o rascunho do aparelho já cumpriu o papel */
       Rascunho.apagar(carregamentoId, tipo);
     });
@@ -5171,6 +5373,26 @@ function TelaConferencia(arg) {
       U.aviso('🔗 ' + estourado.nome + ': o terceirizado está maior que o total contado. Ajuste o número.', 'erro', 6000);
       var cxT = U.$('.prod[data-id="' + estourado.produto.id + '"]', tela);
       if (cxT) cxT.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    /* terceirizado precisa dizer de qual fornecedor saiu (ou marcar "sem vínculo") */
+    var semForn = linhas.filter(function (l) {
+      var id2 = l.produto.id;
+      if (!(tercQtd(id2) > 0)) return false;
+      var sel = tercSel[id2];
+      if (sel === 'sem') return false;
+      var op = opcaoDe(sel);
+      if (!op) return true;                       /* não escolheu */
+      return tercQtd(id2) > op.disp;              /* escolheu mas o fornecedor não tem tudo isso */
+    })[0];
+    if (semForn) {
+      var sel2 = tercSel[semForn.produto.id];
+      U.aviso(sel2 && opcaoDe(sel2)
+        ? '🔗 ' + semForn.nome + ': o fornecedor escolhido não tem essa quantidade ' + (cega ? 'neste evento' : 'no galpão') + '.'
+        : '🔗 ' + semForn.nome + ': escolha de qual fornecedor ' + (cega ? 'voltou' : 'saiu') + ' o terceirizado (ou marque "sem vínculo").', 'erro', 7000);
+      pintarTerc(semForn.produto.id);
+      var cxF = U.$('.prod[data-id="' + semForn.produto.id + '"]', tela);
+      if (cxF) cxF.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     if (!foto) {
