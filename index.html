@@ -930,6 +930,12 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
+  /* Exclui UMA peça do estoque (os movimentos dela somem juntos). */
+  apagarEstoqueItem: function (id) {
+    return this.cliente.from('estoque').delete().eq('id', id)
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+
   /* Zera o estoque INTEIRO: apaga todas as peças e todos os movimentos. */
   zerarEstoque: function () {
     var self = this;
@@ -2454,9 +2460,10 @@ function TelaEstoque() {
                   (saldo < 0 ? ' (devendo — lance a quantidade real)' : '') +
                   (fora > 0 ? ' · Em evento: <b style="color:var(--laranja)">' + U.fmt(fora) + '</b>' : '') +
                 '</span></span>' +
-              '<span style="margin-left:auto;display:flex;gap:6px">' +
+              '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
                 '<button class="btn btn--branco btn--peq js-es-ajuste" data-id="' + i.id + '">Ajustar</button>' +
+                '<button class="btn btn--branco btn--peq js-es-excluir" data-id="' + i.id + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' +
               '</span>' +
             '</div>' +
           '</div>';
@@ -2649,6 +2656,38 @@ function TelaEstoque() {
               U.aviso('✓ Ajuste lançado: ' + (q > 0 ? '+' : '') + U.fmt(q) + '.', 'ok');
               App.recarregar();
             }).catch(App.falhou);
+          });
+        });
+      });
+
+      U.$$('.js-es-excluir', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var item = cadastro.filter(function (i) { return i.id === b.dataset.id; })[0];
+          if (!item) return;
+          var saldo = saldos[item.id] || 0;
+          var nMov = movimentos.filter(function (m) { return m.estoque_id === item.id; }).length;
+          var m = U.modal({
+            titulo: '🗑️ Excluir ' + item.nome,
+            html: '<p>Isto apaga a peça <b>' + U.esc(item.nome) + '</b> do estoque' +
+              (nMov ? ' e os <b>' + nMov + ' movimentos</b> dela (o histórico some junto)' : '') +
+              '. Saldo atual: <b>' + U.fmt(saldo) + ' ' + U.esc(item.unidade || 'UN') + '</b>. Não dá para desfazer.</p>' +
+              (saldo !== 0 ? '<p class="mut peq" style="margin-top:8px">O saldo não volta para lugar nenhum — só some.</p>' : ''),
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn" data-ok style="background:var(--vermelho)">EXCLUIR</button>',
+            travado: true
+          });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var bt = m.querySelector('[data-ok]');
+            bt.disabled = true; bt.textContent = 'Excluindo...';
+            Banco.apagarEstoqueItem(item.id).then(function () {
+              m.fechar();
+              U.aviso('🗑️ ' + item.nome + ' excluída do estoque.', 'ok', 5000);
+              App.recarregar();
+            }).catch(function (e) {
+              bt.disabled = false; bt.textContent = 'EXCLUIR';
+              App.falhou(e);
+            });
           });
         });
       });
@@ -4317,12 +4356,16 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
         html: '<p class="mut peq" style="margin-bottom:12px">' + faltantes.length +
             ' produto' + (faltantes.length > 1 ? 's' : '') + ' do checklist ainda não ' +
             (faltantes.length > 1 ? 'estão' : 'está') + ' no estoque do galpão. ' +
-            'Marque o que quiser cadastrar (saldo começa em 0 — ajuste depois no 📦 ESTOQUE):</p>' +
+            'Marque o que quiser cadastrar e, se já souber, informe <b>quanto tem no galpão</b> ' +
+            '(em branco ou 0 = cadastra zerado para ajustar depois):</p>' +
           '<div style="max-height:45vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
             faltantes.map(function (p, i) {
-              return '<label style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:8px 0;cursor:pointer">' +
-                '<input type="checkbox" class="js-cad-es" data-i="' + i + '" checked style="width:20px;height:20px">' +
-                '<span>' + U.esc(p.nome) + ' <span class="peq mut">' + U.esc(p.unidade || 'UN') + '</span></span></label>';
+              return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:8px 0">' +
+                '<input type="checkbox" class="js-cad-es" data-i="' + i + '" checked style="width:20px;height:20px;flex:none;cursor:pointer">' +
+                '<span style="flex:1">' + U.esc(p.nome) + ' <span class="peq mut">' + U.esc(p.unidade || 'UN') + '</span></span>' +
+                '<input type="number" class="entrada js-cad-qtd" data-i="' + i + '" inputmode="numeric" min="0" ' +
+                  'placeholder="Qtd" style="width:92px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+              '</div>';
             }).join('') +
           '</div>',
         pe: '<button class="btn btn--branco" data-nada>NÃO CADASTRAR NADA</button>' +
@@ -4338,7 +4381,10 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
       m.querySelector('[data-ok]').addEventListener('click', function () {
         var escolhidos = [];
         m.querySelectorAll('.js-cad-es').forEach(function (cx) {
-          if (cx.checked) escolhidos.push(faltantes[Number(cx.dataset.i)]);
+          if (!cx.checked) return;
+          var i = Number(cx.dataset.i);
+          var campoQtd = m.querySelector('.js-cad-qtd[data-i="' + i + '"]');
+          escolhidos.push({ p: faltantes[i], qtd: campoQtd ? U.num(campoQtd.value) : 0 });
         });
         if (!escolhidos.length) {
           m.fechar();
@@ -4347,16 +4393,27 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
         }
         var b = m.querySelector('[data-ok]');
         b.disabled = true; b.textContent = 'Cadastrando...';
-        Promise.all(escolhidos.map(function (p) {
+        var comSaldo = 0;
+        Promise.all(escolhidos.map(function (e) {
           return Banco.criarEstoque({
-            nome: String(p.nome).trim().replace(/\s+/g, ' '),
-            unidade: p.unidade || 'UN',
+            nome: String(e.p.nome).trim().replace(/\s+/g, ' '),
+            unidade: e.p.unidade || 'UN',
             ativo: true
+          }).then(function (novo) {
+            /* já ajusta o saldo com a quantidade informada */
+            if (novo && e.qtd > 0) {
+              comSaldo++;
+              return Banco.criarMovimentos([{
+                estoque_id: novo.id, tipo: 'entrada', quantidade: e.qtd,
+                usuario_id: Sessao.atual.id, observacao: 'Cadastro pelo checklist'
+              }]);
+            }
           }).catch(function () { });   /* nome repetido em corrida: segue */
         })).then(function () {
           m.fechar();
           U.aviso('✓ ' + escolhidos.length + ' produto' + (escolhidos.length > 1 ? 's' : '') +
-            ' cadastrado' + (escolhidos.length > 1 ? 's' : '') + ' no estoque (saldo 0).', 'ok', 5000);
+            ' cadastrado' + (escolhidos.length > 1 ? 's' : '') +
+            (comSaldo ? ' — ' + comSaldo + ' já com o saldo lançado' : ' (saldo 0)') + '.', 'ok', 6000);
           aoTerminar();
         }).catch(function () { m.fechar(); aoTerminar(); });
       });
