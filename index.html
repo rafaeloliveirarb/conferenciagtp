@@ -1203,6 +1203,30 @@ const Checklist = {
   },
 
   /* Soma quantidades de produtos com o mesmo nome e a mesma unidade. */
+  /* Lê vários arquivos de uma vez e junta os produtos de todos.
+     Arquivo com problema não derruba os outros: entra na lista de falhas. */
+  lerVarios: function (arquivos) {
+    var lista = Array.prototype.slice.call(arquivos || []);
+    return Promise.all(lista.map(function (arq) {
+      return Checklist.lerArquivo(arq)
+        .then(function (res) { return { arquivo: arq.name, res: res }; })
+        .catch(function (e) { return { arquivo: arq.name, erro: e.message }; });
+    })).then(function (resultados) {
+      var juntos = { produtos: [], sugestao: null, imagem: null, falhas: [], lidos: 0 };
+      resultados.forEach(function (r) {
+        if (r.erro) { juntos.falhas.push(r.arquivo + ': ' + r.erro); return; }
+        juntos.lidos++;
+        var res = r.res || {};
+        if (res.produtos && res.produtos.length) juntos.produtos = juntos.produtos.concat(res.produtos);
+        if (!juntos.sugestao && res.sugestao && (res.sugestao.evento || res.sugestao.cliente)) juntos.sugestao = res.sugestao;
+        if (!juntos.imagem && res.imagem) juntos.imagem = res.imagem;
+        if (res.recado && !res.produtos) juntos.falhas.push(r.arquivo + ': ' + res.recado);
+      });
+      juntos.produtos = Checklist.juntarIguais(juntos.produtos);
+      return juntos;
+    });
+  },
+
   juntarIguais: function (lista) {
     var mapa = {};
     var ordem = [];
@@ -2403,9 +2427,9 @@ function TelaEstoque() {
           '</div>' +
           '<button class="btn btn--laranja btn--bloco" id="btn-add-estoque">CADASTRAR</button>' +
           '<div class="btn-linha" style="margin-top:10px">' +
-            '<button class="btn btn--branco btn--bloco" id="btn-importar-estoque">📎 IMPORTAR ARQUIVO (PDF, Excel, CSV...)</button>' +
+            '<button class="btn btn--branco btn--bloco" id="btn-importar-estoque">📎 IMPORTAR ARQUIVOS (PDF, Excel, CSV — pode escolher vários)</button>' +
           '</div>' +
-          '<input type="file" id="es-arquivo" accept=".pdf,.xlsx,.xls,.xml,.txt,.csv" hidden>' +
+          '<input type="file" id="es-arquivo" accept=".pdf,.xlsx,.xls,.xml,.txt,.csv" multiple hidden>' +
           '<p class="mut peq" style="margin-top:10px">As peças dos checklists entram sozinhas aqui na primeira ' +
             'saída finalizada (com saldo devendo, em vermelho, até você lançar a quantidade real).</p>' +
         '</div></div>';
@@ -2487,14 +2511,17 @@ function TelaEstoque() {
       var campoArq = U.$('#es-arquivo', tela);
       U.$('#btn-importar-estoque').addEventListener('click', function () { campoArq.click(); });
       campoArq.addEventListener('change', function () {
-        var arq = campoArq.files && campoArq.files[0];
-        if (!arq) return;
-        campoArq.value = '';
+        var arquivos = campoArq.files;
+        if (!arquivos || !arquivos.length) return;
+        var nomeArqs = Array.prototype.map.call(arquivos, function (a) { return a.name; }).join(', ');
+        var arq = { name: arquivos.length > 1 ? arquivos.length + ' arquivos' : arquivos[0].name };
         U.aviso('Lendo ' + arq.name + '...', 'info', 2500);
 
-        Checklist.lerArquivo(arq).then(function (r) {
+        Checklist.lerVarios(arquivos).then(function (r) {
+          campoArq.value = '';
+          if (r.falhas.length) U.aviso('⚠ ' + r.falhas.join(' · '), 'erro', 8000);
           var lidos = (r.produtos || []).filter(function (p) { return p.nome && Number(p.quantidade_prevista) > 0; });
-          if (!lidos.length) return U.aviso('Não encontrei itens com quantidade neste arquivo.', 'erro', 6000);
+          if (!lidos.length) return U.aviso('Não encontrei itens com quantidade nos arquivos.', 'erro', 6000);
 
           var m = U.modal({
             titulo: '📎 ' + lidos.length + ' peças encontradas',
@@ -3273,7 +3300,7 @@ function TelaNovoEvento() {
       '<p class="mut peq" style="margin-bottom:14px">' + (podeEditar
         ? 'PDF, XML, foto ou lista copiada. O sistema lê os produtos e já monta o evento. Se preferir, dá para digitar na mão.'
         : 'PDF, XML ou TXT. O sistema lê os produtos do arquivo e monta o evento. O nome do evento vem do próprio checklist.') + '</p>' +
-      '<input type="file" id="ne-arquivo" accept="' + (podeEditar ? '.pdf,.xml,.xlsx,.xls,.jpg,.jpeg,.png,.txt,.csv' : '.pdf,.xml,.xlsx,.xls,.txt,.csv') + '" hidden>' +
+      '<input type="file" id="ne-arquivo" accept="' + (podeEditar ? '.pdf,.xml,.xlsx,.xls,.jpg,.jpeg,.png,.txt,.csv' : '.pdf,.xml,.xlsx,.xls,.txt,.csv') + '" multiple hidden>' +
       '<div class="btn-linha">' +
         '<button class="btn btn--laranja" id="ne-enviar">📎 ANEXAR ARQUIVO</button>' +
         (podeEditar ? '<button class="btn btn--branco" id="ne-colar">📝 COLAR LISTA</button>' : '') +
@@ -3372,16 +3399,19 @@ function TelaNovoEvento() {
     U.$('#ne-enviar').addEventListener('click', function () { U.$('#ne-arquivo').click(); });
 
     U.$('#ne-arquivo').addEventListener('change', function () {
-      var arq = this.files[0];
-      this.value = '';
-      if (!arq) return;
-      var espera = U.modal({ titulo: 'Lendo o checklist', html: U.carregando('Isso leva alguns segundos...'), travado: true });
+      var arquivos = this.files;
+      if (!arquivos || !arquivos.length) return;
+      var quantos = arquivos.length;
+      var espera = U.modal({
+        titulo: 'Lendo ' + (quantos > 1 ? quantos + ' arquivos' : 'o checklist'),
+        html: U.carregando('Isso leva alguns segundos...'), travado: true
+      });
 
-      Checklist.lerArquivo(arq).then(function (res) {
+      Checklist.lerVarios(arquivos).then(function (res) {
         espera.fechar();
         if (res.imagem) imagemApoio = res.imagem;
 
-        /* o arquivo também sugere o nome do evento e o cliente */
+        /* os arquivos também sugerem o nome do evento e o cliente */
         if (res.sugestao) {
           if (!dados.nome && res.sugestao.evento) dados.nome = res.sugestao.evento;
           if (!dados.cliente && res.sugestao.cliente) dados.cliente = res.sugestao.cliente;
@@ -3389,17 +3419,16 @@ function TelaNovoEvento() {
           if (res.sugestao.data) dados.data = res.sugestao.data;
         }
 
-        if (res.produtos && res.produtos.length) {
+        if (res.produtos.length) {
           produtos = Checklist.juntarIguais(produtos.concat(res.produtos));
-          U.aviso('✓ ' + res.produtos.length + ' produtos lidos. Confira antes de criar.', 'ok', 5000);
-        } else if (res.recado) {
-          U.aviso(res.recado, 'info', 6000);
+          U.aviso('✓ ' + res.produtos.length + ' produtos lidos de ' + res.lidos + ' arquivo' + (res.lidos > 1 ? 's' : '') + '. Confira antes de criar.', 'ok', 5000);
+        }
+        if (res.falhas.length) {
+          U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
         }
         desenhar();
-      }).catch(function (e) {
-        espera.fechar();
-        U.aviso(e.message, 'erro', 6000);
       });
+      this.value = '';
     });
 
     var btnColar = U.$('#ne-colar');
@@ -4097,7 +4126,7 @@ function TelaChecklist(eventoId) {
         '<p class="mut peq" style="margin-bottom:12px">' + (podeEditar
           ? 'Aceita PDF, XML, JPG, PNG, TXT e CSV. Se a leitura automática não funcionar, digite os produtos na mão — o sistema funciona do mesmo jeito.'
           : 'Aceita PDF, XML, TXT e CSV. A lista vem do arquivo: você anexa e confere, mas não altera as quantidades previstas.') + '</p>' +
-        '<input type="file" id="ck-arquivo" accept="' + (podeEditar ? '.pdf,.xml,.xlsx,.xls,.jpg,.jpeg,.png,.txt,.csv' : '.pdf,.xml,.xlsx,.xls,.txt,.csv') + '" hidden>' +
+        '<input type="file" id="ck-arquivo" accept="' + (podeEditar ? '.pdf,.xml,.xlsx,.xls,.jpg,.jpeg,.png,.txt,.csv' : '.pdf,.xml,.xlsx,.xls,.txt,.csv') + '" multiple hidden>' +
         '<div class="btn-linha">' +
           '<button class="btn btn--laranja" id="ck-enviar">📎 ANEXAR ARQUIVO</button>' +
           (podeEditar ? '<button class="btn btn--branco" id="ck-colar">📝 COLAR LISTA</button>' : '') +
@@ -4160,23 +4189,24 @@ function TelaChecklist(eventoId) {
     /* --- ligações --- */
     U.$('#ck-enviar').addEventListener('click', function () { U.$('#ck-arquivo').click(); });
     U.$('#ck-arquivo').addEventListener('change', function () {
-      var arq = this.files[0];
-      if (!arq) return;
-      var aviso = U.modal({ titulo: 'Lendo o arquivo', html: U.carregando('Isso leva alguns segundos...'), travado: true });
-      Checklist.lerArquivo(arq).then(function (res) {
+      var arquivos = this.files;
+      if (!arquivos || !arquivos.length) return;
+      var quantos = arquivos.length;
+      var aviso = U.modal({
+        titulo: 'Lendo ' + (quantos > 1 ? quantos + ' arquivos' : 'o arquivo'),
+        html: U.carregando('Isso leva alguns segundos...'), travado: true
+      });
+      Checklist.lerVarios(arquivos).then(function (res) {
         aviso.fechar();
         if (res.imagem) { imagemApoio = res.imagem; }
-        if (res.produtos && res.produtos.length) {
-          produtos = produtos.concat(res.produtos);
-          produtos = Checklist.juntarIguais(produtos);
-          U.aviso('✓ ' + res.produtos.length + ' produtos encontrados. Confira antes de confirmar.', 'ok', 5000);
-        } else if (res.recado) {
-          U.aviso(res.recado, 'info', 6000);
+        if (res.produtos.length) {
+          produtos = Checklist.juntarIguais(produtos.concat(res.produtos));
+          U.aviso('✓ ' + res.produtos.length + ' produtos encontrados em ' + res.lidos + ' arquivo' + (res.lidos > 1 ? 's' : '') + '. Confira antes de confirmar.', 'ok', 5000);
+        }
+        if (res.falhas.length) {
+          U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
         }
         desenhar();
-      }).catch(function (e) {
-        aviso.fechar();
-        U.aviso(e.message, 'erro', 6000);
       });
       this.value = '';
     });
