@@ -417,6 +417,8 @@ table.tab{width:100%;border-collapse:collapse}
 .foto-bloco.tem{border-style:solid;border-color:var(--verde)}
 .foto-bloco img{max-width:100%;max-height:280px;border-radius:12px;margin-top:10px}
 .trava{background:var(--amarelo-clr);border:2px solid #F5DFA8;border-radius:var(--r-lg);padding:16px;margin-bottom:16px;font-size:15px;color:#8A5400;line-height:1.5}
+.terc-tag{display:inline-block;background:#FFF2E3;color:#8A4B00;border:1px solid #F0C58A;
+  font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
 .cega-tag{display:inline-block;background:#1B2A3A;color:#fff;font-size:12px;font-weight:800;padding:4px 10px;border-radius:99px;letter-spacing:.5px;vertical-align:middle}
 
 /* ---------- Aviso de sem internet ---------- */
@@ -765,6 +767,18 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
+  /* Adiciona UM produto ao checklist (usado para material terceirizado
+     que aparece na hora do carregamento). */
+  criarProduto: function (eventoId, p) {
+    return this.cliente.from('produtos').insert({
+      evento_id: eventoId,
+      nome: p.nome,
+      quantidade_prevista: U.num(p.quantidade_prevista),
+      unidade: p.unidade || 'UN',
+      terceirizado: true
+    }).select().then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
   /* Exclui o checklist inteiro do evento. As contagens lançadas
      nesses produtos também são apagadas (cascata do banco). */
   apagarProdutos: function (eventoId) {
@@ -784,7 +798,8 @@ const Banco = {
             evento_id: eventoId,
             nome: p.nome,
             quantidade_prevista: U.num(p.quantidade_prevista),
-            unidade: p.unidade || 'UN'
+            unidade: p.unidade || 'UN',
+            terceirizado: !!p.terceirizado
           };
         });
         return self.cliente.from('produtos').insert(linhas).select()
@@ -1875,6 +1890,12 @@ var Rascunho = {
   document.addEventListener('DOMContentLoaded', pintarConexao);
 })();
 
+/* Etiqueta do material terceirizado (alugado/de fora): conta na
+   conferência normalmente, mas NÃO mexe no estoque do galpão. */
+function tagTerc(produto) {
+  return (produto && produto.terceirizado) ? ' <span class="terc-tag">🔗 TERCEIRIZADO</span>' : '';
+}
+
 function nomeCaminhao(caminhoes, id) {
   var c = (caminhoes || []).filter(function (x) { return x.id === id; })[0];
   if (!c) return 'Caminhão não informado';
@@ -2487,7 +2508,10 @@ function TelaNovoEvento() {
         '</tr></thead><tbody>' +
         produtos.map(function (p, i) {
           return '<tr>' +
-            '<td><input class="entrada js-nome" data-i="' + i + '" value="' + U.esc(p.nome) + '" style="min-height:44px;padding:9px"></td>' +
+            '<td><input class="entrada js-nome" data-i="' + i + '" value="' + U.esc(p.nome) + '" style="min-height:44px;padding:9px">' +
+              '<label class="peq" style="display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer;color:var(--txt-2)">' +
+                '<input type="checkbox" class="js-terc" data-i="' + i + '" style="width:18px;height:18px"' + (p.terceirizado ? ' checked' : '') + '>' +
+                '🔗 Terceirizado (não mexe no estoque)</label></td>' +
             '<td><input class="entrada js-qtd" data-i="' + i + '" type="number" inputmode="decimal" min="0" ' +
               'value="' + U.esc(p.quantidade_prevista) + '" style="min-height:44px;padding:9px;text-align:right"></td>' +
             '<td>' + seletorUnidade(p.unidade, i, 'js-un') + '</td>' +
@@ -2616,6 +2640,9 @@ function TelaNovoEvento() {
     U.$$('.js-un', tela).forEach(function (el) {
       el.addEventListener('change', function () { produtos[Number(el.dataset.i)].unidade = el.value; });
     });
+    U.$$('.js-terc', tela).forEach(function (el) {
+      el.addEventListener('change', function () { produtos[Number(el.dataset.i)].terceirizado = el.checked; });
+    });
     U.$$('.js-remover', tela).forEach(function (el) {
       el.addEventListener('click', function () { produtos.splice(Number(el.dataset.i), 1); desenhar(); });
     });
@@ -2644,7 +2671,8 @@ function TelaNovoEvento() {
         return {
           nome: String(p.nome || '').trim(),
           quantidade_prevista: U.num(p.quantidade_prevista),
-          unidade: p.unidade || 'UN'
+          unidade: p.unidade || 'UN',
+          terceirizado: !!p.terceirizado
         };
       })
       .filter(function (p) { return p.nome.length > 0; });
@@ -2884,7 +2912,7 @@ function TelaEvento(eventoId) {
           (temRetorno ? '<th class="num">Retorno (total)</th><th class="num">Diferença</th>' : '') +
         '</tr></thead><tbody>' +
         linhas.map(function (l) {
-          return '<tr><td>' + U.esc(l.nome) + '</td>' +
+          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(l.prevista) + '</td>' +
             (temSaida ? '<td class="num">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>' +
@@ -3250,7 +3278,7 @@ function TelaChecklist(eventoId) {
       return;
     }
     produtos = existentes.map(function (p) {
-      return { nome: p.nome, quantidade_prevista: U.num(p.quantidade_prevista), unidade: p.unidade || 'UN' };
+      return { nome: p.nome, quantidade_prevista: U.num(p.quantidade_prevista), unidade: p.unidade || 'UN', terceirizado: !!p.terceirizado };
     });
     desenhar();
   }).catch(function (e) { App.falhou(e); desenhar(); });
@@ -3287,7 +3315,7 @@ function TelaChecklist(eventoId) {
         '<th>Produto</th><th class="num" style="width:90px">Previsto</th><th style="width:70px">Un.</th>' +
         '</tr></thead><tbody>' +
         produtos.map(function (p) {
-          return '<tr><td>' + U.esc(p.nome) + '</td><td class="num">' + U.fmt(p.quantidade_prevista) + '</td>' +
+          return '<tr><td>' + U.esc(p.nome) + tagTerc(p) + '</td><td class="num">' + U.fmt(p.quantidade_prevista) + '</td>' +
             '<td>' + U.esc(p.unidade || 'UN') + '</td></tr>';
         }).join('') +
         '</tbody></table></div>';
@@ -3297,7 +3325,10 @@ function TelaChecklist(eventoId) {
         '</tr></thead><tbody>' +
         produtos.map(function (p, i) {
           return '<tr>' +
-            '<td><input class="entrada js-nome" data-i="' + i + '" value="' + U.esc(p.nome) + '" style="min-height:44px;padding:9px"></td>' +
+            '<td><input class="entrada js-nome" data-i="' + i + '" value="' + U.esc(p.nome) + '" style="min-height:44px;padding:9px">' +
+              '<label class="peq" style="display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer;color:var(--txt-2)">' +
+                '<input type="checkbox" class="js-terc" data-i="' + i + '" style="width:18px;height:18px"' + (p.terceirizado ? ' checked' : '') + '>' +
+                '🔗 Terceirizado (não mexe no estoque)</label></td>' +
             '<td><input class="entrada js-qtd num" data-i="' + i + '" type="number" inputmode="decimal" min="0" ' +
               'value="' + U.esc(p.quantidade_prevista) + '" style="min-height:44px;padding:9px;text-align:right"></td>' +
             '<td>' + seletorUnidade(p.unidade, i, 'js-un') + '</td>' +
@@ -3382,6 +3413,9 @@ function TelaChecklist(eventoId) {
     U.$$('.js-un', tela).forEach(function (el) {
       el.addEventListener('change', function () { produtos[Number(el.dataset.i)].unidade = el.value; });
     });
+    U.$$('.js-terc', tela).forEach(function (el) {
+      el.addEventListener('change', function () { produtos[Number(el.dataset.i)].terceirizado = el.checked; });
+    });
     U.$$('.js-remover', tela).forEach(function (el) {
       el.addEventListener('click', function () {
         produtos.splice(Number(el.dataset.i), 1);
@@ -3397,7 +3431,8 @@ function TelaChecklist(eventoId) {
           return {
             nome: String(p.nome || '').trim(),
             quantidade_prevista: U.num(p.quantidade_prevista),
-            unidade: p.unidade || 'UN'
+            unidade: p.unidade || 'UN',
+            terceirizado: !!p.terceirizado
           };
         })
         .filter(function (p) { return p.nome.length > 0; });
@@ -3644,7 +3679,7 @@ function TelaConferencia(arg) {
         registrados.map(function (l) {
           var conta = Calculo.detalhe(l, tipo);
           var dq = l.dano ? l.dano.qtd : 0;
-          return '<tr><td>' + U.esc(l.nome) +
+          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
             (conta ? '<br><span class="peq" style="color:var(--txt-3)">📦 ' + U.esc(conta) + '</span>' : '') + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(l.retorno) + '</td>' +
@@ -3667,7 +3702,7 @@ function TelaConferencia(arg) {
           var c = Calculo.contado(l, tipo);
           var dif = c === null ? null : c - base;
           var conta = Calculo.detalhe(l, tipo);
-          return '<tr><td>' + U.esc(l.nome) +
+          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
             (conta ? '<br><span class="peq" style="color:var(--txt-3)">📦 ' + U.esc(conta) + '</span>' : '') + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(base) + '</td>' +
@@ -3774,7 +3809,7 @@ function TelaConferencia(arg) {
       var id = l.produto.id;
       var base = Calculo.base(l, tipo);
       return '<div class="prod" data-id="' + id + '" data-nome="' + U.esc(l.nome.toLowerCase()) + '">' +
-        '<p class="prod__nome">' + U.esc(l.nome) + '</p>' +
+        '<p class="prod__nome">' + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
         (cega
           ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + '). ' +
             'Separe o que voltou <b>em bom estado</b> do que voltou <b>danificado</b>.</p>' +
@@ -3795,6 +3830,9 @@ function TelaConferencia(arg) {
         blocoEmbalagem(l, base) +
       '</div>';
     }).join('');
+
+    h += '<button class="btn btn--branco btn--bloco" id="btn-add-terc" style="border-style:dashed">' +
+      '➕ ADICIONAR MATERIAL TERCEIRIZADO <span class="terc-tag">🔗 não mexe no estoque</span></button>';
 
     h += '<div class="cartao" id="resumo-caixa"><div class="cartao__corpo"></div></div>';
 
@@ -3908,6 +3946,64 @@ function TelaConferencia(arg) {
     });
     var btnFotoRem = U.$('#btn-foto-remover', tela);
     if (btnFotoRem) btnFotoRem.addEventListener('click', function () { foto = null; guardarRascunho(); desenhar(); });
+
+    var addTerc = U.$('#btn-add-terc', tela);
+    if (addTerc) addTerc.addEventListener('click', function () {
+      var m = U.modal({
+        titulo: '🔗 Material terceirizado',
+        html: '<p class="mut peq" style="margin-bottom:12px">Material alugado ou de fornecedor que chegou para este evento. ' +
+            'Ele entra na conferência (saída, retorno, foto, danificado) e nos relatórios, ' +
+            'mas <b>não mexe no estoque do galpão</b>.</p>' +
+          '<label class="campo"><span class="campo__rot">Nome do material</span>' +
+            '<input class="entrada" id="terc-nome" placeholder="Ex.: Piso alugado 50x50"></label>' +
+          '<div class="dupla">' +
+            '<label class="campo"><span class="campo__rot">Unidade</span>' +
+              '<select class="entrada" id="terc-unidade">' +
+                Checklist.LISTA_UNIDADES.map(function (u) {
+                  return '<option value="' + u + '"' + (u === 'UN' ? ' selected' : '') + '>' + u + '</option>';
+                }).join('') +
+              '</select></label>' +
+            (cega ? '' :
+            '<label class="campo"><span class="campo__rot">Quantidade combinada</span>' +
+              '<input class="entrada" id="terc-qtd" type="number" inputmode="numeric" min="0" placeholder="Ex.: 50"></label>') +
+          '</div>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--laranja" data-ok>ADICIONAR</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        var nome = m.querySelector('#terc-nome').value.trim().replace(/\s+/g, ' ');
+        var unidade = (m.querySelector('#terc-unidade') || {}).value || 'UN';
+        var qtdCampo = m.querySelector('#terc-qtd');
+        var prevista = qtdCampo ? U.num(qtdCampo.value) : 0;
+        if (nome.length < 2) return U.aviso('Dê um nome para o material.', 'erro');
+        if (!cega && !(prevista > 0)) return U.aviso('Informe a quantidade combinada com o fornecedor.', 'erro');
+        var jaExiste = linhas.some(function (l) { return l.nome.trim().toUpperCase() === nome.toUpperCase(); });
+        if (jaExiste) return U.aviso('Já existe um produto com esse nome neste evento.', 'erro', 5000);
+
+        var b = m.querySelector('[data-ok]');
+        b.disabled = true; b.textContent = 'Adicionando...';
+        Banco.criarProduto(eventoId, { nome: nome, quantidade_prevista: prevista, unidade: unidade })
+          .then(function (novo) {
+            m.fechar();
+            /* entra na tela na hora, sem perder o que já foi contado */
+            pacote.produtos.push(novo);
+            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId);
+            contagem[novo.id] = '';
+            embalagem[novo.id] = { por: '', qtd: '', soltas: '', obs: '' };
+            dano[novo.id] = { qtd: '', desc: '', foto: null };
+            U.aviso('✓ ' + nome + ' adicionado à conferência (não mexe no estoque).', 'ok', 5000);
+            desenhar();
+            var cx = U.$('.prod[data-id="' + novo.id + '"]', tela);
+            if (cx) cx.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          })
+          .catch(function (e) {
+            b.disabled = false; b.textContent = 'ADICIONAR';
+            App.falhou(e);
+          });
+      });
+    });
 
     U.$('#btn-salvar').addEventListener('click', function () {
       salvarComBotao().then(function () {
@@ -4277,7 +4373,12 @@ function TelaConferencia(arg) {
         cadastro.forEach(function (i) { porChave[Estoque.chave(i.nome)] = i; });
 
         var nomePorProduto = {};
-        linhas.forEach(function (l) { nomePorProduto[l.produto.id] = { nome: l.nome, unidade: l.unidade }; });
+        linhas.forEach(function (l) {
+          nomePorProduto[l.produto.id] = {
+            nome: l.nome, unidade: l.unidade,
+            terceirizado: !!(l.produto && l.produto.terceirizado)
+          };
+        });
 
         /* cria no estoque o que ainda não existe (saldo começa em 0) */
         var faltantes = [];
@@ -4285,6 +4386,7 @@ function TelaConferencia(arg) {
         itens.forEach(function (i) {
           if (!(Number(i.quantidade) > 0)) return;
           var info = nomePorProduto[i.produto_id] || { nome: '', unidade: 'UN' };
+          if (info.terceirizado) return;   /* material de fora: estoque não vê */
           var ch = Estoque.chave(info.nome);
           if (!ch || porChave[ch] || vistos[ch]) return;
           vistos[ch] = true;
@@ -4306,6 +4408,7 @@ function TelaConferencia(arg) {
           itens.forEach(function (i) {
             if (!(Number(i.quantidade) > 0)) return;   /* contagem zero não mexe no estoque */
             var info = nomePorProduto[i.produto_id];
+            if (info && info.terceirizado) return;     /* material de fora: estoque não vê */
             var alvo = info && porChave[Estoque.chave(info.nome)];
             if (!alvo) return;
             movimentos.push({
@@ -4630,7 +4733,8 @@ const Relatorio = {
 
     var corpo = linhasUteis.map(function (l) {
       var conta = Calculo.detalhe(l, tipo);
-      var nome = l.nome + (conta ? '\n(' + conta + ')' : '');
+      var nome = l.nome + (l.produto && l.produto.terceirizado ? ' [TERCEIRIZADO]' : '') +
+        (conta ? '\n(' + conta + ')' : '');
       if (retorno) {
         if (l.dano && l.dano.qtd > 0 && l.dano.descricao) nome += '\nDano: ' + l.dano.descricao;
         var dq = l.dano ? l.dano.qtd : 0;
