@@ -957,6 +957,11 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
+  atualizarMovTerceiro: function (id, campos) {
+    return this.cliente.from('movimentos_terceiros').update(campos).eq('id', id).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
   criarMovTerceiro: function (m) {
     return this.cliente.from('movimentos_terceiros').insert(m).select()
       .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
@@ -1894,7 +1899,8 @@ var Terceiros = {
     return s;
   },
 
-  /* devoluções ao fornecedor vencidas ou perto de vencer */
+  /* Alertas de devolução: avisa faltando 5, 3 e 1 dia (e no dia, e vencido).
+     Só enquanto ainda houver material em mãos. */
   vencimentos: function (movimentos, saldos) {
     var hoje = U.hojeISO();
     var avisos = [];
@@ -1903,11 +1909,26 @@ var Terceiros = {
       var item = (saldos[m.fornecedor_id] || {})[Terceiros.chave(m.material)];
       if (!item || item.emMaos <= 0) return;   /* já devolveu tudo */
       var dias = Math.floor((new Date(m.data_devolucao) - new Date(hoje)) / 86400000);
-      if (dias <= 3) {
-        avisos.push({ fornecedor_id: m.fornecedor_id, material: m.material, data: m.data_devolucao, dias: dias, saldo: item.emMaos });
+      if (dias <= 5) {
+        avisos.push({
+          fornecedor_id: m.fornecedor_id, material: m.material,
+          data: m.data_devolucao, dias: dias, saldo: item.emMaos,
+          marco: dias === 5 || dias === 3 || dias === 1   /* os lembretes pedidos */
+        });
       }
     });
+    avisos.sort(function (a, b) { return a.dias - b.dias; });
     return avisos;
+  },
+
+  /* chegadas registradas pelo conferente que ainda estão SEM data de devolução:
+     o coordenador precisa definir o prazo */
+  semPrazo: function (movimentos, saldos) {
+    return (movimentos || []).filter(function (m) {
+      if (m.tipo !== 'chegada' || m.data_devolucao) return false;
+      var item = (saldos[m.fornecedor_id] || {})[Terceiros.chave(m.material)];
+      return item && item.emMaos > 0;
+    });
   },
 
   rotulo: { chegada: '📥 Chegada do fornecedor', envio: '🚚 Enviado para evento', retorno: '↩️ Voltou do evento', devolucao: '📤 Devolvido ao fornecedor' }
@@ -2088,13 +2109,51 @@ function TelaPainel() {
       return ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
     });
 
-    h += '<div class="abas">' +
+    h += '<div id="alerta-terceiros"></div>' +
+    '<div class="abas">' +
       '<button class="aba is-ativa" data-aba="ativos">Eventos<span class="n">' + ativos.length + '</span></button>' +
       '<button class="aba" data-aba="terminados">Eventos finalizados<span class="n">' + terminados.length + '</span></button>' +
     '</div>' +
     '<div id="lista-eventos"></div>';
 
     tela.innerHTML = h;
+
+    /* Lembretes do material terceirizado: devoluções em 5/3/1 dia e
+       chegadas sem prazo. Carrega por fora para não atrasar o painel. */
+    Promise.all([Banco.listarFornecedores(), Banco.listarMovTerceiros()]).then(function (rt) {
+      var fornecedoresT = rt[0], movsT = rt[1];
+      var saldosT = Terceiros.saldos(movsT);
+      var avisosT = Terceiros.vencimentos(movsT, saldosT);
+      var pendT = Terceiros.semPrazo(movsT, saldosT);
+      if (!avisosT.length && !pendT.length) return;
+      var caixa = U.$('#alerta-terceiros', tela);
+      if (!caixa) return;
+      var nomeF = function (id) {
+        var f = fornecedoresT.filter(function (x) { return x.id === id; })[0];
+        return f ? f.nome : 'Fornecedor';
+      };
+      var hh = '';
+      if (avisosT.length) {
+        hh += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⏰</span><div>' +
+          '<b>Devoluções de material terceirizado:</b>' +
+          avisosT.slice(0, 5).map(function (a) {
+            var quando = a.dias < 0 ? '<b style="color:var(--vermelho)">VENCEU há ' + Math.abs(a.dias) + ' dia' + (Math.abs(a.dias) > 1 ? 's' : '') + '</b>'
+              : a.dias === 0 ? '<b style="color:var(--vermelho)">vence HOJE</b>'
+              : '<b>faltam ' + a.dias + ' dia' + (a.dias > 1 ? 's' : '') + '</b>';
+            return '<br>• ' + U.esc(a.material) + ' (' + U.esc(nomeF(a.fornecedor_id)) + ') — ' + quando;
+          }).join('') +
+          '<br><button class="btn btn--peq" id="ir-terceiros-alerta" style="margin-top:8px">🔗 ABRIR TERCEIROS</button>' +
+        '</div></div>';
+      }
+      if (pendT.length) {
+        hh += '<div class="aviso aviso--azul"><span class="aviso__ico">📅</span><div>' +
+          '<b>' + pendT.length + ' chegada' + (pendT.length > 1 ? 's' : '') + ' de terceiros sem data de devolução.</b>' +
+          'Abra 🔗 TERCEIROS e defina o prazo.</div></div>';
+      }
+      caixa.innerHTML = hh;
+      var irT = U.$('#ir-terceiros-alerta', caixa);
+      if (irT) irT.addEventListener('click', function () { App.abrir(TelaTerceiros); });
+    }).catch(function () { /* tabelas ainda não criadas: painel segue normal */ });
 
     function diasParado(ev, confs) {
       if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return 0;
@@ -2475,12 +2534,29 @@ function TelaFornecedor(fornecedorId) {
 
       var h = '';
 
+      var semPrazo = Terceiros.semPrazo(movimentos, Terceiros.saldos(movimentos))
+        .filter(function (m) { return m.fornecedor_id === fornecedorId; });
+      if (semPrazo.length) {
+        h += '<div class="aviso aviso--azul"><span class="aviso__ico">📅</span><div>' +
+          '<b>Chegadas sem data de devolução:</b>' +
+          semPrazo.map(function (m) {
+            return '<br>• ' + U.fmt(m.quantidade) + ' ' + U.esc(m.material) +
+              (m.data_entrega ? ' — entregue ' + U.fmtData(m.data_entrega) : '') +
+              (Sessao.ehCoordenador()
+                ? ' <button class="btn btn--peq js-def-prazo" data-mov="' + m.id + '" style="margin-left:6px">📅 DEFINIR DEVOLUÇÃO</button>'
+                : '');
+          }).join('') +
+          (Sessao.ehCoordenador() ? '' : '<br><span class="peq">O coordenador define o prazo de devolução.</span>') +
+        '</div></div>';
+      }
+
       if (avisos.length) {
         h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⏰</span><div><b>Devoluções:</b>' +
           avisos.map(function (a) {
-            var quando = a.dias < 0 ? '<b style="color:var(--vermelho)">venceu há ' + Math.abs(a.dias) + ' dia' + (Math.abs(a.dias) > 1 ? 's' : '') + '</b>'
-              : a.dias === 0 ? '<b>vence HOJE</b>' : 'vence em ' + a.dias + ' dia' + (a.dias > 1 ? 's' : '');
-            return '<br>• ' + U.esc(a.material) + ' — ' + quando + ' (' + U.fmtData(a.data) + ')';
+            var quando = a.dias < 0 ? '<b style="color:var(--vermelho)">VENCEU há ' + Math.abs(a.dias) + ' dia' + (Math.abs(a.dias) > 1 ? 's' : '') + '</b>'
+              : a.dias === 0 ? '<b style="color:var(--vermelho)">vence HOJE</b>'
+              : (a.marco ? '<b>⏰ faltam ' + a.dias + ' dia' + (a.dias > 1 ? 's' : '') + '</b>' : 'vence em ' + a.dias + ' dias');
+            return '<br>• ' + U.esc(a.material) + ' — ' + quando + ' (' + U.fmtData(a.data) + ') · ' + U.fmt(a.saldo) + ' em mãos';
           }).join('') + '</div></div>';
       }
 
@@ -2587,8 +2663,13 @@ function TelaFornecedor(fornecedorId) {
                 : '') +
             '</div>' +
             (chegada
-              ? '<label class="campo"><span class="campo__rot">Devolver ao fornecedor até <span style="color:var(--vermelho)">(obrigatório)</span></span>' +
-                '<input class="entrada" id="mv-data" type="date"></label>'
+              ? '<label class="campo"><span class="campo__rot">Dia da entrega</span>' +
+                '<input class="entrada" id="mv-entrega" type="date" value="' + U.hojeISO() + '"></label>' +
+                (Sessao.ehCoordenador()
+                  ? '<label class="campo"><span class="campo__rot">Devolver ao fornecedor até</span>' +
+                    '<input class="entrada" id="mv-data" type="date"></label>'
+                  : '<p class="mut peq" style="margin-bottom:12px">📅 A <b>data de devolução</b> é definida depois pelo coordenador — ' +
+                    'ele recebe o aviso desta chegada.</p>')
               : '') +
             (precisaEvento
               ? '<label class="campo"><span class="campo__rot">' + (tipo === 'envio' ? 'Para qual evento?' : 'De qual evento voltou?') + '</span>' +
@@ -2612,11 +2693,12 @@ function TelaFornecedor(fornecedorId) {
 
           var item = saldos[Terceiros.chave(material)];
           var unidade = chegada ? m.querySelector('#mv-unidade').value : (item ? item.unidade : 'UN');
-          var dataDev = null, eventoId = null;
+          var dataDev = null, eventoId = null, dataEntrega = null;
 
           if (chegada) {
-            dataDev = m.querySelector('#mv-data').value;
-            if (!dataDev) return U.aviso('Informe a data de devolução ao fornecedor.', 'erro', 5000);
+            dataEntrega = m.querySelector('#mv-entrega').value || U.hojeISO();
+            var campoDev = m.querySelector('#mv-data');
+            dataDev = campoDev ? (campoDev.value || null) : null;   /* coordenador pode já definir */
           } else {
             if (!item) return U.aviso('Este material não tem chegada registrada.', 'erro', 5000);
             if (tipo === 'envio' && qtd > item.noGalpao) {
@@ -2643,6 +2725,7 @@ function TelaFornecedor(fornecedorId) {
             tipo: tipo,
             quantidade: qtd,
             evento_id: eventoId,
+            data_entrega: dataEntrega,
             data_devolucao: dataDev,
             observacao: obs || null,
             usuario_id: Sessao.atual.id
@@ -2656,6 +2739,35 @@ function TelaFornecedor(fornecedorId) {
           });
         });
       }
+
+      U.$$('.js-def-prazo', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var mov = semPrazo.filter(function (m) { return m.id === b.dataset.mov; })[0];
+          if (!mov) return;
+          var md = U.modal({
+            titulo: '📅 Devolução — ' + mov.material,
+            html: '<p class="mut peq" style="margin-bottom:12px">' + U.fmt(mov.quantidade) + ' ' + U.esc(mov.material) +
+                (mov.data_entrega ? ' · entregue em ' + U.fmtData(mov.data_entrega) : '') +
+                '. O sistema avisa faltando <b>5, 3 e 1 dia</b> da devolução.</p>' +
+              '<label class="campo"><span class="campo__rot">Devolver ao fornecedor até</span>' +
+                '<input class="entrada" id="prazo-data" type="date"></label>',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn btn--verde" data-ok>SALVAR PRAZO</button>',
+            travado: true
+          });
+          md.querySelector('[data-x]').addEventListener('click', md.fechar);
+          md.querySelector('[data-ok]').addEventListener('click', function () {
+            var data = md.querySelector('#prazo-data').value;
+            if (!data) return U.aviso('Escolha a data de devolução.', 'erro');
+            Banco.atualizarMovTerceiro(mov.id, { data_devolucao: data })
+              .then(function () {
+                md.fechar();
+                U.aviso('✓ Devolução marcada para ' + U.fmtData(data) + '. Aviso em 5, 3 e 1 dia.', 'ok', 5000);
+                App.recarregar();
+              }).catch(App.falhou);
+          });
+        });
+      });
 
       U.$('#mv-chegada').addEventListener('click', function () { lancar('chegada'); });
       U.$('#mv-envio').addEventListener('click', function () { lancar('envio'); });
@@ -2711,16 +2823,36 @@ function TelaTerceiros() {
 
       var h = '';
 
-      /* cadastro: só o coordenador */
+      /* cadastro: conferente e coordenador — quando o material chega,
+         quem está no galpão registra na hora */
+      h += '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar fornecedor</h3></div>' +
+        '<div class="cartao__corpo">' +
+          '<label class="campo"><span class="campo__rot">Nome do fornecedor</span>' +
+            '<input id="fo-nome" class="entrada" placeholder="Ex.: Locadora Silva Estruturas"></label>' +
+          '<label class="campo"><span class="campo__rot">Contato (telefone/pessoa — opcional)</span>' +
+            '<input id="fo-contato" class="entrada" placeholder="Ex.: (21) 99999-0000 · João"></label>' +
+          '<button class="btn btn--laranja btn--bloco" id="btn-add-forn">CADASTRAR E REGISTRAR CHEGADA</button>' +
+          '<p class="mut peq" style="margin-top:8px">Depois do cadastro, a tela do fornecedor abre para você lançar ' +
+            'a 📥 chegada com o material e o dia da entrega. A data de devolução é definida pelo coordenador.</p>' +
+        '</div></div>';
+
+      /* coordenador: chegadas esperando o prazo de devolução */
       if (ehCoord) {
-        h += '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar fornecedor</h3></div>' +
-          '<div class="cartao__corpo">' +
-            '<label class="campo"><span class="campo__rot">Nome do fornecedor</span>' +
-              '<input id="fo-nome" class="entrada" placeholder="Ex.: Locadora Silva Estruturas"></label>' +
-            '<label class="campo"><span class="campo__rot">Contato (telefone/pessoa — opcional)</span>' +
-              '<input id="fo-contato" class="entrada" placeholder="Ex.: (21) 99999-0000 · João"></label>' +
-            '<button class="btn btn--laranja btn--bloco" id="btn-add-forn">CADASTRAR</button>' +
+        var pendentes = Terceiros.semPrazo(movimentos, saldos);
+        if (pendentes.length) {
+          var nomeF2 = function (id) {
+            var f = fornecedores.filter(function (x) { return x.id === id; })[0];
+            return f ? f.nome : 'Fornecedor';
+          };
+          h += '<div class="aviso aviso--azul"><span class="aviso__ico">📅</span><div>' +
+            '<b>' + pendentes.length + ' chegada' + (pendentes.length > 1 ? 's' : '') + ' sem data de devolução.</b>' +
+            'Abra o fornecedor e toque em 📅 DEFINIR DEVOLUÇÃO:' +
+            pendentes.slice(0, 5).map(function (m) {
+              return '<br>• ' + U.fmt(m.quantidade) + ' ' + U.esc(m.material) + ' — ' + U.esc(nomeF2(m.fornecedor_id)) +
+                (m.data_entrega ? ' (entregue ' + U.fmtData(m.data_entrega) + ')' : '');
+            }).join('') +
           '</div></div>';
+        }
       }
 
       /* devoluções vencendo */
@@ -2782,8 +2914,11 @@ function TelaTerceiros() {
         var b = this;
         b.disabled = true; b.textContent = 'Cadastrando...';
         Banco.criarFornecedor({ nome: nome, contato: contato || null, ativo: true })
-          .then(function () { U.aviso('✓ ' + nome + ' cadastrado.', 'ok'); App.recarregar(); })
-          .catch(function (e) { b.disabled = false; b.textContent = 'CADASTRAR'; App.falhou(e); });
+          .then(function (novo) {
+            U.aviso('✓ ' + nome + ' cadastrado. Agora lance a 📥 CHEGADA.', 'ok', 5000);
+            App.abrir(TelaFornecedor, novo.id);
+          })
+          .catch(function (e) { b.disabled = false; b.textContent = 'CADASTRAR E REGISTRAR CHEGADA'; App.falhou(e); });
       });
 
       U.$$('.js-abrir-forn', tela).forEach(function (b) {
