@@ -936,6 +936,32 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* ---------- fornecedores de material terceirizado ---------- */
+  listarFornecedores: function () {
+    return this.cliente.from('fornecedores').select('*').order('nome')
+      .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
+  },
+
+  criarFornecedor: function (f) {
+    return this.cliente.from('fornecedores').insert(f).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
+  atualizarFornecedor: function (id, campos) {
+    return this.cliente.from('fornecedores').update(campos).eq('id', id).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
+  listarMovTerceiros: function () {
+    return this.cliente.from('movimentos_terceiros').select('*').order('created_at', { ascending: false })
+      .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
+  },
+
+  criarMovTerceiro: function (m) {
+    return this.cliente.from('movimentos_terceiros').insert(m).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
   /* ---------- fotos no Storage (bucket "fotos") ---------- */
   /* Sobe uma foto (data:image/jpeg;base64,...) e devolve a URL pública.
      Se falhar (sem internet, bucket não criado), devolve null e o app
@@ -1767,7 +1793,8 @@ var Tempo = {
     try {
       var canal = Banco.cliente.channel('tempo-real-app');
       ['eventos', 'produtos', 'conferencias', 'itens_conferencia',
-       'carregamentos', 'caminhoes', 'estoque', 'movimentos_estoque'].forEach(function (tabela) {
+       'carregamentos', 'caminhoes', 'estoque', 'movimentos_estoque',
+       'fornecedores', 'movimentos_terceiros'].forEach(function (tabela) {
         canal.on('postgres_changes', { event: '*', schema: 'public', table: tabela }, Tempo._mudou);
       });
       canal.subscribe();
@@ -1824,6 +1851,66 @@ var Estoque = {
     return s;
   },
   rotulo: { entrada: '📥 Entrada', saida: '🚚 Saída p/ evento', retorno: '↩️ Retorno de evento', ajuste: '🛠️ Ajuste' }
+};
+
+/* ---------- Terceiros: material de fornecedor, controlado à parte ----------
+   chegada  soma no que está EM MÃOS (com data de devolução ao fornecedor)
+   envio    tira do galpão e marca EM QUAL EVENTO está
+   retorno  volta do evento para o galpão
+   devolucao devolve ao fornecedor (sai de tudo) */
+var Terceiros = {
+  chave: function (nome) {
+    return String(nome || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  },
+
+  /* saldos[fornecedor_id][chaveMaterial] =
+       { nome, unidade, emMaos, emEventos, noGalpao, porEvento: {eventoId: qtd} } */
+  saldos: function (movimentos) {
+    var s = {};
+    (movimentos || []).forEach(function (m) {
+      var f = m.fornecedor_id;
+      var ch = Terceiros.chave(m.material);
+      if (!s[f]) s[f] = {};
+      if (!s[f][ch]) s[f][ch] = { nome: m.material, unidade: m.unidade || 'UN', emMaos: 0, emEventos: 0, noGalpao: 0, porEvento: {} };
+      var item = s[f][ch];
+      var q = Math.abs(Number(m.quantidade) || 0);
+      if (m.tipo === 'chegada') item.emMaos += q;
+      if (m.tipo === 'devolucao') item.emMaos -= q;
+      if (m.tipo === 'envio') {
+        item.emEventos += q;
+        if (m.evento_id) item.porEvento[m.evento_id] = (item.porEvento[m.evento_id] || 0) + q;
+      }
+      if (m.tipo === 'retorno') {
+        item.emEventos -= q;
+        if (m.evento_id) item.porEvento[m.evento_id] = (item.porEvento[m.evento_id] || 0) - q;
+      }
+    });
+    Object.keys(s).forEach(function (f) {
+      Object.keys(s[f]).forEach(function (ch) {
+        var i = s[f][ch];
+        i.noGalpao = i.emMaos - i.emEventos;
+      });
+    });
+    return s;
+  },
+
+  /* devoluções ao fornecedor vencidas ou perto de vencer */
+  vencimentos: function (movimentos, saldos) {
+    var hoje = U.hojeISO();
+    var avisos = [];
+    (movimentos || []).forEach(function (m) {
+      if (m.tipo !== 'chegada' || !m.data_devolucao) return;
+      var item = (saldos[m.fornecedor_id] || {})[Terceiros.chave(m.material)];
+      if (!item || item.emMaos <= 0) return;   /* já devolveu tudo */
+      var dias = Math.floor((new Date(m.data_devolucao) - new Date(hoje)) / 86400000);
+      if (dias <= 3) {
+        avisos.push({ fornecedor_id: m.fornecedor_id, material: m.material, data: m.data_devolucao, dias: dias, saldo: item.emMaos });
+      }
+    });
+    return avisos;
+  },
+
+  rotulo: { chegada: '📥 Chegada do fornecedor', envio: '🚚 Enviado para evento', retorno: '↩️ Voltou do evento', devolucao: '📤 Devolvido ao fornecedor' }
 };
 
 /* ---------- Fotos: converter URL do Storage em base64 (o PDF precisa) ---------- */
@@ -1988,6 +2075,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-atualizar">🔄 ATUALIZAR DADOS</button>' +
         '<button class="btn btn--branco" id="btn-frota">🚛 FROTA</button>' +
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
+        '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ ANEXAR CHECKLIST</button>' +
       '</div>' +
 
@@ -2083,6 +2171,7 @@ function TelaPainel() {
     U.$('#btn-novo-evento').addEventListener('click', function () { App.abrir(TelaNovoEvento); });
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
+    U.$('#btn-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
   }).catch(function (e) {
     tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
       '<b>Não foi possível carregar os dados.</b>' + U.esc(e.message) + '</div></div>' +
@@ -2353,6 +2442,358 @@ function TelaEstoque() {
       tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
         '<b>Não foi possível carregar o estoque.</b>' + U.esc(e.message) +
         '<br><span class="peq">Se for a primeira vez, rode o SQL novo no Supabase para criar as tabelas do estoque.</span></div></div>' +
+        '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
+    });
+}
+
+/* ============================================================
+   Tela de UM fornecedor: o que tem em mãos, onde está, vencimentos
+   e os quatro lançamentos: chegada, envio, retorno e devolução.
+   ============================================================ */
+function TelaFornecedor(fornecedorId) {
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Somando o material do fornecedor...');
+
+  Promise.all([Banco.listarFornecedores(), Banco.listarMovTerceiros(), App.carregarBase()])
+    .then(function (r) {
+      var fornecedor = r[0].filter(function (f) { return f.id === fornecedorId; })[0];
+      if (!fornecedor) { tela.innerHTML = '<div class="vazio"><h3>Fornecedor não encontrado</h3></div>'; return; }
+      var movimentos = r[1].filter(function (m) { return m.fornecedor_id === fornecedorId; });
+      var saldos = (Terceiros.saldos(movimentos)[fornecedorId]) || {};
+      var avisos = Terceiros.vencimentos(movimentos, Terceiros.saldos(movimentos))
+        .filter(function (a) { return a.fornecedor_id === fornecedorId; });
+
+      App.topo(fornecedor.nome.toUpperCase(), 'Material terceirizado' + (fornecedor.contato ? ' · ' + fornecedor.contato : ''));
+
+      function nomeEvento(id) {
+        var ev = App.eventos.filter(function (e) { return e.id === id; })[0];
+        return ev ? ev.nome : 'Evento apagado';
+      }
+
+      var chaves = Object.keys(saldos);
+      var comSaldo = chaves.filter(function (ch) { return saldos[ch].emMaos > 0 || saldos[ch].emEventos !== 0; });
+
+      var h = '';
+
+      if (avisos.length) {
+        h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⏰</span><div><b>Devoluções:</b>' +
+          avisos.map(function (a) {
+            var quando = a.dias < 0 ? '<b style="color:var(--vermelho)">venceu há ' + Math.abs(a.dias) + ' dia' + (Math.abs(a.dias) > 1 ? 's' : '') + '</b>'
+              : a.dias === 0 ? '<b>vence HOJE</b>' : 'vence em ' + a.dias + ' dia' + (a.dias > 1 ? 's' : '');
+            return '<br>• ' + U.esc(a.material) + ' — ' + quando + ' (' + U.fmtData(a.data) + ')';
+          }).join('') + '</div></div>';
+      }
+
+      /* lançamentos */
+      h += '<div class="btn-linha" style="margin-bottom:16px">' +
+        '<button class="btn btn--verde" id="mv-chegada">📥 CHEGADA</button>' +
+        '<button class="btn btn--laranja" id="mv-envio">🚚 ENVIAR P/ EVENTO</button>' +
+        '<button class="btn" id="mv-retorno">↩️ VOLTOU DO EVENTO</button>' +
+        '<button class="btn btn--branco" id="mv-devolucao">📤 DEVOLVER</button>' +
+      '</div>';
+
+      /* saldos */
+      h += '<div class="cartao"><div class="cartao__topo"><h3>Material em mãos</h3>' +
+        '<span class="mut peq">' + comSaldo.length + '</span></div>';
+      if (!comSaldo.length) {
+        h += '<div class="cartao__corpo"><div class="vazio" style="padding:16px 0">' +
+          '<p class="vazio__ico">📦</p><h3>Nada em mãos</h3>' +
+          '<p class="peq">Toque em 📥 CHEGADA quando o material do fornecedor chegar.</p></div></div>';
+      } else {
+        h += '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
+          '<th>Material</th><th class="num">Em mãos</th><th class="num">No galpão</th><th>Em eventos</th>' +
+        '</tr></thead><tbody>' +
+        comSaldo.map(function (ch) {
+          var i = saldos[ch];
+          var eventos = Object.keys(i.porEvento)
+            .filter(function (ev) { return i.porEvento[ev] > 0; })
+            .map(function (ev) { return U.esc(nomeEvento(ev)) + ' (<b>' + U.fmt(i.porEvento[ev]) + '</b>)'; })
+            .join('<br>');
+          return '<tr><td>' + U.esc(i.nome) + ' <span class="peq mut">' + U.esc(i.unidade) + '</span></td>' +
+            '<td class="num"><b>' + U.fmt(i.emMaos) + '</b></td>' +
+            '<td class="num">' + U.fmt(i.noGalpao) +
+              (i.noGalpao < 0 ? ' <span class="peq" style="color:var(--vermelho)">⚠</span>' : '') + '</td>' +
+            '<td>' + (eventos || '<span class="mut peq">—</span>') + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+      }
+      h += '</div>';
+
+      /* histórico */
+      var recentes = movimentos.slice(0, 25);
+      h += '<div class="cartao"><div class="cartao__topo"><h3>📜 Movimentos</h3>' +
+        '<span class="mut peq">' + movimentos.length + '</span></div><div class="cartao__corpo">';
+      if (!recentes.length) {
+        h += '<p class="mut peq">Nenhum lançamento ainda.</p>';
+      } else {
+        h += recentes.map(function (m) {
+          var soma = m.tipo === 'chegada' || m.tipo === 'retorno';
+          return '<div style="border-bottom:1px solid var(--linha);padding:8px 0">' +
+            '<b style="color:' + (m.tipo === 'devolucao' ? 'var(--vermelho)' : soma ? 'var(--verde)' : 'var(--laranja)') + '">' +
+              (soma ? '+' : '−') + U.fmt(Math.abs(m.quantidade)) + '</b> · ' +
+            U.esc(m.material) + ' · ' + (Terceiros.rotulo[m.tipo] || m.tipo) +
+            (m.evento_id ? ' · <b>' + U.esc(nomeEvento(m.evento_id)) + '</b>' : '') +
+            (m.data_devolucao ? ' · devolver até <b>' + U.fmtData(m.data_devolucao) + '</b>' : '') +
+            '<span class="peq mut" style="display:block">' + U.fmtDataHora(m.created_at) + ' · ' +
+              U.esc(App.nomeUsuario(m.usuario_id)) +
+              (m.observacao ? ' · ' + U.esc(m.observacao) : '') + '</span>' +
+          '</div>';
+        }).join('');
+      }
+      h += '</div></div>';
+
+      h += '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
+      tela.innerHTML = h;
+
+      /* ---------- modais de lançamento ---------- */
+      function campoMaterial(permitirNovo) {
+        var nomes = chaves.map(function (ch) { return saldos[ch].nome; });
+        if (permitirNovo || !nomes.length) {
+          return '<label class="campo"><span class="campo__rot">Material</span>' +
+            '<input class="entrada" id="mv-material" list="mv-lista" placeholder="Ex.: Piso 50x50 alugado">' +
+            '<datalist id="mv-lista">' + nomes.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') + '</datalist></label>';
+        }
+        return '<label class="campo"><span class="campo__rot">Material</span>' +
+          '<select class="entrada" id="mv-material">' +
+            nomes.map(function (n) { return '<option value="' + U.esc(n) + '">' + U.esc(n) + '</option>'; }).join('') +
+          '</select></label>';
+      }
+
+      function lancar(tipo) {
+        var chegada = tipo === 'chegada';
+        var precisaEvento = tipo === 'envio' || tipo === 'retorno';
+        var eventosAtivos = App.eventos.filter(function (e) {
+          return e.status !== 'Finalizado' && e.status !== 'Com divergência';
+        });
+        if (precisaEvento && !eventosAtivos.length) {
+          return U.aviso('Nenhum evento em andamento para vincular.', 'erro', 5000);
+        }
+        if (!chegada && !chaves.length) {
+          return U.aviso('Registre uma 📥 CHEGADA primeiro — ainda não há material deste fornecedor.', 'erro', 6000);
+        }
+
+        var m = U.modal({
+          titulo: Terceiros.rotulo[tipo],
+          html:
+            campoMaterial(chegada) +
+            '<div class="dupla">' +
+              '<label class="campo"><span class="campo__rot">Quantidade</span>' +
+                '<input class="entrada" id="mv-qtd" type="number" inputmode="numeric" min="0" placeholder="0"></label>' +
+              (chegada
+                ? '<label class="campo"><span class="campo__rot">Unidade</span>' +
+                  '<select class="entrada" id="mv-unidade">' +
+                    Checklist.LISTA_UNIDADES.map(function (u) { return '<option' + (u === 'UN' ? ' selected' : '') + '>' + u + '</option>'; }).join('') +
+                  '</select></label>'
+                : '') +
+            '</div>' +
+            (chegada
+              ? '<label class="campo"><span class="campo__rot">Devolver ao fornecedor até <span style="color:var(--vermelho)">(obrigatório)</span></span>' +
+                '<input class="entrada" id="mv-data" type="date"></label>'
+              : '') +
+            (precisaEvento
+              ? '<label class="campo"><span class="campo__rot">' + (tipo === 'envio' ? 'Para qual evento?' : 'De qual evento voltou?') + '</span>' +
+                '<select class="entrada" id="mv-evento">' +
+                  eventosAtivos.map(function (e) { return '<option value="' + e.id + '">' + U.esc(e.nome) + '</option>'; }).join('') +
+                '</select></label>'
+              : '') +
+            '<label class="campo"><span class="campo__rot">Observação (opcional)</span>' +
+              '<input class="entrada" id="mv-obs" placeholder="Ex.: nota 1234, motorista Zé"></label>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+              '<button class="btn btn--verde" data-ok>LANÇAR</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          var material = m.querySelector('#mv-material').value.trim().replace(/\s+/g, ' ');
+          var qtd = U.num(m.querySelector('#mv-qtd').value);
+          var obs = m.querySelector('#mv-obs').value.trim();
+          if (material.length < 2) return U.aviso('Informe o material.', 'erro');
+          if (!(qtd > 0)) return U.aviso('Informe a quantidade.', 'erro');
+
+          var item = saldos[Terceiros.chave(material)];
+          var unidade = chegada ? m.querySelector('#mv-unidade').value : (item ? item.unidade : 'UN');
+          var dataDev = null, eventoId = null;
+
+          if (chegada) {
+            dataDev = m.querySelector('#mv-data').value;
+            if (!dataDev) return U.aviso('Informe a data de devolução ao fornecedor.', 'erro', 5000);
+          } else {
+            if (!item) return U.aviso('Este material não tem chegada registrada.', 'erro', 5000);
+            if (tipo === 'envio' && qtd > item.noGalpao) {
+              return U.aviso('Só há ' + U.fmt(item.noGalpao) + ' no galpão deste material.', 'erro', 6000);
+            }
+            if (tipo === 'devolucao' && qtd > item.noGalpao) {
+              return U.aviso('Para devolver, o material precisa estar no galpão (tem ' + U.fmt(item.noGalpao) + '). Registre antes o ↩️ retorno do evento.', 'erro', 7000);
+            }
+          }
+          if (precisaEvento) {
+            eventoId = m.querySelector('#mv-evento').value;
+            if (tipo === 'retorno') {
+              var fora = item.porEvento[eventoId] || 0;
+              if (qtd > fora) return U.aviso('Este evento tem só ' + U.fmt(fora) + ' deste material.', 'erro', 6000);
+            }
+          }
+
+          var b = m.querySelector('[data-ok]');
+          b.disabled = true; b.textContent = 'Lançando...';
+          Banco.criarMovTerceiro({
+            fornecedor_id: fornecedorId,
+            material: material,
+            unidade: unidade,
+            tipo: tipo,
+            quantidade: qtd,
+            evento_id: eventoId,
+            data_devolucao: dataDev,
+            observacao: obs || null,
+            usuario_id: Sessao.atual.id
+          }).then(function () {
+            m.fechar();
+            U.aviso('✓ Lançado: ' + Terceiros.rotulo[tipo] + ' · ' + U.fmt(qtd) + ' ' + material + '.', 'ok', 5000);
+            App.recarregar();
+          }).catch(function (e) {
+            b.disabled = false; b.textContent = 'LANÇAR';
+            App.falhou(e);
+          });
+        });
+      }
+
+      U.$('#mv-chegada').addEventListener('click', function () { lancar('chegada'); });
+      U.$('#mv-envio').addEventListener('click', function () { lancar('envio'); });
+      U.$('#mv-retorno').addEventListener('click', function () { lancar('retorno'); });
+      U.$('#mv-devolucao').addEventListener('click', function () { lancar('devolucao'); });
+    })
+    .catch(function (e) {
+      tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+        '<b>Não foi possível carregar.</b>' + U.esc(e.message) + '</div></div>' +
+        '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
+    });
+}
+
+/* ============================================================
+   Escolha de área do conferente: EVENTOS ou MATERIAL TERCEIRIZADO
+   ============================================================ */
+function TelaEscolhaArea() {
+  App.topo('CENTRAL DE CONFERÊNCIA', Sessao.atual ? Sessao.atual.nome : '');
+  var tela = U.$('#tela');
+  tela.innerHTML =
+    '<div class="etapas" style="margin-top:10px">' +
+      '<button class="etapa" id="ir-eventos">' +
+        '<span class="etapa__n">📋</span>' +
+        '<span class="etapa__c"><span class="etapa__t">Eventos</span>' +
+        '<span class="etapa__d">Conferência de saída e retorno dos eventos</span></span>' +
+        '<span class="etapa__seta">›</span></button>' +
+      '<button class="etapa" id="ir-terceiros">' +
+        '<span class="etapa__n">🔗</span>' +
+        '<span class="etapa__c"><span class="etapa__t">Material Terceirizado</span>' +
+        '<span class="etapa__d">Chegadas de fornecedores, envios para eventos e devoluções</span></span>' +
+        '<span class="etapa__seta">›</span></button>' +
+    '</div>';
+  U.$('#ir-eventos').addEventListener('click', function () { App.abrir(TelaMeusEventos); });
+  U.$('#ir-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
+}
+
+/* ============================================================
+   Material terceirizado — painel dos fornecedores
+   Cada chegada alimenta o estoque DO FORNECEDOR, com a data em
+   que precisa ser devolvido. Os envios mostram para onde foi.
+   ============================================================ */
+function TelaTerceiros() {
+  App.topo('MATERIAL TERCEIRIZADO', 'Estoque por fornecedor');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando os fornecedores...');
+  var ehCoord = Sessao.ehCoordenador();
+
+  Promise.all([Banco.listarFornecedores(), Banco.listarMovTerceiros(), App.carregarBase()])
+    .then(function (r) {
+      var fornecedores = r[0], movimentos = r[1];
+      var saldos = Terceiros.saldos(movimentos);
+      var avisos = Terceiros.vencimentos(movimentos, saldos);
+
+      var h = '';
+
+      /* cadastro: só o coordenador */
+      if (ehCoord) {
+        h += '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar fornecedor</h3></div>' +
+          '<div class="cartao__corpo">' +
+            '<label class="campo"><span class="campo__rot">Nome do fornecedor</span>' +
+              '<input id="fo-nome" class="entrada" placeholder="Ex.: Locadora Silva Estruturas"></label>' +
+            '<label class="campo"><span class="campo__rot">Contato (telefone/pessoa — opcional)</span>' +
+              '<input id="fo-contato" class="entrada" placeholder="Ex.: (21) 99999-0000 · João"></label>' +
+            '<button class="btn btn--laranja btn--bloco" id="btn-add-forn">CADASTRAR</button>' +
+          '</div></div>';
+      }
+
+      /* devoluções vencendo */
+      if (avisos.length) {
+        var nomeF = function (id) {
+          var f = fornecedores.filter(function (x) { return x.id === id; })[0];
+          return f ? f.nome : 'Fornecedor';
+        };
+        h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⏰</span><div>' +
+          '<b>Devoluções para ficar de olho:</b>' +
+          avisos.slice(0, 6).map(function (a) {
+            var quando = a.dias < 0 ? '<b style="color:var(--vermelho)">venceu há ' + Math.abs(a.dias) + ' dia' + (Math.abs(a.dias) > 1 ? 's' : '') + '</b>'
+              : a.dias === 0 ? '<b>vence HOJE</b>'
+              : 'vence em ' + a.dias + ' dia' + (a.dias > 1 ? 's' : '');
+            return '<br>• ' + U.esc(a.material) + ' (' + U.esc(nomeF(a.fornecedor_id)) + ') — ' + quando + ' · ' + U.fmt(a.saldo) + ' em mãos';
+          }).join('') +
+        '</div></div>';
+      }
+
+      h += '<h2 class="secao__tit">Fornecedores <span class="n">' + fornecedores.length + '</span></h2>';
+
+      if (!fornecedores.length) {
+        h += '<div class="vazio"><p class="vazio__ico">🔗</p><h3>Nenhum fornecedor ainda</h3>' +
+          '<p>' + (ehCoord ? 'Cadastre acima o primeiro fornecedor de material terceirizado.'
+                           : 'Peça ao coordenador para cadastrar os fornecedores.') + '</p></div>';
+      } else {
+        h += fornecedores.map(function (f) {
+          var itens = saldos[f.id] || {};
+          var chaves = Object.keys(itens).filter(function (ch) { return itens[ch].emMaos > 0 || itens[ch].emEventos !== 0; });
+          var totalMaos = 0, totalEventos = 0;
+          chaves.forEach(function (ch) { totalMaos += itens[ch].emMaos; totalEventos += Math.max(0, itens[ch].emEventos); });
+          var comAviso = avisos.some(function (a) { return a.fornecedor_id === f.id; });
+          return '<div class="carga">' +
+            '<div class="carga__cam"><span>🔗</span>' +
+              '<span><b>' + U.esc(f.nome) + '</b>' + (comAviso ? ' <span class="terc-tag" style="background:var(--vermelho-clr);border-color:#F5C6C6;color:var(--vermelho)">⏰ devolução</span>' : '') +
+                '<span class="peq mut" style="display:block">' +
+                  (chaves.length
+                    ? chaves.length + ' materiais · Em mãos: <b>' + U.fmt(totalMaos) + '</b>' +
+                      (totalEventos > 0 ? ' · Em eventos: <b style="color:var(--laranja)">' + U.fmt(totalEventos) + '</b>' : '')
+                    : 'Sem material em mãos') +
+                  (f.contato ? ' · ' + U.esc(f.contato) : '') +
+                '</span></span>' +
+              '<button class="btn btn--peq js-abrir-forn" data-id="' + f.id + '" style="margin-left:auto">ABRIR</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      h += '<button class="btn btn--branco btn--bloco" style="margin-top:14px" onclick="App.voltar()">Voltar</button>';
+      tela.innerHTML = h;
+
+      var addForn = U.$('#btn-add-forn', tela);
+      if (addForn) addForn.addEventListener('click', function () {
+        var nome = U.$('#fo-nome').value.trim().replace(/\s+/g, ' ');
+        var contato = U.$('#fo-contato').value.trim();
+        if (nome.length < 2) return U.aviso('Dê um nome para o fornecedor.', 'erro');
+        var repetido = fornecedores.some(function (f) { return Terceiros.chave(f.nome) === Terceiros.chave(nome); });
+        if (repetido) return U.aviso('Esse fornecedor já está cadastrado.', 'erro', 5000);
+        var b = this;
+        b.disabled = true; b.textContent = 'Cadastrando...';
+        Banco.criarFornecedor({ nome: nome, contato: contato || null, ativo: true })
+          .then(function () { U.aviso('✓ ' + nome + ' cadastrado.', 'ok'); App.recarregar(); })
+          .catch(function (e) { b.disabled = false; b.textContent = 'CADASTRAR'; App.falhou(e); });
+      });
+
+      U.$$('.js-abrir-forn', tela).forEach(function (b) {
+        b.addEventListener('click', function () { App.abrir(TelaFornecedor, b.dataset.id); });
+      });
+    })
+    .catch(function (e) {
+      tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+        '<b>Não foi possível carregar.</b>' + U.esc(e.message) +
+        '<br><span class="peq">Se for a primeira vez, rode o SQL novo no Supabase.</span></div></div>' +
         '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
     });
 }
@@ -5174,7 +5615,7 @@ const Relatorio = {
 
   function irParaCasa() {
     if (Sessao.ehCoordenador()) App.raiz(TelaPainel);
-    else App.raiz(TelaMeusEventos);
+    else App.raiz(TelaEscolhaArea);   /* Eventos ou Material Terceirizado */
   }
 
   /* ---------- tela inicial ---------- */
