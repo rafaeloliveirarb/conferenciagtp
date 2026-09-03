@@ -2679,13 +2679,15 @@ function TelaFornecedor(fornecedorId) {
           }).join('') + '</div></div>';
       }
 
-      /* lançamentos */
+      /* lançamentos manuais: só CHEGADA e DEVOLVER.
+         Envio para evento e retorno acontecem SOZINHOS pela conferência
+         (o conferente escolhe o fornecedor no campo 🔗 do produto). */
       h += '<div class="btn-linha" style="margin-bottom:16px">' +
         '<button class="btn btn--verde" id="mv-chegada">📥 CHEGADA</button>' +
-        '<button class="btn btn--laranja" id="mv-envio">🚚 ENVIAR P/ EVENTO</button>' +
-        '<button class="btn" id="mv-retorno">↩️ VOLTOU DO EVENTO</button>' +
         '<button class="btn btn--branco" id="mv-devolucao">📤 DEVOLVER</button>' +
-      '</div>';
+      '</div>' +
+      '<p class="mut peq" style="margin:-6px 0 14px">🚚 O envio para evento e o ↩️ retorno entram sozinhos ' +
+        'pelas conferências, quando o conferente marca o terceirizado e escolhe este fornecedor.</p>';
 
       /* saldos */
       h += '<div class="cartao"><div class="cartao__topo"><h3>Material em mãos</h3>' +
@@ -2944,8 +2946,6 @@ function TelaFornecedor(fornecedorId) {
       });
 
       U.$('#mv-chegada').addEventListener('click', function () { lancar('chegada'); });
-      U.$('#mv-envio').addEventListener('click', function () { lancar('envio'); });
-      U.$('#mv-retorno').addEventListener('click', function () { lancar('retorno'); });
       U.$('#mv-devolucao').addEventListener('click', function () { lancar('devolucao'); });
     })
     .catch(function (e) {
