@@ -3668,11 +3668,14 @@ function TelaConferencia(arg) {
         : 'Tire a foto do caminhão carregado. A conferência só finaliza com a foto.') + '</p>' +
       (foto ? '<img src="' + foto + '" alt="Foto do carregamento">' : '') +
       '<div class="btn-linha" style="margin-top:12px">' +
-        '<button class="btn ' + (foto ? 'btn--branco' : 'btn--laranja') + '" id="btn-foto">' +
-          (foto ? '🔁 Trocar a foto' : '📷 TIRAR A FOTO') + '</button>' +
+        '<button class="btn ' + (foto ? 'btn--branco' : 'btn--laranja') + '" id="btn-foto-camera">📷 ' +
+          (foto ? 'Trocar pela câmera' : 'ABRIR A CÂMERA') + '</button>' +
+        '<button class="btn btn--branco" id="btn-foto-galeria">🖼️ ' +
+          (foto ? 'Trocar pela galeria' : 'ESCOLHER DO TELEFONE') + '</button>' +
         (foto ? '<button class="btn btn--branco" id="btn-foto-remover">Remover</button>' : '') +
       '</div>' +
-      '<input type="file" id="campo-foto" accept="image/*" capture="environment" hidden>' +
+      '<input type="file" id="campo-foto-camera" accept="image/*" capture="environment" hidden>' +
+      '<input type="file" id="campo-foto-galeria" accept="image/*" hidden>' +
     '</div>';
   }
 
@@ -3946,7 +3949,13 @@ function TelaConferencia(arg) {
         if (arq) arq.click();
       });
     });
-    U.$$('.js-dano-arquivo', tela).forEach(function (el) {
+    U.$$('.js-dano-galeria', tela).forEach(function (el) {
+      el.addEventListener('click', function () {
+        var arq = U.$('.js-dano-arquivo-gal[data-id="' + el.dataset.id + '"]', tela);
+        if (arq) arq.click();
+      });
+    });
+    U.$$('.js-dano-arquivo, .js-dano-arquivo-gal', tela).forEach(function (el) {
       el.addEventListener('change', function () {
         var arquivo = el.files && el.files[0];
         if (!arquivo) return;
@@ -3977,21 +3986,26 @@ function TelaConferencia(arg) {
       el.addEventListener('input', function () { embalagem[el.dataset.id].obs = el.value; });
     });
 
-    /* foto obrigatória */
-    var campoFoto = U.$('#campo-foto', tela);
-    var btnFoto = U.$('#btn-foto', tela);
-    if (btnFoto) btnFoto.addEventListener('click', function () { campoFoto.click(); });
-    if (campoFoto) campoFoto.addEventListener('change', function () {
-      var arq = campoFoto.files && campoFoto.files[0];
-      if (!arq) return;
-      U.aviso('Preparando a foto...', 'info', 1800);
-      lerFoto(arq).then(function (b64) {
-        foto = b64;
-        guardarRascunho();
-        U.aviso('✓ Foto anexada. Não esqueça de salvar ou finalizar.', 'ok');
-        desenhar();
-      }).catch(function (e) { App.falhou(e); });
-    });
+    /* foto obrigatória: câmera OU galeria do telefone */
+    function ligarEntradaFoto(idBotao, idCampo) {
+      var campo = U.$(idCampo, tela);
+      var botao = U.$(idBotao, tela);
+      if (botao && campo) botao.addEventListener('click', function () { campo.click(); });
+      if (campo) campo.addEventListener('change', function () {
+        var arq = campo.files && campo.files[0];
+        if (!arq) return;
+        campo.value = '';
+        U.aviso('Preparando a foto...', 'info', 1800);
+        lerFoto(arq).then(function (b64) {
+          foto = b64;
+          guardarRascunho();
+          U.aviso('✓ Foto anexada. Não esqueça de salvar ou finalizar.', 'ok');
+          desenhar();
+        }).catch(function (e) { App.falhou(e); });
+      });
+    }
+    ligarEntradaFoto('#btn-foto-camera', '#campo-foto-camera');
+    ligarEntradaFoto('#btn-foto-galeria', '#campo-foto-galeria');
     var btnFotoRem = U.$('#btn-foto-remover', tela);
     if (btnFotoRem) btnFotoRem.addEventListener('click', function () { foto = null; guardarRascunho(); desenhar(); });
 
@@ -4171,11 +4185,14 @@ function TelaConferencia(arg) {
         '<div class="js-dano-foto-caixa" data-id="' + id + '">' +
           (d.foto ? '<img src="' + d.foto + '" alt="Foto do dano">' : '') + '</div>' +
         '<div class="btn-linha" style="margin-top:8px">' +
-          '<button class="btn ' + (d.foto ? 'btn--branco' : 'btn--laranja') + ' js-dano-foto" data-id="' + id + '">' +
-            (d.foto ? '🔁 Trocar foto do dano' : '📷 FOTO DO DANO (obrigatória)') + '</button>' +
+          '<button class="btn ' + (d.foto ? 'btn--branco' : 'btn--laranja') + ' btn--peq js-dano-foto" data-id="' + id + '">📷 ' +
+            (d.foto ? 'Câmera' : 'CÂMERA') + '</button>' +
+          '<button class="btn btn--branco btn--peq js-dano-galeria" data-id="' + id + '">🖼️ ' +
+            (d.foto ? 'Galeria' : 'DO TELEFONE') + '</button>' +
         '</div>' +
         '<p class="dano__status js-dano-status" data-id="' + id + '"></p>' +
         '<input type="file" class="js-dano-arquivo" data-id="' + id + '" accept="image/*" capture="environment" hidden>' +
+        '<input type="file" class="js-dano-arquivo-gal" data-id="' + id + '" accept="image/*" hidden>' +
       '</div>' +
     '</div>';
   }
@@ -4191,9 +4208,10 @@ function TelaConferencia(arg) {
     var fotoCaixa = U.$('.js-dano-foto-caixa', caixa);
     fotoCaixa.innerHTML = d.foto ? '<img src="' + d.foto + '" alt="Foto do dano">' : '';
     var botao = U.$('.js-dano-foto', caixa);
-    botao.textContent = d.foto ? '🔁 Trocar foto do dano' : '📷 FOTO DO DANO (obrigatória)';
-    botao.className = 'btn ' + (d.foto ? 'btn--branco' : 'btn--laranja') + ' js-dano-foto';
-    botao.dataset.id = id;
+    if (botao) {
+      botao.className = 'btn ' + (d.foto ? 'btn--branco' : 'btn--laranja') + ' btn--peq js-dano-foto';
+      botao.dataset.id = id;
+    }
 
     var st = U.$('.js-dano-status', caixa);
     var campoDesc = U.$('.js-dano-desc', caixa);
