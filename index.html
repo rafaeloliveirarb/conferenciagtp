@@ -417,6 +417,13 @@ table.tab{width:100%;border-collapse:collapse}
 .foto-bloco.tem{border-style:solid;border-color:var(--verde)}
 .foto-bloco img{max-width:100%;max-height:280px;border-radius:12px;margin-top:10px}
 .trava{background:var(--amarelo-clr);border:2px solid #F5DFA8;border-radius:var(--r-lg);padding:16px;margin-bottom:16px;font-size:15px;color:#8A5400;line-height:1.5}
+.terc{margin-top:12px;border:2px dashed #C9D6E8;background:#F6F9FE;border-radius:12px;padding:10px 12px}
+.terc__linha{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.terc__rot{font-weight:800;font-size:13px;color:var(--azul);flex:1;min-width:150px}
+.terc__campo{width:110px;border:2px solid #C9D6E8;border-radius:10px;background:#fff;
+  font:inherit;font-size:19px;font-weight:800;text-align:center;padding:9px;color:var(--txt)}
+.terc__campo:focus{outline:none;border-color:var(--azul)}
+.terc__info{font-size:13px;font-weight:700;margin-top:6px}
 .terc-tag{display:inline-block;background:#FFF2E3;color:#8A4B00;border:1px solid #F0C58A;
   font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;letter-spacing:.3px;vertical-align:middle;white-space:nowrap}
 .cega-tag{display:inline-block;background:#1B2A3A;color:#fff;font-size:12px;font-weight:800;padding:4px 10px;border-radius:99px;letter-spacing:.5px;vertical-align:middle}
@@ -862,6 +869,7 @@ const Banco = {
             avulsas: i.avulsas === '' || i.avulsas === undefined ? null : U.num(i.avulsas),
             observacao: i.observacao || null,
             qtd_danificada: U.num(i.qtd_danificada) || 0,
+            qtd_terceirizada: U.num(i.qtd_terceirizada) || 0,
             dano_descricao: i.dano_descricao || null,
             dano_foto_base64: i.dano_foto_base64 || null
           };
@@ -1478,7 +1486,8 @@ const Calculo = {
     function det(i) {
       return i ? {
         por_embalagem: i.por_embalagem, embalagens: i.embalagens,
-        avulsas: i.avulsas, observacao: i.observacao
+        avulsas: i.avulsas, observacao: i.observacao,
+        qtd_terceirizada: U.num(i.qtd_terceirizada) || 0
       } : null;
     }
 
@@ -1506,6 +1515,8 @@ const Calculo = {
           descricao: iR.dano_descricao || '',
           foto: iR.dano_foto_base64 || null
         } : null,
+        tercSaida: iS ? U.num(iS.qtd_terceirizada) || 0 : 0,
+        tercRetorno: iR ? U.num(iR.qtd_terceirizada) || 0 : 0,
         detalhes: { saida: det(iS), retorno: det(iR) }
       };
     });
@@ -3477,6 +3488,7 @@ function TelaConferencia(arg) {
   var contagem = {};    /* produto_id -> valor digitado (string) */
   var embalagem = {};   /* produto_id -> como a conta foi feita (pallet/caixa) */
   var dano = {};        /* produto_id -> { qtd, desc, foto } (só no retorno) */
+  var terc = {};        /* produto_id -> quantos do total contado são terceirizados */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
   var desbloqueada = false;  /* o coordenador liberou a edição com a senha */
 
@@ -3509,6 +3521,9 @@ function TelaConferencia(arg) {
         desc: dd.descricao || '',
         foto: dd.foto || null
       };
+
+      var tq = (d.qtd_terceirizada || 0);
+      terc[l.produto.id] = tq ? String(tq) : '';
     });
 
     /* Rascunho guardado no aparelho (modo offline): mais novo que o servidor? */
@@ -3532,6 +3547,7 @@ function TelaConferencia(arg) {
         if (ras.contagem) contagem = ras.contagem;
         if (ras.embalagem) embalagem = ras.embalagem;
         if (ras.dano) dano = ras.dano;
+        if (ras.terc) terc = ras.terc;
         if (ras.foto) foto = ras.foto;
         m.fechar();
         U.aviso('✓ Contagem recuperada. Toque em SALVAR para enviar ao sistema.', 'ok', 6000);
@@ -3556,7 +3572,7 @@ function TelaConferencia(arg) {
     clearTimeout(rascunhoTimer);
     rascunhoTimer = setTimeout(function () {
       Rascunho.guardar(carregamentoId, tipo, {
-        contagem: contagem, embalagem: embalagem, dano: dano, foto: foto
+        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, foto: foto
       });
     }, 400);
   }
@@ -3571,6 +3587,23 @@ function TelaConferencia(arg) {
     var v = valor(id);
     return v === null ? null : v + danoQtd(id);
   }
+  function tercQtd(id) {
+    var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
+    /* produto marcado como terceirizado no checklist: ele INTEIRO é de fora */
+    if (linha && linha.produto && linha.produto.terceirizado) {
+      var t = valorTotal(id);
+      return t === null ? 0 : t;
+    }
+    return U.num((terc[id] === undefined ? '' : terc[id]));
+  }
+  function tercEstourado(id) {
+    var total = valorTotal(id);
+    if (total === null) return false;
+    var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
+    if (linha && linha.produto && linha.produto.terceirizado) return false;
+    return U.num(terc[id]) > total;
+  }
+
   function danoIncompleto(id) {
     var d = danoDe(id);
     return danoQtd(id) > 0 && (!(d.desc || '').trim() || !d.foto);
@@ -3588,7 +3621,7 @@ function TelaConferencia(arg) {
   function travada() { return (finalizada() || eventoFechado()) && !desbloqueada; }
 
   function resumoAtual() {
-    var r = { produtos: linhas.length, base: 0, contado: 0, divergencias: 0, pendentes: 0, danificados: 0 };
+    var r = { produtos: linhas.length, base: 0, contado: 0, divergencias: 0, pendentes: 0, danificados: 0, terceirizados: 0 };
     linhas.forEach(function (l) {
       var b = Calculo.base(l, tipo);
       var c = valorTotal(l.produto.id);
@@ -3596,6 +3629,7 @@ function TelaConferencia(arg) {
       r.danificados += danoQtd(l.produto.id);
       if (c === null) { r.pendentes++; return; }
       r.contado += c;
+      r.terceirizados += tercQtd(l.produto.id);
       if (c - b !== 0) r.divergencias++;
     });
     return r;
@@ -3682,7 +3716,8 @@ function TelaConferencia(arg) {
           return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
             (conta ? '<br><span class="peq" style="color:var(--txt-3)">📦 ' + U.esc(conta) + '</span>' : '') + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
-            '<td class="num">' + U.fmt(l.retorno) + '</td>' +
+            '<td class="num">' + U.fmt(l.retorno) +
+              (l.tercRetorno ? '<br><span class="terc-tag">🔗 ' + U.fmt(l.tercRetorno) + ' terc.</span>' : '') + '</td>' +
             '<td class="num" style="color:#8a5a00;font-weight:800">' + (dq ? '🟠 ' + U.fmt(dq) : '—') + '</td></tr>';
         }).join('') +
         '</tbody></table></div>' +
@@ -3706,7 +3741,8 @@ function TelaConferencia(arg) {
             (conta ? '<br><span class="peq" style="color:var(--txt-3)">📦 ' + U.esc(conta) + '</span>' : '') + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(base) + '</td>' +
-            '<td class="num">' + (c === null ? '—' : U.fmt(c)) + '</td>' +
+            '<td class="num">' + (c === null ? '—' : U.fmt(c)) +
+              (l.tercSaida ? '<br><span class="terc-tag">🔗 ' + U.fmt(l.tercSaida) + ' terc.</span>' : '') + '</td>' +
             '<td class="num ' + classeDif(dif) + '">' + textoDif(dif) + '</td></tr>';
         }).join('') +
         '</tbody></table></div></div>';
@@ -3826,6 +3862,7 @@ function TelaConferencia(arg) {
           '<button class="atalho js-zero" data-id="' + id + '">Não veio nada (0)</button>' +
         '</div>' +
         (cega ? blocoDano(l) : '') +
+        blocoTerc(l) +
         '<p class="prod__res"></p>' +
         blocoEmbalagem(l, base) +
       '</div>';
@@ -3868,6 +3905,15 @@ function TelaConferencia(arg) {
     });
     U.$$('.js-zero', tela).forEach(function (el) {
       el.addEventListener('click', function () { definir(el.dataset.id, 0); });
+    });
+
+    /* terceirizado por item */
+    U.$$('.js-terc-qtd', tela).forEach(function (el) {
+      el.addEventListener('input', function () {
+        terc[el.dataset.id] = el.value;
+        pintarTerc(el.dataset.id);
+        pintar(el.dataset.id);   /* atualiza resumo e guarda rascunho */
+      });
     });
 
     /* danificados (retorno) */
@@ -4068,6 +4114,45 @@ function TelaConferencia(arg) {
     '</div>';
   }
 
+  /* ---------- terceirizado por item: do total contado, quantos são de fora ---------- */
+  function blocoTerc(l) {
+    var id = l.produto.id;
+    /* produto inteiro terceirizado: só lembra, sem campo */
+    if (l.produto && l.produto.terceirizado) {
+      return '<div class="terc"><div class="terc__linha">' +
+        '<span class="terc__rot">🔗 Material 100% terceirizado — não mexe no estoque</span>' +
+      '</div></div>';
+    }
+    var v = terc[id] === undefined ? '' : terc[id];
+    return '<div class="terc" data-id="' + id + '">' +
+      '<div class="terc__linha">' +
+        '<span class="terc__rot">🔗 Deste total, quantos são terceirizados?</span>' +
+        '<input class="terc__campo js-terc-qtd" data-id="' + id + '" type="number" inputmode="numeric" ' +
+          'min="0" placeholder="0" value="' + U.esc(v) + '" aria-label="Quantidade terceirizada de ' + U.esc(l.nome) + '">' +
+      '</div>' +
+      '<p class="terc__info js-terc-info" data-id="' + id + '"></p>' +
+    '</div>';
+  }
+
+  function pintarTerc(id) {
+    var caixa = U.$('.terc[data-id="' + id + '"]', tela);
+    if (!caixa) return;
+    var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
+    var info = U.$('.js-terc-info', caixa);
+    var t = U.num(terc[id]);
+    var total = valorTotal(id);
+    if (!t) { info.textContent = ''; return; }
+    if (total !== null && t > total) {
+      info.style.color = 'var(--vermelho)';
+      info.textContent = '🔴 Terceirizado (' + U.fmt(t) + ') maior que o total contado (' + U.fmt(total) + '). Ajuste antes de finalizar.';
+    } else {
+      var proprios = total === null ? null : total - t;
+      info.style.color = 'var(--azul)';
+      info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' (fora do estoque)' +
+        (proprios !== null ? ' · ' + U.fmt(proprios) + ' do galpão' : '');
+    }
+  }
+
   /* ---------- danificados (só no retorno às cegas) ---------- */
   function blocoDano(l) {
     var id = l.produto.id;
@@ -4234,6 +4319,11 @@ function TelaConferencia(arg) {
           ' · Divergência: <b>' + (dif > 0 ? '+' : '') + U.fmt(dif) + '</b>';
       }
     }
+    var tq = tercQtd(id);
+    if (v !== null && tq > 0 && !(linha.produto && linha.produto.terceirizado)) {
+      res.innerHTML += ' <span class="terc-tag">🔗 ' + U.fmt(tq) + ' terc.</span>';
+    }
+    pintarTerc(id);
     pintarResumo();
     guardarRascunho();
   }
@@ -4261,6 +4351,7 @@ function TelaConferencia(arg) {
         (cega ? '' : '<dt>' + U.esc(info.base) + '</dt><dd>' + U.fmt(r.base) + '</dd>') +
         '<dt>Conferido</dt><dd>' + U.fmt(r.contado) + '</dd>' +
         (cega ? '' : '<dt>Divergências</dt><dd>' + r.divergencias + '</dd>') +
+        (r.terceirizados ? '<dt>Terceirizados</dt><dd>🔗 ' + U.fmt(r.terceirizados) + ' (fora do estoque)</dd>' : '') +
         (cega && r.danificados ? '<dt>Danificados</dt><dd>🟠 ' + U.fmt(r.danificados) + '</dd>' : '') +
         (r.pendentes
           ? (cega
@@ -4288,6 +4379,7 @@ function TelaConferencia(arg) {
         avulsas: e.soltas,
         observacao: e.obs,
         qtd_danificada: dq,
+        qtd_terceirizada: Math.min(tercQtd(l.produto.id), v + dq),
         dano_descricao: dq > 0 ? (d.desc || '').trim() : null,
         dano_foto_base64: dq > 0 ? d.foto : null
       });
@@ -4384,7 +4476,7 @@ function TelaConferencia(arg) {
         var faltantes = [];
         var vistos = {};
         itens.forEach(function (i) {
-          if (!(Number(i.quantidade) > 0)) return;
+          if (!(Number(i.quantidade) - (Number(i.qtd_terceirizada) || 0) > 0)) return;
           var info = nomePorProduto[i.produto_id] || { nome: '', unidade: 'UN' };
           if (info.terceirizado) return;   /* material de fora: estoque não vê */
           var ch = Estoque.chave(info.nome);
@@ -4408,7 +4500,10 @@ function TelaConferencia(arg) {
           itens.forEach(function (i) {
             if (!(Number(i.quantidade) > 0)) return;   /* contagem zero não mexe no estoque */
             var info = nomePorProduto[i.produto_id];
-            if (info && info.terceirizado) return;     /* material de fora: estoque não vê */
+            if (info && info.terceirizado) return;     /* material 100% de fora: estoque não vê */
+            /* linha mista: só a parte PRÓPRIA mexe no estoque */
+            var propria = Number(i.quantidade) - (Number(i.qtd_terceirizada) || 0);
+            if (!(propria > 0)) return;
             var alvo = info && porChave[Estoque.chave(info.nome)];
             if (!alvo) return;
             movimentos.push({
@@ -4416,7 +4511,7 @@ function TelaConferencia(arg) {
               evento_id: eventoId,
               conferencia_id: conferencia.id,
               tipo: tipo,                       /* 'saida' desconta · 'retorno' devolve */
-              quantidade: Number(i.quantidade),
+              quantidade: propria,
               usuario_id: Sessao.atual.id
             });
           });
@@ -4473,6 +4568,13 @@ function TelaConferencia(arg) {
     }
     if (cega && r.produtos - r.pendentes === 0) {
       U.aviso('Registre pelo menos um produto que chegou neste caminhão.', 'erro', 5000);
+      return;
+    }
+    var estourado = linhas.filter(function (l) { return tercEstourado(l.produto.id); })[0];
+    if (estourado) {
+      U.aviso('🔗 ' + estourado.nome + ': o terceirizado está maior que o total contado. Ajuste o número.', 'erro', 6000);
+      var cxT = U.$('.prod[data-id="' + estourado.produto.id + '"]', tela);
+      if (cxT) cxT.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     if (!foto) {
@@ -4733,7 +4835,9 @@ const Relatorio = {
 
     var corpo = linhasUteis.map(function (l) {
       var conta = Calculo.detalhe(l, tipo);
+      var tq = tipo === 'retorno' ? l.tercRetorno : l.tercSaida;
       var nome = l.nome + (l.produto && l.produto.terceirizado ? ' [TERCEIRIZADO]' : '') +
+        (tq && !(l.produto && l.produto.terceirizado) ? '\n[' + U.fmt(tq) + ' terceirizados]' : '') +
         (conta ? '\n(' + conta + ')' : '');
       if (retorno) {
         if (l.dano && l.dano.qtd > 0 && l.dano.descricao) nome += '\nDano: ' + l.dano.descricao;
