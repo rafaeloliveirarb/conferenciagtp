@@ -1712,7 +1712,9 @@ const App = {
   },
 
   conferentes: function () {
-    return App.usuarios.filter(function (u) { return u.tipo === 'conferente'; });
+    /* avulsos (entraram pelo "Outro conferente") não aparecem na lista:
+       o nome deles vale nas conferências, mas o cadastro fixo é só da equipe */
+    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso; });
   },
 
   /* Mostra o erro na tela sem apagar o que a pessoa estava fazendo. */
@@ -5267,6 +5269,12 @@ const Relatorio = {
           var nome = campo.value.trim().replace(/\s+/g, ' ');
           if (nome.length < 3) return erro('Escreva seu nome com pelo menos 3 letras.');
           if (nome.indexOf(' ') < 0) return erro('Escreva nome e sobrenome, para não confundir com outro colega.');
+          /* arruma as maiúsculas: "fabiano araujo" vira "Fabiano Araujo" */
+          nome = nome.split(' ').map(function (p) {
+            return p.length > 2 || nome.split(' ').indexOf(p) === 0
+              ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
+              : p.toLowerCase();   /* "de", "da", "do" ficam minúsculos */
+          }).join(' ');
 
           /* mesmo nome de alguém já cadastrado: entra como a pessoa existente */
           var igual = App.usuarios.filter(function (u) {
@@ -5276,7 +5284,7 @@ const Relatorio = {
 
           var botao = m2.querySelector('[data-ok]');
           botao.disabled = true; botao.textContent = 'Entrando...';
-          Banco.criarUsuario({ nome: nome, tipo: 'conferente', ativo: true })
+          Banco.criarUsuario({ nome: nome, tipo: 'conferente', ativo: true, avulso: true })
             .then(function (novo) {
               return App.carregarBase().then(function () { return novo; });
             })
