@@ -4248,26 +4248,26 @@ function TelaConferencia(arg) {
     return dano[id];
   }
   function danoQtd(id) { return cega ? U.num(danoDe(id).qtd) : 0; }
-  /* total que vale para a comparação: bom estado + danificado */
+  /* total que vale para a comparação: nosso material + danificado + terceirizado (que SOMA) */
   function valorTotal(id) {
     var v = valor(id);
-    return v === null ? null : v + danoQtd(id);
+    if (v === null) return null;
+    return v + danoQtd(id) + (ehFlag100(id) ? 0 : U.num(terc[id]));
   }
-  function tercQtd(id) {
+  function ehFlag100(id) {
     var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
-    /* produto marcado como terceirizado no checklist: ele INTEIRO é de fora */
-    if (linha && linha.produto && linha.produto.terceirizado) {
-      var t = valorTotal(id);
-      return t === null ? 0 : t;
+    return !!(linha && linha.produto && linha.produto.terceirizado);
+  }
+  /* Terceirizado SOMA na contagem: contador = material do NOSSO estoque,
+     campo 🔗 = o que veio do fornecedor. Total conferido = nosso + terceirizado.
+     Ex.: previsto 4, nosso 1 + 3 terceirizados = 4, sem divergência. */
+  function tercQtd(id) {
+    if (ehFlag100(id)) {
+      /* produto 100% terceirizado: o próprio contador é todo de fornecedor */
+      var v = valor(id);
+      return v === null ? 0 : v + danoQtd(id);
     }
     return U.num((terc[id] === undefined ? '' : terc[id]));
-  }
-  function tercEstourado(id) {
-    var total = valorTotal(id);
-    if (total === null) return false;
-    var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
-    if (linha && linha.produto && linha.produto.terceirizado) return false;
-    return U.num(terc[id]) > total;
   }
 
   function danoIncompleto(id) {
@@ -4871,7 +4871,7 @@ function TelaConferencia(arg) {
     var tem = U.num(v) > 0;
     return '<div class="terc" data-id="' + id + '">' +
       '<div class="terc__linha">' +
-        '<span class="terc__rot">🔗 Deste total, quantos são terceirizados?</span>' +
+        '<span class="terc__rot">🔗 Terceirizados do fornecedor (SOMAM no total)</span>' +
         '<input class="terc__campo js-terc-qtd" data-id="' + id + '" type="number" inputmode="numeric" ' +
           'min="0" placeholder="0" value="' + U.esc(v) + '" aria-label="Quantidade terceirizada de ' + U.esc(l.nome) + '">' +
       '</div>' +
@@ -4893,14 +4893,9 @@ function TelaConferencia(arg) {
     if (fornCaixa) fornCaixa.hidden = !(U.num(terc[id]) > 0);
 
     if (!t) { if (info) info.textContent = ''; return; }
-    if (!flag100 && total !== null && U.num(terc[id]) > total) {
-      info.style.color = 'var(--vermelho)';
-      info.textContent = '🔴 Terceirizado (' + U.fmt(U.num(terc[id])) + ') maior que o total contado (' + U.fmt(total) + '). Ajuste antes de finalizar.';
-      return;
-    }
 
     var op = opcaoDe(tercSel[id]);
-    var proprios = total === null ? null : total - t;
+    var proprios = valor(id);
     if (tercSel[id] === 'sem') {
       info.style.color = 'var(--laranja)';
       info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' sem vínculo com fornecedor (não vai abater do estoque de terceiros).';
@@ -4911,7 +4906,7 @@ function TelaConferencia(arg) {
         ? '🔴 ' + op.fornecedor + ' tem só ' + U.fmt(op.disp) + ' de ' + op.material + (cega ? ' neste evento' : ' no galpão') + '.'
         : '🔗 ' + U.fmt(t) + ' de ' + op.fornecedor + ' (' + op.material + ')' +
           (cega ? ' voltando para o galpão do fornecedor' : ' saindo do galpão do fornecedor') +
-          (proprios !== null && !flag100 ? ' · ' + U.fmt(proprios) + ' do nosso estoque' : ''));
+          (proprios !== null && proprios > 0 && !flag100 ? ' · +' + U.fmt(proprios) + ' do nosso estoque' : ''));
     } else {
       info.style.color = 'var(--laranja)';
       info.textContent = '🔗 ' + U.fmt(t) + ' terceirizado' + (t > 1 ? 's' : '') + ' — escolha de qual fornecedor ' + (cega ? 'voltou' : 'saiu') + '.';
@@ -5071,25 +5066,32 @@ function TelaConferencia(arg) {
       caixa.classList.add('ok'); campo.classList.add('ok');
       res.className = 'prod__res ok';
       var dq = danoQtd(id);
-      res.innerHTML = dq > 0
-        ? '🔵 Registrado: <b>' + U.fmt(v) + '</b> em bom estado + <b>' + U.fmt(dq) +
-          '</b> danificado' + (dq > 1 ? 's' : '') + ' = <b>' + U.fmt(v + dq) + ' ' + U.esc(linha.unidade) + '</b>'
+      var tqc = ehFlag100(id) ? 0 : U.num(terc[id]);
+      var partes = [];
+      if (v > 0 || (!dq && !tqc)) partes.push('<b>' + U.fmt(v) + '</b>' + (dq || tqc ? ' em bom estado' : ''));
+      if (dq > 0) partes.push('<b>' + U.fmt(dq) + '</b> danificado' + (dq > 1 ? 's' : ''));
+      if (tqc > 0) partes.push('<b>' + U.fmt(tqc) + '</b> terceirizado' + (tqc > 1 ? 's' : ''));
+      res.innerHTML = (dq || tqc)
+        ? '🔵 Registrado: ' + partes.join(' + ') + ' = <b>' + U.fmt(valorTotal(id)) + ' ' + U.esc(linha.unidade) + '</b>'
         : '🔵 Registrado: <b>' + U.fmt(v) + ' ' + U.esc(linha.unidade) + '</b>';
     } else {
-      var dif = v - base;
+      var total = valorTotal(id);
+      var tqui = ehFlag100(id) ? 0 : U.num(terc[id]);
+      var soma = tqui > 0 ? U.fmt(v) + ' do nosso estoque + ' + U.fmt(tqui) + ' terceirizado' + (tqui > 1 ? 's' : '') + ' = <b>' + U.fmt(total) + '</b> · ' : '';
+      var dif = total - base;
       if (dif === 0) {
         caixa.classList.add('ok'); campo.classList.add('ok');
         res.className = 'prod__res ok';
-        res.innerHTML = '🟢 Confere com o ' + info.base.toLowerCase() + '.';
+        res.innerHTML = '🟢 ' + soma + 'Confere com o ' + info.base.toLowerCase() + '.';
       } else {
         caixa.classList.add('dif'); campo.classList.add('dif');
         res.className = 'prod__res ' + (dif < 0 ? 'dif' : 'mais');
-        res.innerHTML = (dif < 0 ? '🔴 Faltam ' : '🔴 Sobrando ') + '<b>' + U.fmt(Math.abs(dif)) + '</b>' +
+        res.innerHTML = '🔴 ' + soma + (dif < 0 ? 'Faltam ' : 'Sobrando ') + '<b>' + U.fmt(Math.abs(dif)) + '</b>' +
           ' · Divergência: <b>' + (dif > 0 ? '+' : '') + U.fmt(dif) + '</b>';
       }
     }
     var tq = tercQtd(id);
-    if (v !== null && tq > 0 && !(linha.produto && linha.produto.terceirizado)) {
+    if (v !== null && tq > 0 && !ehFlag100(id) && cega) {
       res.innerHTML += ' <span class="terc-tag">🔗 ' + U.fmt(tq) + ' terc.</span>';
     }
     pintarTerc(id);
@@ -5140,15 +5142,16 @@ function TelaConferencia(arg) {
       var e = embalagem[l.produto.id] || {};
       var d = danoDe(l.produto.id);
       var dq = danoQtd(l.produto.id);
+      var tq2 = tercQtd(l.produto.id);
       itens.push({
         produto_id: l.produto.id,
-        quantidade: v + dq,          /* bom estado + danificado */
+        quantidade: valorTotal(l.produto.id),   /* nosso + danificado + terceirizado */
         por_embalagem: e.por,
         embalagens: e.qtd,
         avulsas: e.soltas,
         observacao: e.obs,
         qtd_danificada: dq,
-        qtd_terceirizada: Math.min(tercQtd(l.produto.id), v + dq),
+        qtd_terceirizada: tq2,
         dano_descricao: dq > 0 ? (d.desc || '').trim() : null,
         dano_foto_base64: dq > 0 ? d.foto : null
       });
@@ -5329,9 +5332,10 @@ function TelaConferencia(arg) {
       var copia = Object.assign({}, l);
       var v = valor(l.produto.id);
       if (tipo === 'saida') {
-        copia.saida = v;
-        copia.enviado = v === null ? 0 : v;
-        copia.difSaida = v === null ? null : v - copia.prevista;
+        var totalS = valorTotal(l.produto.id);
+        copia.saida = totalS;
+        copia.enviado = totalS === null ? 0 : totalS;
+        copia.difSaida = totalS === null ? null : totalS - copia.prevista;
       } else {
         var total = valorTotal(l.produto.id);
         copia.retorno = total;
@@ -5366,13 +5370,6 @@ function TelaConferencia(arg) {
     }
     if (cega && r.produtos - r.pendentes === 0) {
       U.aviso('Registre pelo menos um produto que chegou neste caminhão.', 'erro', 5000);
-      return;
-    }
-    var estourado = linhas.filter(function (l) { return tercEstourado(l.produto.id); })[0];
-    if (estourado) {
-      U.aviso('🔗 ' + estourado.nome + ': o terceirizado está maior que o total contado. Ajuste o número.', 'erro', 6000);
-      var cxT = U.$('.prod[data-id="' + estourado.produto.id + '"]', tela);
-      if (cxT) cxT.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     /* terceirizado precisa dizer de qual fornecedor saiu (ou marcar "sem vínculo") */
