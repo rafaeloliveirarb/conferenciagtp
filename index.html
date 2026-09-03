@@ -930,6 +930,17 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
+  /* Zera o estoque INTEIRO: apaga todas as peças e todos os movimentos. */
+  zerarEstoque: function () {
+    var self = this;
+    return self.cliente.from('movimentos_estoque').delete().neq('tipo', '~nunca~')
+      .then(function (r) {
+        if (r.error) Banco._erro(r.error);
+        return self.cliente.from('estoque').delete().neq('nome', '~nunca~');
+      })
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+
   /* apaga os movimentos de uma conferência (para re-finalizar sem duplicar) */
   apagarMovimentosConferencia: function (conferenciaId) {
     return this.cliente.from('movimentos_estoque').delete().eq('conferencia_id', conferenciaId)
@@ -2430,8 +2441,40 @@ function TelaEstoque() {
 
       h += '<div class="btn-linha" style="margin-top:14px">' +
         '<button class="btn btn--branco" onclick="TelaEstoque._trocarSenha()">🔑 Trocar senha do estoque</button>' +
-        '<button class="btn btn--branco" onclick="App.voltar()">Voltar</button></div>';
+        '<button class="btn btn--branco" onclick="App.voltar()">Voltar</button></div>' +
+        '<button class="btn btn--branco btn--bloco" id="btn-zerar-estoque" ' +
+          'style="margin-top:22px;color:var(--vermelho);border-color:var(--vermelho)">🧹 ZERAR ESTOQUE (apagar tudo)</button>';
       tela.innerHTML = h;
+
+      U.$('#btn-zerar-estoque').addEventListener('click', function () {
+        var m = U.modal({
+          titulo: '🧹 Zerar o estoque',
+          html: '<p style="margin-bottom:10px">Isto apaga <b>TODAS as ' + cadastro.length + ' peças</b> e ' +
+              '<b>todos os ' + movimentos.length + ' movimentos</b> do estoque do galpão. ' +
+              'Os eventos, as conferências e o material terceirizado não são tocados. <b>Não dá para desfazer.</b></p>' +
+            '<p class="mut peq" style="margin-bottom:8px">Para confirmar, escreva <b>ZERAR</b> na caixa:</p>' +
+            '<input class="entrada" id="zera-confirma" autocomplete="off" placeholder="ZERAR" style="text-transform:uppercase">',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+              '<button class="btn" data-ok style="background:var(--vermelho)">APAGAR TUDO</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          if (m.querySelector('#zera-confirma').value.trim().toUpperCase() !== 'ZERAR') {
+            return U.aviso('Escreva ZERAR para confirmar.', 'erro');
+          }
+          var b = m.querySelector('[data-ok]');
+          b.disabled = true; b.textContent = 'Apagando...';
+          Banco.zerarEstoque().then(function () {
+            m.fechar();
+            U.aviso('🧹 Estoque zerado: peças e movimentos apagados.', 'ok', 6000);
+            App.recarregar();
+          }).catch(function (e) {
+            b.disabled = false; b.textContent = 'APAGAR TUDO';
+            App.falhou(e);
+          });
+        });
+      });
 
       var busca = U.$('#busca-estoque', tela);
       if (busca) busca.addEventListener('input', function () {
@@ -3463,7 +3506,9 @@ function TelaNovoEvento() {
       U.aviso(limpos.length
         ? '✓ Evento criado com ' + limpos.length + ' produtos no checklist.'
         : '✓ Evento criado. Anexe o checklist quando quiser.', 'ok', 5000);
-      App.trocar(TelaEvento, novoEvento.id);
+      oferecerCadastroEstoque(limpos, function () {
+        App.trocar(TelaEvento, novoEvento.id);
+      });
     }).catch(function (e) {
       botao.disabled = false;
       botao.textContent = 'CRIAR EVENTO';
@@ -4209,7 +4254,7 @@ function TelaChecklist(eventoId) {
       botao.textContent = 'Salvando...';
       Banco.salvarProdutos(eventoId, limpos).then(function () {
         U.aviso('✓ Checklist confirmado com ' + limpos.length + ' produtos.', 'ok');
-        App.voltar();
+        oferecerCadastroEstoque(limpos, function () { App.voltar(); });
       }).catch(function (e) {
         botao.disabled = false;
         botao.textContent = 'CONFIRMAR CHECKLIST';
@@ -4217,6 +4262,76 @@ function TelaChecklist(eventoId) {
       });
     });
   }
+}
+
+/* Depois de salvar um checklist: pergunta se cadastra no estoque os
+   produtos que ainda não existem lá — todos, alguns (desmarcando) ou nenhum.
+   Sempre chama aoTerminar() no fim, escolha o que for. */
+function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
+  Banco.listarEstoque()
+    .then(function (cadastro) {
+      var porChave = {};
+      cadastro.forEach(function (i) { porChave[Estoque.chave(i.nome)] = true; });
+      var vistos = {};
+      var faltantes = (produtosChecklist || []).filter(function (p) {
+        if (p.terceirizado) return false;                 /* terceirizado não entra no estoque */
+        var ch = Estoque.chave(p.nome);
+        if (!ch || porChave[ch] || vistos[ch]) return false;
+        vistos[ch] = true;
+        return true;
+      });
+      if (!faltantes.length) return aoTerminar();
+
+      var m = U.modal({
+        titulo: '📦 Cadastrar no estoque?',
+        html: '<p class="mut peq" style="margin-bottom:12px">' + faltantes.length +
+            ' produto' + (faltantes.length > 1 ? 's' : '') + ' do checklist ainda não ' +
+            (faltantes.length > 1 ? 'estão' : 'está') + ' no estoque do galpão. ' +
+            'Marque o que quiser cadastrar (saldo começa em 0 — ajuste depois no 📦 ESTOQUE):</p>' +
+          '<div style="max-height:45vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
+            faltantes.map(function (p, i) {
+              return '<label style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:8px 0;cursor:pointer">' +
+                '<input type="checkbox" class="js-cad-es" data-i="' + i + '" checked style="width:20px;height:20px">' +
+                '<span>' + U.esc(p.nome) + ' <span class="peq mut">' + U.esc(p.unidade || 'UN') + '</span></span></label>';
+            }).join('') +
+          '</div>',
+        pe: '<button class="btn btn--branco" data-nada>NÃO CADASTRAR NADA</button>' +
+            '<button class="btn btn--verde" data-ok>CADASTRAR MARCADOS</button>',
+        travado: true
+      });
+
+      m.querySelector('[data-nada]').addEventListener('click', function () {
+        m.fechar();
+        U.aviso('Ok — nenhum produto novo entrou no estoque. Você pode cadastrar depois no 📦 ESTOQUE.', 'info', 5000);
+        aoTerminar();
+      });
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        var escolhidos = [];
+        m.querySelectorAll('.js-cad-es').forEach(function (cx) {
+          if (cx.checked) escolhidos.push(faltantes[Number(cx.dataset.i)]);
+        });
+        if (!escolhidos.length) {
+          m.fechar();
+          U.aviso('Nenhum marcado — nada entrou no estoque.', 'info', 4000);
+          return aoTerminar();
+        }
+        var b = m.querySelector('[data-ok]');
+        b.disabled = true; b.textContent = 'Cadastrando...';
+        Promise.all(escolhidos.map(function (p) {
+          return Banco.criarEstoque({
+            nome: String(p.nome).trim().replace(/\s+/g, ' '),
+            unidade: p.unidade || 'UN',
+            ativo: true
+          }).catch(function () { });   /* nome repetido em corrida: segue */
+        })).then(function () {
+          m.fechar();
+          U.aviso('✓ ' + escolhidos.length + ' produto' + (escolhidos.length > 1 ? 's' : '') +
+            ' cadastrado' + (escolhidos.length > 1 ? 's' : '') + ' no estoque (saldo 0).', 'ok', 5000);
+          aoTerminar();
+        }).catch(function () { m.fechar(); aoTerminar(); });
+      });
+    })
+    .catch(function () { aoTerminar(); });   /* tabela do estoque ausente: segue normal */
 }
 
 /* ============================================================
@@ -5352,30 +5467,10 @@ function TelaConferencia(arg) {
           };
         });
 
-        /* cria no estoque o que ainda não existe (saldo começa em 0) */
-        var faltantes = [];
-        var vistos = {};
-        itens.forEach(function (i) {
-          if (!(Number(i.quantidade) - (Number(i.qtd_terceirizada) || 0) > 0)) return;
-          var info = nomePorProduto[i.produto_id] || { nome: '', unidade: 'UN' };
-          if (info.terceirizado) return;   /* material de fora: estoque não vê */
-          var ch = Estoque.chave(info.nome);
-          if (!ch || porChave[ch] || vistos[ch]) return;
-          vistos[ch] = true;
-          faltantes.push({ nome: info.nome.trim().replace(/\s+/g, ' '), unidade: info.unidade || 'UN', ativo: true });
-        });
-
-        var criar = faltantes.length
-          ? Promise.all(faltantes.map(function (f) {
-              return Banco.criarEstoque(f).then(function (novo) {
-                if (novo) porChave[Estoque.chave(novo.nome)] = novo;
-              }).catch(function () { /* corrida: outro salvou antes — segue */ });
-            })).then(function () { return Banco.listarEstoque(); }).then(function (att) {
-              att.forEach(function (i) { porChave[Estoque.chave(i.nome)] = i; });
-            })
-          : Promise.resolve();
-
-        return criar.then(function () {
+        /* O estoque só movimenta produtos que o coordenador CADASTROU
+           (a escolha é feita no anexo do checklist). Produto fora do
+           estoque não gera movimento — nem cria cadastro sozinho. */
+        return Promise.resolve().then(function () {
           var movimentos = [];
           itens.forEach(function (i) {
             if (!(Number(i.quantidade) > 0)) return;   /* contagem zero não mexe no estoque */
