@@ -2532,16 +2532,24 @@ function TelaEstoque() {
 
           var m = U.modal({
             titulo: '📎 ' + lidos.length + ' peças encontradas',
-            html: '<div style="max-height:45vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px;margin-bottom:12px">' +
-                lidos.map(function (p) {
-                  var existe = cadastro.some(function (i) { return Estoque.chave(i.nome) === Estoque.chave(p.nome); });
-                  return '<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--linha);padding:6px 0">' +
-                    '<span>' + U.esc(p.nome) + (existe ? '' : ' <span class="peq" style="color:var(--laranja);font-weight:700">nova</span>') + '</span>' +
-                    '<b style="white-space:nowrap">' + U.fmt(p.quantidade_prevista) + ' ' + U.esc(p.unidade || 'UN') + '</b></div>';
+            html: '<p class="mut peq" style="margin-bottom:8px">Marque o que entra e ajuste a quantidade se precisar. ' +
+                'Peça <span class="peq" style="color:var(--laranja);font-weight:700">nova</span> desmarcada <b>não é cadastrada</b>.</p>' +
+              '<div style="max-height:42vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px;margin-bottom:12px">' +
+                lidos.map(function (p, i) {
+                  var existe = cadastro.some(function (x) { return Estoque.chave(x.nome) === Estoque.chave(p.nome); });
+                  return '<div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--linha);padding:7px 0">' +
+                    '<input type="checkbox" class="js-imp-ok" data-i="' + i + '" checked style="width:20px;height:20px;flex:none;cursor:pointer">' +
+                    '<span style="flex:1">' + U.esc(p.nome) +
+                      (existe ? '' : ' <span class="peq" style="color:var(--laranja);font-weight:700">nova</span>') + '</span>' +
+                    '<input type="number" class="entrada js-imp-qtd" data-i="' + i + '" inputmode="numeric" min="0" ' +
+                      'value="' + U.esc(String(p.quantidade_prevista)) + '" ' +
+                      'style="width:88px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+                    '<span class="peq mut" style="flex:none;width:32px">' + U.esc(p.unidade || 'UN') + '</span>' +
+                  '</div>';
                 }).join('') +
               '</div>' +
-              '<p class="mut peq" style="margin-bottom:6px"><b>SOMAR AO SALDO</b>: as quantidades entram por cima do que já tem (chegou mercadoria).</p>' +
-              '<p class="mut peq"><b>VIRAR O SALDO ATUAL</b>: o saldo de cada peça fica exatamente como está no arquivo (contagem geral do galpão).</p>',
+              '<p class="mut peq" style="margin-bottom:6px"><b>SOMAR AO SALDO</b>: as quantidades marcadas entram por cima do que já tem (chegou mercadoria).</p>' +
+              '<p class="mut peq"><b>VIRAR O SALDO ATUAL</b>: o saldo de cada peça marcada fica exatamente o número da caixa (contagem geral do galpão).</p>',
             pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
                 '<button class="btn btn--branco" data-somar>SOMAR AO SALDO</button>' +
                 '<button class="btn btn--verde" data-definir>VIRAR O SALDO ATUAL</button>',
@@ -2550,19 +2558,29 @@ function TelaEstoque() {
           m.querySelector('[data-x]').addEventListener('click', m.fechar);
 
           function importar(modo) {
+            /* só o que está marcado, com a quantidade da caixinha */
+            var escolhidos = [];
+            m.querySelectorAll('.js-imp-ok').forEach(function (cx) {
+              if (!cx.checked) return;
+              var i = Number(cx.dataset.i);
+              var campo = m.querySelector('.js-imp-qtd[data-i="' + i + '"]');
+              escolhidos.push({ p: lidos[i], qtd: U.num(campo ? campo.value : lidos[i].quantidade_prevista) });
+            });
+            if (!escolhidos.length) return U.aviso('Marque pelo menos uma peça.', 'erro', 4000);
+
             var b1 = m.querySelector('[data-somar]'), b2 = m.querySelector('[data-definir]');
             b1.disabled = b2.disabled = true;
             b2.textContent = 'Importando...';
 
-            /* cria no cadastro o que ainda não existe */
+            /* cria no cadastro só as NOVAS que ficaram marcadas */
             var porChave = {};
             cadastro.forEach(function (i) { porChave[Estoque.chave(i.nome)] = i; });
-            var novas = lidos.filter(function (p) { return !porChave[Estoque.chave(p.nome)]; });
+            var novas = escolhidos.filter(function (e) { return !porChave[Estoque.chave(e.p.nome)]; });
 
-            Promise.all(novas.map(function (p) {
+            Promise.all(novas.map(function (e) {
               return Banco.criarEstoque({
-                nome: p.nome.trim().replace(/\s+/g, ' '),
-                unidade: p.unidade || 'UN', ativo: true
+                nome: e.p.nome.trim().replace(/\s+/g, ' '),
+                unidade: e.p.unidade || 'UN', ativo: true
               }).then(function (novo) { if (novo) porChave[Estoque.chave(novo.nome)] = novo; })
                 .catch(function () { });
             })).then(function () {
@@ -2570,12 +2588,12 @@ function TelaEstoque() {
             }).then(function (att) {
               att.forEach(function (i) { porChave[Estoque.chave(i.nome)] = i; });
               var movimentos = [];
-              lidos.forEach(function (p) {
-                var alvo = porChave[Estoque.chave(p.nome)];
+              escolhidos.forEach(function (e) {
+                var alvo = porChave[Estoque.chave(e.p.nome)];
                 if (!alvo) return;
-                var qtd = Number(p.quantidade_prevista);
+                var qtd = e.qtd;
                 if (modo === 'somar') {
-                  movimentos.push({
+                  if (qtd > 0) movimentos.push({
                     estoque_id: alvo.id, tipo: 'entrada', quantidade: qtd,
                     usuario_id: Sessao.atual.id, observacao: 'Importado: ' + arq.name
                   });
@@ -2592,7 +2610,8 @@ function TelaEstoque() {
               return Banco.criarMovimentos(movimentos);
             }).then(function () {
               m.fechar();
-              U.aviso('✓ ' + lidos.length + ' peças importadas de ' + arq.name + '.', 'ok', 5000);
+              U.aviso('✓ ' + escolhidos.length + ' peça' + (escolhidos.length > 1 ? 's' : '') + ' importada' +
+                (escolhidos.length > 1 ? 's' : '') + (novas.length ? ' (' + novas.length + ' cadastradas agora)' : '') + '.', 'ok', 6000);
               App.recarregar();
             }).catch(function (e) {
               b1.disabled = b2.disabled = false;
