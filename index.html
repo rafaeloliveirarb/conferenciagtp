@@ -669,6 +669,22 @@ const U = {
 /* ============================================================
    js/supabase.js — toda conversa com o banco passa por aqui
    ============================================================ */
+/* A barra da Vercel (e algumas extensões) tenta clonar os cabeçalhos das
+   chamadas e quebra com "Headers object could not be cloned". Este fetch
+   converte os cabeçalhos para um objeto simples antes de enviar — clonável,
+   então a chamada passa mesmo com a barra ligada. */
+function fetchLimpo(recurso, opcoes) {
+  opcoes = opcoes || {};
+  try {
+    if (opcoes.headers && typeof Headers !== 'undefined' && opcoes.headers instanceof Headers) {
+      var simples = {};
+      opcoes.headers.forEach(function (v, k) { simples[k] = v; });
+      opcoes = Object.assign({}, opcoes, { headers: simples });
+    }
+  } catch (e) { /* qualquer coisa estranha: segue com o que veio */ }
+  return fetch(recurso, opcoes);
+}
+
 const Banco = {
   cliente: null,
   configurado: false,
@@ -679,13 +695,19 @@ const Banco = {
     if (typeof supabase === 'undefined' || !supabase.createClient) {
       throw new Error('A biblioteca do Supabase não carregou. Verifique sua conexão com a internet e recarregue a página.');
     }
-    this.cliente = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    this.cliente = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { fetch: fetchLimpo }
+    });
     return true;
   },
 
   /* Traduz o erro técnico do Supabase em algo que dá para entender. */
   explicar: function (erro) {
     var m = (erro && (erro.message || erro.msg)) || 'Erro desconhecido';
+    if (/DataCloneError|could not be cloned|postMessage/i.test(m)) {
+      return 'Uma extensão ou barra do navegador (ex.: Vercel Toolbar) interferiu na conexão. ' +
+        'Desative-a ou teste numa janela anônima — nos celulares da equipe isso não acontece.';
+    }
     if (/Failed to fetch|NetworkError|network/i.test(m)) {
       return 'Não foi possível falar com o servidor. Verifique sua conexão com a internet e tente novamente.';
     }
@@ -707,6 +729,12 @@ const Banco = {
   listarUsuarios: function () {
     return this.cliente.from('usuarios').select('*').eq('ativo', true).order('nome')
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
+  },
+
+  /* Conferente novo se cadastra na hora de entrar (papel sempre 'conferente'). */
+  criarUsuario: function (u) {
+    return this.cliente.from('usuarios').insert(u).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
   },
 
   listarEventos: function () {
@@ -4903,7 +4931,7 @@ const Relatorio = {
       botao.textContent = 'Testando...';
 
       /* testa de verdade antes de guardar */
-      var teste = supabase.createClient(url, chave);
+      var teste = supabase.createClient(url, chave, { global: { fetch: fetchLimpo } });
       teste.from('usuarios').select('id').then(function (r) {
         if (r.error) {
           botao.disabled = false;
@@ -4958,29 +4986,111 @@ const Relatorio = {
     });
 
     U.$('#btn-conferente').addEventListener('click', function () {
+      /* Busca a lista na hora: se a internet falhou na abertura do app,
+         a lista estaria vazia e os conferentes cadastrados não apareceriam. */
+      Banco.listarUsuarios()
+        .then(function (us) { App.usuarios = us; abrirEscolhaConferente(null); })
+        .catch(function (e) { abrirEscolhaConferente(Banco.explicar(e)); });
+    });
+
+    function abrirEscolhaConferente(falhaRede) {
       var lista = App.conferentes();
-      if (!lista.length) {
-        return U.aviso('Nenhum conferente cadastrado no Supabase. Rode o SQL de instalação.', 'erro', 7000);
-      }
       var m = U.modal({
         titulo: 'Quem está conferindo?',
         html: '<div class="escolha">' + lista.map(function (c) {
-          return '<button class="escolha__item js-quem" data-id="' + c.id + '">' +
-            '<span class="escolha__ini">' + U.esc(U.iniciais(c.nome)) + '</span>' +
-            '<span><span class="escolha__nome">' + U.esc(c.nome) + '</span>' +
-            '<span class="escolha__papel">Conferente</span></span></button>';
-        }).join('') + '</div>'
+            return '<button class="escolha__item js-quem" data-id="' + c.id + '">' +
+              '<span class="escolha__ini">' + U.esc(U.iniciais(c.nome)) + '</span>' +
+              '<span><span class="escolha__nome">' + U.esc(c.nome) + '</span>' +
+              '<span class="escolha__papel">Conferente</span></span></button>';
+          }).join('') +
+          '<button class="escolha__item" id="js-outro" style="border-style:dashed">' +
+            '<span class="escolha__ini" style="background:var(--laranja)">+</span>' +
+            '<span><span class="escolha__nome">Outro conferente</span>' +
+            '<span class="escolha__papel">Não está na lista — colocar meu nome</span></span></button>' +
+          '</div>' +
+          (lista.length
+            ? ''
+            : (falhaRede
+                ? '<p class="aviso aviso--vermelho" style="margin-top:10px">Não consegui buscar a lista de conferentes: ' +
+                  U.esc(falhaRede) + '<br>Confira a internet e toque em CONFERENTE de novo.</p>'
+                : '<p class="mut peq" style="margin-top:10px">Nenhum conferente cadastrado ainda. ' +
+                  'Toque em <b>Outro conferente</b> e coloque seu nome para começar.</p>'))
       });
+
+      function entrarComo(u) {
+        Sessao.entrar(u);
+        m.fechar();
+        mostrarApp(true);
+        irParaCasa();
+      }
+
       U.$$('.js-quem', m).forEach(function (b) {
         b.addEventListener('click', function () {
-          var u = lista.filter(function (x) { return x.id === b.dataset.id; })[0];
-          Sessao.entrar(u);
-          m.fechar();
-          mostrarApp(true);
-          irParaCasa();
+          entrarComo(lista.filter(function (x) { return x.id === b.dataset.id; })[0]);
         });
       });
-    });
+
+      /* Conferente que não está na lista: o nome é obrigatório para conferir,
+         porque toda contagem fica assinada por quem contou. */
+      U.$('#js-outro', m).addEventListener('click', function () {
+        m.fechar();
+        var m2 = U.modal({
+          titulo: 'Qual é o seu nome?',
+          html: '<p class="mut peq" style="margin-bottom:12px">Toda conferência fica registrada com o nome de quem contou, ' +
+              'então é obrigatório se identificar para conferir. Escreva seu nome completo.</p>' +
+            '<label class="campo"><span class="campo__rot">Seu nome</span>' +
+              '<input class="entrada" id="nome-novo" placeholder="Ex.: João da Silva" autocomplete="name" ' +
+              'style="text-transform:capitalize"></label>' +
+            '<p id="nome-erro" class="aviso aviso--vermelho" hidden></p>',
+          pe: '<button class="btn btn--branco" data-x>Voltar</button>' +
+              '<button class="btn btn--verde" data-ok>ENTRAR E CONFERIR</button>',
+          travado: true
+        });
+        var campo = U.$('#nome-novo', m2);
+        campo.focus();
+
+        function erro(texto) {
+          var e = U.$('#nome-erro', m2);
+          e.textContent = texto; e.hidden = false;
+          campo.focus();
+        }
+
+        function confirmar() {
+          var nome = campo.value.trim().replace(/\s+/g, ' ');
+          if (nome.length < 3) return erro('Escreva seu nome com pelo menos 3 letras.');
+          if (nome.indexOf(' ') < 0) return erro('Escreva nome e sobrenome, para não confundir com outro colega.');
+
+          /* mesmo nome de alguém já cadastrado: entra como a pessoa existente */
+          var igual = App.usuarios.filter(function (u) {
+            return u.nome.trim().toUpperCase() === nome.toUpperCase();
+          })[0];
+          if (igual) { m2.fechar(); return entrarComo(igual); }
+
+          var botao = m2.querySelector('[data-ok]');
+          botao.disabled = true; botao.textContent = 'Entrando...';
+          Banco.criarUsuario({ nome: nome, tipo: 'conferente', ativo: true })
+            .then(function (novo) {
+              return App.carregarBase().then(function () { return novo; });
+            })
+            .then(function (novo) {
+              m2.fechar();
+              U.aviso('✓ Bem-vindo, ' + nome + '! Suas conferências ficam no seu nome.', 'ok', 5000);
+              entrarComo(novo);
+            })
+            .catch(function (e) {
+              botao.disabled = false; botao.textContent = 'ENTRAR E CONFERIR';
+              erro(e.message);
+            });
+        }
+
+        m2.querySelector('[data-x]').addEventListener('click', function () {
+          m2.fechar();
+          abrirEscolhaConferente(null);
+        });
+        m2.querySelector('[data-ok]').addEventListener('click', confirmar);
+        campo.addEventListener('keydown', function (e) { if (e.key === 'Enter') confirmar(); });
+      });
+    }
 
     U.$('#topo-voltar').addEventListener('click', function () { App.voltar(); });
 
