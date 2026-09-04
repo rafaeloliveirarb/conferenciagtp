@@ -953,6 +953,28 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* ---------- ferramentas (carrinho, escada, martelete...) ---------- */
+  listarFerramentas: function () {
+    return this.cliente.from('ferramentas').select('*').order('nome')
+      .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
+  },
+  criarFerramenta: function (f) {
+    return this.cliente.from('ferramentas').insert(f).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+  apagarFerramenta: function (id) {
+    return this.cliente.from('ferramentas').delete().eq('id', id)
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+  listarMovFerramentas: function () {
+    return this.cliente.from('movimentos_ferramentas').select('*').order('created_at', { ascending: false })
+      .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
+  },
+  criarMovFerramenta: function (m) {
+    return this.cliente.from('movimentos_ferramentas').insert(m).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
   /* ---------- configurações gerais (chave/valor) ---------- */
   lerConfig: function (chave) {
     return this.cliente.from('config').select('valor').eq('chave', chave)
@@ -1874,7 +1896,8 @@ var Tempo = {
       var canal = Banco.cliente.channel('tempo-real-app');
       ['eventos', 'produtos', 'conferencias', 'itens_conferencia',
        'carregamentos', 'caminhoes', 'estoque', 'movimentos_estoque',
-       'fornecedores', 'movimentos_terceiros'].forEach(function (tabela) {
+       'fornecedores', 'movimentos_terceiros',
+       'ferramentas', 'movimentos_ferramentas'].forEach(function (tabela) {
         canal.on('postgres_changes', { event: '*', schema: 'public', table: tabela }, Tempo._mudou);
       });
       canal.subscribe();
@@ -1931,6 +1954,32 @@ var Estoque = {
     return s;
   },
   rotulo: { entrada: '📥 Entrada', saida: '🚚 Saída p/ evento', retorno: '↩️ Retorno de evento', ajuste: '🛠️ Ajuste' }
+};
+
+/* ---------- Ferramentas: saldo e onde cada uma está ---------- */
+var Ferramentas = {
+  /* entrada/retorno somam · saida desconta · ajuste vale o sinal */
+  saldos: function (itens, movimentos) {
+    var s = {};
+    (itens || []).forEach(function (i) { s[i.id] = { galpao: 0, porEvento: {} }; });
+    (movimentos || []).forEach(function (m) {
+      if (!s[m.ferramenta_id]) s[m.ferramenta_id] = { galpao: 0, porEvento: {} };
+      var alvo = s[m.ferramenta_id];
+      var q = Math.abs(Number(m.quantidade) || 0);
+      if (m.tipo === 'entrada') alvo.galpao += q;
+      if (m.tipo === 'ajuste') alvo.galpao += Number(m.quantidade) || 0;
+      if (m.tipo === 'saida') {
+        alvo.galpao -= q;
+        if (m.evento_id) alvo.porEvento[m.evento_id] = (alvo.porEvento[m.evento_id] || 0) + q;
+      }
+      if (m.tipo === 'retorno') {
+        alvo.galpao += q;
+        if (m.evento_id) alvo.porEvento[m.evento_id] = (alvo.porEvento[m.evento_id] || 0) - q;
+      }
+    });
+    return s;
+  },
+  rotulo: { entrada: '📥 Entrada', saida: '🚚 Saiu para evento', retorno: '↩️ Voltou de evento', ajuste: '🛠️ Ajuste' }
 };
 
 /* ---------- Terceiros: material de fornecedor, controlado à parte ----------
@@ -2191,6 +2240,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-frota">🚛 FROTA</button>' +
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
+        '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ ANEXAR CHECKLIST</button>' +
       '</div>' +
 
@@ -2325,6 +2375,7 @@ function TelaPainel() {
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
     U.$('#btn-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
+    U.$('#btn-ferramentas').addEventListener('click', function () { App.abrir(TelaFerramentas); });
   }).catch(function (e) {
     tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
       '<b>Não foi possível carregar os dados.</b>' + U.esc(e.message) + '</div></div>' +
@@ -3157,6 +3208,209 @@ function TelaFornecedor(fornecedorId) {
 }
 
 /* ============================================================
+   Ferramentas do galpão: carrinho 4 rodas, escada, martelete,
+   marreta... Quem pega para um evento registra a saída; quando
+   volta, registra a volta. Todo mundo vê onde cada uma está.
+   ============================================================ */
+function TelaFerramentas() {
+  App.topo('FERRAMENTAS', 'Carrinho, escada, martelete, marreta...');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando as ferramentas...');
+  var ehCoord = Sessao.ehCoordenador();
+
+  Promise.all([Banco.listarFerramentas(), Banco.listarMovFerramentas(), App.carregarBase()])
+    .then(function (r) {
+      var ferramentas = r[0], movimentos = r[1];
+      var saldos = Ferramentas.saldos(ferramentas, movimentos);
+      var eventosAtivos = App.eventos.filter(function (e) {
+        return e.status !== 'Finalizado' && e.status !== 'Com divergência';
+      });
+
+      function nomeEvento(id) {
+        var ev = App.eventos.filter(function (e) { return e.id === id; })[0];
+        return ev ? ev.nome : 'Evento apagado';
+      }
+
+      var h = '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar ferramenta</h3></div>' +
+        '<div class="cartao__corpo">' +
+          '<label class="campo"><span class="campo__rot">Nome</span>' +
+            '<input id="fe-nome" class="entrada" placeholder="Ex.: Carrinho 4 rodas, Escada 6 degraus"></label>' +
+          '<label class="campo"><span class="campo__rot">Quantidade no galpão</span>' +
+            '<input id="fe-qtd" class="entrada" type="number" inputmode="numeric" placeholder="Ex.: 2"></label>' +
+          '<button class="btn btn--laranja btn--bloco" id="btn-add-fe">CADASTRAR</button>' +
+        '</div></div>';
+
+      h += '<div class="busca-prod"><input type="search" id="busca-fe" ' +
+        'placeholder="🔍 Buscar ferramenta..." autocomplete="off"></div>';
+
+      h += '<h2 class="secao__tit">Ferramentas <span class="n">' + ferramentas.length + '</span></h2>';
+      if (!ferramentas.length) {
+        h += '<div class="vazio"><p class="vazio__ico">🧰</p><h3>Nenhuma ferramenta</h3>' +
+          '<p>Cadastre acima: carrinho 4 rodas, escada, martelete, marreta...</p></div>';
+      } else {
+        h += ferramentas.map(function (f) {
+          var s = saldos[f.id] || { galpao: 0, porEvento: {} };
+          var fora = Object.keys(s.porEvento)
+            .filter(function (ev) { return s.porEvento[ev] > 0; })
+            .map(function (ev) { return U.esc(nomeEvento(ev)) + ' (<b>' + U.fmt(s.porEvento[ev]) + '</b>)'; });
+          return '<div class="carga" data-nome="' + U.esc(f.nome.toLowerCase()) + '">' +
+            '<div class="carga__cam"><span>🧰</span>' +
+              '<span><b>' + U.esc(f.nome) + '</b>' +
+                '<span class="peq mut" style="display:block">' +
+                  'No galpão: <b style="color:' + (s.galpao < 0 ? 'var(--vermelho)' : 'var(--verde)') + '">' + U.fmt(s.galpao) + '</b>' +
+                  (fora.length ? ' · Em evento: ' + fora.join(' · ') : '') +
+                '</span></span>' +
+              '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
+                '<button class="btn btn--laranja btn--peq js-fe-saiu" data-id="' + f.id + '">🚚 Saiu</button>' +
+                '<button class="btn btn--peq js-fe-voltou" data-id="' + f.id + '">↩️ Voltou</button>' +
+                '<button class="btn btn--branco btn--peq js-fe-mov" data-id="' + f.id + '">Movimentos</button>' +
+                (ehCoord ? '<button class="btn btn--branco btn--peq js-fe-excluir" data-id="' + f.id + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
+              '</span>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      h += '<button class="btn btn--branco btn--bloco" style="margin-top:14px" onclick="App.voltar()">Voltar</button>';
+      tela.innerHTML = h;
+
+      var busca = U.$('#busca-fe', tela);
+      if (busca) busca.addEventListener('input', function () {
+        var t = busca.value.trim().toLowerCase();
+        U.$$('.carga[data-nome]', tela).forEach(function (cx) {
+          cx.style.display = !t || (cx.dataset.nome || '').indexOf(t) >= 0 ? '' : 'none';
+        });
+      });
+
+      U.$('#btn-add-fe').addEventListener('click', function () {
+        var nome = U.$('#fe-nome').value.trim().replace(/\s+/g, ' ');
+        var qtd = U.num(U.$('#fe-qtd').value);
+        if (nome.length < 2) return U.aviso('Dê um nome para a ferramenta.', 'erro');
+        var repetida = ferramentas.some(function (f) { return f.nome.trim().toUpperCase() === nome.toUpperCase(); });
+        if (repetida) return U.aviso('Essa ferramenta já está cadastrada.', 'erro', 5000);
+        var b = this;
+        b.disabled = true; b.textContent = 'Cadastrando...';
+        Banco.criarFerramenta({ nome: nome, ativo: true }).then(function (nova) {
+          if (qtd > 0) {
+            return Banco.criarMovFerramenta({
+              ferramenta_id: nova.id, tipo: 'entrada', quantidade: qtd,
+              usuario_id: Sessao.atual.id, observacao: 'Cadastro'
+            });
+          }
+        }).then(function () {
+          U.aviso('✓ ' + nome + ' cadastrada.', 'ok');
+          App.recarregar();
+        }).catch(function (e) { b.disabled = false; b.textContent = 'CADASTRAR'; App.falhou(e); });
+      });
+
+      function achar(id) { return ferramentas.filter(function (f) { return f.id === id; })[0]; }
+
+      function lancarFe(f, tipo) {
+        var s = saldos[f.id] || { galpao: 0, porEvento: {} };
+        var saiu = tipo === 'saida';
+        var eventosVoltar = Object.keys(s.porEvento).filter(function (ev) { return s.porEvento[ev] > 0; });
+        if (saiu && !eventosAtivos.length) return U.aviso('Nenhum evento em andamento.', 'erro', 5000);
+        if (saiu && s.galpao <= 0) return U.aviso('Não há ' + f.nome + ' no galpão (tem ' + U.fmt(s.galpao) + ').', 'erro', 6000);
+        if (!saiu && !eventosVoltar.length) return U.aviso('Nenhuma ' + f.nome + ' está em evento.', 'erro', 5000);
+
+        var m = U.modal({
+          titulo: (saiu ? '🚚 Saiu — ' : '↩️ Voltou — ') + f.nome,
+          html:
+            '<label class="campo"><span class="campo__rot">' + (saiu ? 'Para qual evento?' : 'De qual evento?') + '</span>' +
+              '<select class="entrada" id="fe-evento">' +
+                (saiu
+                  ? eventosAtivos.map(function (e) { return '<option value="' + e.id + '">' + U.esc(e.nome) + '</option>'; }).join('')
+                  : eventosVoltar.map(function (ev) {
+                      return '<option value="' + ev + '">' + U.esc(nomeEvento(ev)) + ' (' + U.fmt(s.porEvento[ev]) + ' lá)</option>';
+                    }).join('')) +
+              '</select></label>' +
+            '<label class="campo"><span class="campo__rot">Quantidade</span>' +
+              '<input class="entrada" id="fe-mov-qtd" type="number" inputmode="numeric" min="1" value="1"></label>' +
+            '<label class="campo"><span class="campo__rot">Observação (opcional)</span>' +
+              '<input class="entrada" id="fe-obs" placeholder="Ex.: levou com a equipe do Jailson"></label>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+              '<button class="btn btn--verde" data-ok>LANÇAR</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          var eventoId = m.querySelector('#fe-evento').value;
+          var qtd = U.num(m.querySelector('#fe-mov-qtd').value);
+          var obs = m.querySelector('#fe-obs').value.trim();
+          if (!(qtd > 0)) return U.aviso('Informe a quantidade.', 'erro');
+          if (saiu && qtd > s.galpao) return U.aviso('Só há ' + U.fmt(s.galpao) + ' no galpão.', 'erro', 5000);
+          if (!saiu && qtd > (s.porEvento[eventoId] || 0)) {
+            return U.aviso('Esse evento tem só ' + U.fmt(s.porEvento[eventoId] || 0) + '.', 'erro', 5000);
+          }
+          var b = m.querySelector('[data-ok]');
+          b.disabled = true; b.textContent = 'Lançando...';
+          Banco.criarMovFerramenta({
+            ferramenta_id: f.id, tipo: tipo, quantidade: qtd,
+            evento_id: eventoId, observacao: obs || null, usuario_id: Sessao.atual.id
+          }).then(function () {
+            m.fechar();
+            U.aviso('✓ ' + f.nome + ': ' + (saiu ? 'saiu para ' : 'voltou de ') + nomeEvento(eventoId) + ' (' + U.fmt(qtd) + ').', 'ok', 5000);
+            App.recarregar();
+          }).catch(function (e) { b.disabled = false; b.textContent = 'LANÇAR'; App.falhou(e); });
+        });
+      }
+
+      U.$$('.js-fe-saiu', tela).forEach(function (b) {
+        b.addEventListener('click', function () { lancarFe(achar(b.dataset.id), 'saida'); });
+      });
+      U.$$('.js-fe-voltou', tela).forEach(function (b) {
+        b.addEventListener('click', function () { lancarFe(achar(b.dataset.id), 'retorno'); });
+      });
+
+      U.$$('.js-fe-mov', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var f = achar(b.dataset.id);
+          var meus = movimentos.filter(function (m) { return m.ferramenta_id === f.id; }).slice(0, 30);
+          var mv = U.modal({
+            titulo: '📜 Movimentos — ' + f.nome,
+            html: meus.length
+              ? meus.map(function (m) {
+                  var soma = m.tipo === 'entrada' || m.tipo === 'retorno' || (m.tipo === 'ajuste' && m.quantidade > 0);
+                  return '<div style="border-bottom:1px solid var(--linha);padding:8px 0">' +
+                    '<b style="color:' + (soma ? 'var(--verde)' : 'var(--laranja)') + '">' +
+                      (soma ? '+' : '−') + U.fmt(Math.abs(m.quantidade)) + '</b> · ' +
+                    (Ferramentas.rotulo[m.tipo] || m.tipo) +
+                    (m.evento_id ? ' · <b>' + U.esc(nomeEvento(m.evento_id)) + '</b>' : '') +
+                    '<span class="peq mut" style="display:block">' + U.fmtDataHora(m.created_at) + ' · ' +
+                      U.esc(App.nomeUsuario(m.usuario_id)) +
+                      (m.observacao ? ' · ' + U.esc(m.observacao) : '') + '</span>' +
+                  '</div>';
+                }).join('')
+              : '<p class="mut">Nenhum movimento ainda.</p>',
+            pe: '<button class="btn btn--branco" data-x>Fechar</button>'
+          });
+          mv.querySelector('[data-x]').addEventListener('click', mv.fechar);
+        });
+      });
+
+      U.$$('.js-fe-excluir', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var f = achar(b.dataset.id);
+          pedirSenhaCoordenador('Excluir ferramenta',
+            'Apagar "' + f.nome + '" e todos os movimentos dela? Não dá para desfazer. Digite a senha do coordenador.')
+            .then(function (ok) {
+              if (!ok) return;
+              Banco.apagarFerramenta(f.id)
+                .then(function () { U.aviso('🗑️ ' + f.nome + ' excluída.', 'ok'); App.recarregar(); })
+                .catch(App.falhou);
+            });
+        });
+      });
+    })
+    .catch(function (e) {
+      tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+        '<b>Não foi possível carregar.</b>' + U.esc(e.message) +
+        '<br><span class="peq">Se for a primeira vez, rode o SQL novo no Supabase.</span></div></div>' +
+        '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
+    });
+}
+
+/* ============================================================
    Escolha de área do conferente: EVENTOS ou MATERIAL TERCEIRIZADO
    ============================================================ */
 function TelaEscolhaArea() {
@@ -3174,9 +3428,15 @@ function TelaEscolhaArea() {
         '<span class="etapa__c"><span class="etapa__t">Material Terceirizado</span>' +
         '<span class="etapa__d">Chegadas de fornecedores, envios para eventos e devoluções</span></span>' +
         '<span class="etapa__seta">›</span></button>' +
+      '<button class="etapa" id="ir-ferramentas">' +
+        '<span class="etapa__n">🧰</span>' +
+        '<span class="etapa__c"><span class="etapa__t">Ferramentas</span>' +
+        '<span class="etapa__d">Carrinho 4 rodas, escada, martelete, marreta — saiu e voltou</span></span>' +
+        '<span class="etapa__seta">›</span></button>' +
     '</div>';
   U.$('#ir-eventos').addEventListener('click', function () { App.abrir(TelaMeusEventos); });
   U.$('#ir-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
+  U.$('#ir-ferramentas').addEventListener('click', function () { App.abrir(TelaFerramentas); });
 }
 
 /* ============================================================
