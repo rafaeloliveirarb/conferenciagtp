@@ -1003,6 +1003,20 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
   },
 
+  /* ---------- arquivos no Storage (nota fiscal em PDF/imagem) ---------- */
+  subirArquivo: function (caminho, arquivo) {
+    var self = this;
+    return self.cliente.storage.from('fotos')
+      .upload(caminho, arquivo, { upsert: true, contentType: arquivo.type || 'application/octet-stream' })
+      .then(function (r) {
+        if (r.error) throw new Error('Não deu para enviar o arquivo: ' + r.error.message);
+        var pub = self.cliente.storage.from('fotos').getPublicUrl(caminho);
+        var url = pub && pub.data ? pub.data.publicUrl : null;
+        if (!url) throw new Error('O arquivo subiu mas a URL não veio. Tente de novo.');
+        return url;
+      });
+  },
+
   /* ---------- fotos no Storage (bucket "fotos") ---------- */
   /* Sobe uma foto (data:image/jpeg;base64,...) e devolve a URL pública.
      Se falhar (sem internet, bucket não criado), devolve null e o app
@@ -2074,6 +2088,25 @@ var Rascunho = {
 
 /* Etiqueta do material terceirizado (alugado/de fora): conta na
    conferência normalmente, mas NÃO mexe no estoque do galpão. */
+/* Botões das notas fiscais anexadas ao evento (abrem em nova aba p/ imprimir). */
+function botoesNotaFiscal(ev, rotulo) {
+  var notas = (ev && ev.notas_fiscais) || [];
+  if (!notas.length) return '';
+  return '<div class="btn-linha" style="margin-top:10px">' +
+    notas.map(function (n, i) {
+      return '<button class="btn btn--branco js-abrir-nf" data-url="' + U.esc(n.url) + '">' +
+        '🧾 ' + U.esc(rotulo || 'IMPRIMIR NOTA FISCAL') + (notas.length > 1 ? ' ' + (i + 1) : '') + '</button>';
+    }).join('') + '</div>';
+}
+function ligarBotoesNotaFiscal(raiz) {
+  U.$$('.js-abrir-nf', raiz).forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      window.open(b.dataset.url, '_blank');
+    });
+  });
+}
+
 function tagTerc(produto) {
   return (produto && produto.terceirizado) ? ' <span class="terc-tag">🔗 TERCEIRIZADO</span>' : '';
 }
@@ -3789,6 +3822,29 @@ function TelaEvento(eventoId) {
         : '') +
       '</div></div>';
 
+    /* --- nota fiscal (o coordenador anexa; todos podem abrir/imprimir) --- */
+    var notasNF = ev.notas_fiscais || [];
+    h += '<div class="cartao"><div class="cartao__topo"><h3>🧾 Nota fiscal</h3>' +
+      '<span class="mut peq">' + (notasNF.length || 'nenhuma') + '</span></div>' +
+      '<div class="cartao__corpo">' +
+      (notasNF.length
+        ? notasNF.map(function (n, i) {
+            return '<div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--linha);padding:8px 0">' +
+              '<span style="flex:1">🧾 ' + U.esc(n.nome || ('Nota fiscal ' + (i + 1))) +
+                '<span class="peq mut" style="display:block">' + (n.em ? U.fmtDataHora(n.em) : '') + '</span></span>' +
+              '<button class="btn btn--peq js-abrir-nf" data-url="' + U.esc(n.url) + '">Abrir</button>' +
+              (ehCoord ? '<button class="btn btn--branco btn--peq js-remover-nf" data-i="' + i + '" style="color:var(--vermelho);border-color:var(--vermelho)">Remover</button>' : '') +
+            '</div>';
+          }).join('')
+        : '<p class="mut peq">' + (ehCoord
+            ? 'Anexe a nota fiscal (PDF ou foto). O conferente vai poder imprimir ao finalizar o carregamento.'
+            : 'O coordenador ainda não anexou a nota fiscal deste evento.') + '</p>') +
+      (ehCoord
+        ? '<button class="btn btn--branco btn--bloco" id="btn-anexar-nf" style="margin-top:10px">📎 ANEXAR NOTA FISCAL</button>' +
+          '<input type="file" id="campo-nf" accept=".pdf,.jpg,.jpeg,.png" multiple hidden>'
+        : '') +
+      '</div></div>';
+
     /* --- checklist --- */
     if (!p.produtos.length) {
       h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📋</span><div>' +
@@ -4022,6 +4078,52 @@ function TelaEvento(eventoId) {
       escolherCaminhao('Qual caminhão chegou com o retorno?').then(function (camId) {
         if (!camId) return;
         criarCarga('retorno', camId).catch(App.falhou);
+      });
+    });
+
+    /* nota fiscal: anexar (coordenador), abrir e remover */
+    ligarBotoesNotaFiscal(tela);
+    var campoNF = U.$('#campo-nf', tela);
+    var btnNF = U.$('#btn-anexar-nf', tela);
+    if (btnNF) btnNF.addEventListener('click', function () { campoNF.click(); });
+    if (campoNF) campoNF.addEventListener('change', function () {
+      var arquivos = Array.prototype.slice.call(campoNF.files || []);
+      campoNF.value = '';
+      if (!arquivos.length) return;
+      U.aviso('Enviando ' + (arquivos.length > 1 ? arquivos.length + ' notas' : 'a nota') + '...', 'info', 3000);
+      var lista = (ev.notas_fiscais || []).slice();
+      Promise.all(arquivos.map(function (arq) {
+        var limpo = arq.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
+        var caminho = 'eventos/' + eventoId + '/nf-' + Date.now() + '-' + limpo;
+        return Banco.subirArquivo(caminho, arq).then(function (url) {
+          lista.push({ url: url, nome: arq.name, em: new Date().toISOString() });
+        });
+      })).then(function () {
+        return Banco.atualizarEvento(eventoId, { notas_fiscais: lista });
+      }).then(function () {
+        return App.carregarBase();
+      }).then(function () {
+        U.aviso('✓ Nota fiscal anexada. O conferente já consegue imprimir.', 'ok', 5000);
+        App.recarregar();
+      }).catch(function (e) {
+        U.aviso('Não deu para anexar: ' + e.message + ' (precisa de internet e do bucket "fotos" no Supabase).', 'erro', 8000);
+      });
+    });
+    U.$$('.js-remover-nf', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.dataset.i);
+        var lista = (ev.notas_fiscais || []).slice();
+        var nome = (lista[i] && lista[i].nome) || 'esta nota';
+        pedirSenhaCoordenador('Remover nota fiscal',
+          'Remover "' + nome + '" do evento? O arquivo sai da lista (quem tiver o link antigo ainda abre). Digite a senha do coordenador.')
+          .then(function (ok) {
+            if (!ok) return;
+            lista.splice(i, 1);
+            Banco.atualizarEvento(eventoId, { notas_fiscais: lista })
+              .then(function () { return App.carregarBase(); })
+              .then(function () { U.aviso('✓ Nota removida.', 'ok'); App.recarregar(); })
+              .catch(App.falhou);
+          });
       });
     });
 
@@ -4725,6 +4827,18 @@ function TelaConferencia(arg) {
             : '') +
           'A comparação de <b>tudo que voltou × tudo que saiu</b> fica na barra de retorno, na tela do evento.</p></div></div>';
     } else {
+      /* saída finalizada: hora de imprimir a nota fiscal que o coordenador anexou */
+      var notasEv = (pacote.evento && pacote.evento.notas_fiscais) || [];
+      h += notasEv.length
+        ? '<div class="cartao"><div class="cartao__corpo">' +
+            '<h3 style="font-size:17px;color:var(--azul)">🧾 Nota fiscal do evento</h3>' +
+            '<p class="mut peq" style="margin-top:4px">Carregamento finalizado — abra a nota em outra aba e imprima para seguir com o caminhão.</p>' +
+            botoesNotaFiscal(pacote.evento, 'IMPRIMIR NOTA FISCAL') +
+          '</div></div>'
+        : '<div class="aviso aviso--azul"><span class="aviso__ico">🧾</span><div>' +
+          '<b>Nota fiscal ainda não anexada.</b>' +
+          'Peça ao coordenador para anexar na tela do evento — o botão de imprimir aparece aqui.</div></div>';
+
       h += '<div class="cartao"><div class="cartao__topo"><h3>Resultado</h3>' + selo(conferencia.status) + '</div>' +
         '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
           '<th>Produto</th><th style="width:56px">Un.</th><th class="num">' + U.esc(info.base) + '</th>' +
@@ -4771,6 +4885,8 @@ function TelaConferencia(arg) {
       '<button class="btn btn--branco btn--bloco" style="margin-top:10px" onclick="App.voltar()">Voltar para o evento</button>';
 
     tela.innerHTML = h;
+
+    ligarBotoesNotaFiscal(U.$('#tela'));
 
     U.$('#btn-desbloquear').addEventListener('click', function () {
       pedirSenhaCoordenador('Desbloquear conferência',
