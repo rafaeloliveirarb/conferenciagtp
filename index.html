@@ -3264,6 +3264,7 @@ function TelaFerramentas() {
                 '<button class="btn btn--laranja btn--peq js-fe-saiu" data-id="' + f.id + '">🚚 Saiu</button>' +
                 '<button class="btn btn--peq js-fe-voltou" data-id="' + f.id + '">↩️ Voltou</button>' +
                 '<button class="btn btn--branco btn--peq js-fe-mov" data-id="' + f.id + '">Movimentos</button>' +
+                (ehCoord ? '<button class="btn btn--branco btn--peq js-fe-ajuste" data-id="' + f.id + '">Ajustar</button>' : '') +
                 (ehCoord ? '<button class="btn btn--branco btn--peq js-fe-excluir" data-id="' + f.id + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
               '</span>' +
             '</div>' +
@@ -3360,6 +3361,39 @@ function TelaFerramentas() {
       });
       U.$$('.js-fe-voltou', tela).forEach(function (b) {
         b.addEventListener('click', function () { lancarFe(achar(b.dataset.id), 'retorno'); });
+      });
+
+      U.$$('.js-fe-ajuste', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var f = achar(b.dataset.id);
+          var s = saldos[f.id] || { galpao: 0 };
+          var m = U.modal({
+            titulo: '🛠️ Ajustar ' + f.nome,
+            html: '<p class="mut peq" style="margin-bottom:10px">No galpão hoje: <b>' + U.fmt(s.galpao) + '</b>. ' +
+                'Informe o ajuste: número positivo soma (comprou, achou), negativo desconta (quebrou, sumiu).</p>' +
+              '<label class="campo"><span class="campo__rot">Ajuste (+ ou −)</span>' +
+                '<input class="entrada" id="fa-qtd" type="number" inputmode="numeric" placeholder="Ex.: 2 ou -1"></label>' +
+              '<label class="campo"><span class="campo__rot">Motivo (obrigatório)</span>' +
+                '<input class="entrada" id="fa-motivo" placeholder="Ex.: comprou 2 novas, marreta quebrou"></label>',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn btn--verde" data-ok>LANÇAR AJUSTE</button>'
+          });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var q = U.num(m.querySelector('#fa-qtd').value);
+            var motivo = m.querySelector('#fa-motivo').value.trim();
+            if (!q) return U.aviso('Informe a quantidade do ajuste.', 'erro');
+            if (!motivo) return U.aviso('Escreva o motivo do ajuste.', 'erro');
+            Banco.criarMovFerramenta({
+              ferramenta_id: f.id, tipo: 'ajuste', quantidade: q,
+              usuario_id: Sessao.atual.id, observacao: motivo
+            }).then(function () {
+              m.fechar();
+              U.aviso('✓ ' + f.nome + ': ajuste de ' + (q > 0 ? '+' : '') + U.fmt(q) + '.', 'ok');
+              App.recarregar();
+            }).catch(App.falhou);
+          });
+        });
       });
 
       U.$$('.js-fe-mov', tela).forEach(function (b) {
