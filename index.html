@@ -2454,10 +2454,21 @@ function TelaEstoque() {
         return ev ? ev.nome : 'Evento apagado';
       }
 
+      var familias = [];
+      cadastro.forEach(function (i) {
+        if (i.familia && familias.indexOf(i.familia) < 0) familias.push(i.familia);
+      });
+      familias.sort();
+      var datalistFam = '<datalist id="lista-familias">' +
+        familias.map(function (f) { return '<option value="' + U.esc(f) + '">'; }).join('') + '</datalist>';
+
       var h = '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar peça</h3></div>' +
         '<div class="cartao__corpo">' +
           '<label class="campo"><span class="campo__rot">Nome da peça</span>' +
             '<input id="es-nome" class="entrada" placeholder="Ex.: Travessa 1,00 m"></label>' +
+          '<label class="campo"><span class="campo__rot">Família do material</span>' +
+            '<input id="es-familia" class="entrada" list="lista-familias" placeholder="Ex.: Piso Pantográfico, Tenda, Elétrica"></label>' +
+          datalistFam +
           '<div class="btn-linha">' +
             '<label class="campo" style="flex:1"><span class="campo__rot">Unidade</span>' +
               '<input id="es-unidade" class="entrada" value="UN"></label>' +
@@ -2487,6 +2498,7 @@ function TelaEstoque() {
           return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '">' +
             '<div class="carga__cam"><span>📦</span>' +
               '<span><b>' + U.esc(i.nome) + '</b>' +
+                (i.familia ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(i.familia) + '</span>' : '') +
                 '<span class="peq mut" style="display:block">' +
                   'Saldo no galpão: <b style="color:' + (saldo < 0 ? 'var(--vermelho)' : 'var(--verde)') + '">' +
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
@@ -2496,6 +2508,7 @@ function TelaEstoque() {
               '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
                 '<button class="btn btn--branco btn--peq js-es-ajuste" data-id="' + i.id + '">Ajustar</button>' +
+                '<button class="btn btn--branco btn--peq js-es-familia" data-id="' + i.id + '">Família</button>' +
                 '<button class="btn btn--branco btn--peq js-es-excluir" data-id="' + i.id + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' +
               '</span>' +
             '</div>' +
@@ -2659,6 +2672,7 @@ function TelaEstoque() {
 
       U.$('#btn-add-estoque').addEventListener('click', function () {
         var nome = U.$('#es-nome').value.trim().replace(/\s+/g, ' ');
+        var familia = U.$('#es-familia').value.trim().replace(/\s+/g, ' ');
         var unidade = U.$('#es-unidade').value.trim() || 'UN';
         var qtd = U.num(U.$('#es-qtd').value);
         if (!nome) return U.aviso('Dê um nome para a peça.', 'erro');
@@ -2666,7 +2680,7 @@ function TelaEstoque() {
         if (repetida) return U.aviso('Já existe uma peça com esse nome. Use o AJUSTAR dela.', 'erro', 5000);
         var botao = this;
         botao.disabled = true; botao.textContent = 'Cadastrando...';
-        Banco.criarEstoque({ nome: nome, unidade: unidade, ativo: true }).then(function (novo) {
+        Banco.criarEstoque({ nome: nome, unidade: unidade, familia: familia || null, ativo: true }).then(function (novo) {
           if (qtd > 0) {
             return Banco.criarMovimentos([{
               estoque_id: novo.id, tipo: 'entrada', quantidade: qtd, usuario_id: Sessao.atual.id,
@@ -2708,6 +2722,32 @@ function TelaEstoque() {
               U.aviso('✓ Ajuste lançado: ' + (q > 0 ? '+' : '') + U.fmt(q) + '.', 'ok');
               App.recarregar();
             }).catch(App.falhou);
+          });
+        });
+      });
+
+      U.$$('.js-es-familia', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var item = cadastro.filter(function (i) { return i.id === b.dataset.id; })[0];
+          if (!item) return;
+          var m = U.modal({
+            titulo: '📂 Família — ' + item.nome,
+            html: '<p class="mut peq" style="margin-bottom:12px">A família agrupa os materiais na conferência ' +
+                '(ex.: Piso Pantográfico, Tenda, Elétrica). Deixe em branco para tirar.</p>' +
+              '<input class="entrada" id="fam-valor" list="lista-familias" value="' + U.esc(item.familia || '') + '" ' +
+                'placeholder="Ex.: Piso Pantográfico">',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn btn--verde" data-ok>SALVAR</button>'
+          });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var valor = m.querySelector('#fam-valor').value.trim().replace(/\s+/g, ' ');
+            Banco.atualizarEstoque(item.id, { familia: valor || null })
+              .then(function () {
+                m.fechar();
+                U.aviso(valor ? '📂 ' + item.nome + ' agora é da família ' + valor + '.' : '📂 Família removida.', 'ok', 4000);
+                App.recarregar();
+              }).catch(App.falhou);
           });
         });
       });
@@ -4567,18 +4607,24 @@ function TelaConferencia(arg) {
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
+  var familiaPorChave = {};   /* nome normalizado -> família (vem do estoque) */
+  var agruparFamilia = false; /* botão do conferente: ver os materiais por família */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
   var desbloqueada = false;  /* o coordenador liberou a edição com a senha */
 
   Promise.all([
     App.carregarEvento(eventoId),
     Banco.listarFornecedores().catch(function () { return []; }),
-    Banco.listarMovTerceiros().catch(function () { return []; })
+    Banco.listarMovTerceiros().catch(function () { return []; }),
+    Banco.listarEstoque().catch(function () { return []; })
   ]).then(function (tudo) {
     var p = tudo[0];
     fornecedoresT = tudo[1];
     var movsT = tudo[2];
     saldosT = Terceiros.saldos(movsT);
+    (tudo[3] || []).forEach(function (i) {
+      if (i.familia) familiaPorChave[Estoque.chave(i.nome)] = i.familia;
+    });
 
     pacote = p;
     carregamento = (p.carregamentos || []).filter(function (c) { return c.id === carregamentoId; })[0] || null;
@@ -4950,12 +4996,49 @@ function TelaConferencia(arg) {
       return;
     }
 
-    if (linhas.length > 8) {
-      h += '<div class="busca-prod"><input type="search" id="busca-prod" ' +
-        'placeholder="🔍 Buscar produto pelo nome..." autocomplete="off"></div>';
+    var temFamilias = linhas.some(function (l) { return familiaPorChave[Estoque.chave(l.nome)]; });
+
+    if (linhas.length > 8 || temFamilias) {
+      h += '<div class="busca-prod">' +
+        (linhas.length > 8
+          ? '<input type="search" id="busca-prod" placeholder="🔍 Buscar produto pelo nome..." autocomplete="off">'
+          : '') +
+        (temFamilias
+          ? '<button class="btn ' + (agruparFamilia ? '' : 'btn--branco') + ' btn--bloco" id="btn-familia" style="margin-top:8px">' +
+            '📂 ' + (agruparFamilia ? 'VENDO POR FAMÍLIA — voltar à ordem normal' : 'VER MATERIAL POR FAMÍLIA') + '</button>'
+          : '') +
+      '</div>';
     }
 
-    h += linhas.map(function (l) {
+    var listaDesenho = linhas;
+    if (agruparFamilia && temFamilias) {
+      /* agrupa: cada família em ordem alfabética, "Sem família" por último */
+      var grupos = {};
+      linhas.forEach(function (l) {
+        var fam = familiaPorChave[Estoque.chave(l.nome)] || 'Sem família';
+        (grupos[fam] = grupos[fam] || []).push(l);
+      });
+      var nomesFam = Object.keys(grupos).sort(function (a, b) {
+        if (a === 'Sem família') return 1;
+        if (b === 'Sem família') return -1;
+        return a.localeCompare(b);
+      });
+      listaDesenho = [];
+      nomesFam.forEach(function (fam) {
+        listaDesenho.push({ __cabecalho: fam, __qtd: grupos[fam].length });
+        grupos[fam].forEach(function (l) { listaDesenho.push(l); });
+      });
+    }
+
+    h += listaDesenho.map(function (l) {
+      if (l.__cabecalho) {
+        return '<h2 class="secao__tit" style="margin-top:18px">📂 ' + U.esc(l.__cabecalho) +
+          ' <span class="n">' + l.__qtd + '</span></h2>';
+      }
+      return cardProduto(l);
+    }).join('');
+
+    function cardProduto(l) {
       var id = l.produto.id;
       var base = Calculo.base(l, tipo);
       return '<div class="prod" data-id="' + id + '" data-nome="' + U.esc(l.nome.toLowerCase()) + '">' +
@@ -4980,7 +5063,7 @@ function TelaConferencia(arg) {
         '<p class="prod__res"></p>' +
         blocoEmbalagem(l, base) +
       '</div>';
-    }).join('');
+    }
 
     h += '<button class="btn btn--branco btn--bloco" id="btn-add-terc" style="border-style:dashed">' +
       '➕ ADICIONAR MATERIAL TERCEIRIZADO <span class="terc-tag">🔗 não mexe no estoque</span></button>';
@@ -5003,6 +5086,12 @@ function TelaConferencia(arg) {
       U.$$('.prod', tela).forEach(function (cx) {
         cx.style.display = !t || (cx.dataset.nome || '').indexOf(t) >= 0 ? '' : 'none';
       });
+    });
+
+    var botaoFam = U.$('#btn-familia', tela);
+    if (botaoFam) botaoFam.addEventListener('click', function () {
+      agruparFamilia = !agruparFamilia;
+      desenhar();   /* a contagem fica guardada nas variáveis: nada se perde */
     });
 
     U.$$('.js-campo', tela).forEach(function (el) {
