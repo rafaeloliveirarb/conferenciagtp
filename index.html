@@ -1941,6 +1941,13 @@ var Estoque = {
   chave: function (nome) {
     return String(nome || '').trim().replace(/\s+/g, ' ').toUpperCase();
   },
+  /* um material pode pertencer a VÁRIAS famílias */
+  familiasDe: function (item) {
+    if (!item) return [];
+    if (Array.isArray(item.familias) && item.familias.length) return item.familias;
+    if (item.familia) return [item.familia];
+    return [];
+  },
   /* o saldo é a soma dos movimentos: nada de número solto que desanda.
      saida desconta · retorno/entrada somam · ajuste vale o sinal que tiver */
   saldos: function (itens, movimentos) {
@@ -2507,7 +2514,9 @@ function TelaEstoque() {
 
       var familias = [];
       cadastro.forEach(function (i) {
-        if (i.familia && familias.indexOf(i.familia) < 0) familias.push(i.familia);
+        Estoque.familiasDe(i).forEach(function (f) {
+          if (familias.indexOf(f) < 0) familias.push(f);
+        });
       });
       familias.sort();
       var datalistFam = '<datalist id="lista-familias">' +
@@ -2517,8 +2526,8 @@ function TelaEstoque() {
         '<div class="cartao__corpo">' +
           '<label class="campo"><span class="campo__rot">Nome da peça</span>' +
             '<input id="es-nome" class="entrada" placeholder="Ex.: Travessa 1,00 m"></label>' +
-          '<label class="campo"><span class="campo__rot">Família do material</span>' +
-            '<input id="es-familia" class="entrada" list="lista-familias" placeholder="Ex.: Piso Pantográfico, Tenda, Elétrica"></label>' +
+          '<label class="campo"><span class="campo__rot">Famílias do material <span class="peq mut">(pode várias, separadas por vírgula)</span></span>' +
+            '<input id="es-familia" class="entrada" list="lista-familias" placeholder="Ex.: Piso Pantográfico, Palco"></label>' +
           datalistFam +
           '<div class="btn-linha">' +
             '<label class="campo" style="flex:1"><span class="campo__rot">Unidade</span>' +
@@ -2538,7 +2547,7 @@ function TelaEstoque() {
       h += '<div class="busca-prod"><input type="search" id="busca-estoque" ' +
         'placeholder="🔍 Buscar peça pelo nome..." autocomplete="off"></div>';
 
-      var temAlgumaFamilia = cadastro.some(function (i) { return !!i.familia; });
+      var temAlgumaFamilia = cadastro.some(function (i) { return Estoque.familiasDe(i).length > 0; });
       if (cadastro.length && !temAlgumaFamilia) {
         h += '<div class="aviso aviso--azul"><span class="aviso__ico">📂</span><div>' +
           '<b>Nenhuma peça tem família ainda.</b>' +
@@ -2551,11 +2560,14 @@ function TelaEstoque() {
         h += '<div class="vazio"><p class="vazio__ico">📦</p><h3>Estoque vazio</h3>' +
           '<p>Cadastre as peças acima ou importe um arquivo.</p></div>';
       } else {
-        /* separa por família: cada família em ordem alfabética, "Sem família" no fim */
+        /* separa por família: material com várias famílias aparece em cada uma */
         var grupos = {};
         cadastro.forEach(function (i) {
-          var fam = i.familia || 'Sem família';
-          (grupos[fam] = grupos[fam] || []).push(i);
+          var fams = Estoque.familiasDe(i);
+          if (!fams.length) fams = ['Sem família'];
+          fams.forEach(function (fam) {
+            (grupos[fam] = grupos[fam] || []).push(i);
+          });
         });
         var nomesFam2 = Object.keys(grupos).sort(function (a, b) {
           if (a === 'Sem família') return 1;
@@ -2584,7 +2596,9 @@ function TelaEstoque() {
           return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '">' +
             '<div class="carga__cam"><span>📦</span>' +
               '<span><b>' + U.esc(i.nome) + '</b>' +
-                (i.familia ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(i.familia) + '</span>' : '') +
+                Estoque.familiasDe(i).map(function (f) {
+                  return ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(f) + '</span>';
+                }).join('') +
                 '<span class="peq mut" style="display:block">' +
                   'Saldo no galpão: <b style="color:' + (saldo < 0 ? 'var(--vermelho)' : 'var(--verde)') + '">' +
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
@@ -2757,7 +2771,9 @@ function TelaEstoque() {
 
       U.$('#btn-add-estoque').addEventListener('click', function () {
         var nome = U.$('#es-nome').value.trim().replace(/\s+/g, ' ');
-        var familia = U.$('#es-familia').value.trim().replace(/\s+/g, ' ');
+        var familiasNovas = U.$('#es-familia').value.split(',')
+          .map(function (f) { return f.trim().replace(/\s+/g, ' '); })
+          .filter(function (f) { return f.length > 0; });
         var unidade = U.$('#es-unidade').value.trim() || 'UN';
         var qtd = U.num(U.$('#es-qtd').value);
         if (!nome) return U.aviso('Dê um nome para a peça.', 'erro');
@@ -2765,7 +2781,7 @@ function TelaEstoque() {
         if (repetida) return U.aviso('Já existe uma peça com esse nome. Use o AJUSTAR dela.', 'erro', 5000);
         var botao = this;
         botao.disabled = true; botao.textContent = 'Cadastrando...';
-        Banco.criarEstoque({ nome: nome, unidade: unidade, familia: familia || null, ativo: true }).then(function (novo) {
+        Banco.criarEstoque({ nome: nome, unidade: unidade, familias: familiasNovas, familia: familiasNovas[0] || null, ativo: true }).then(function (novo) {
           if (qtd > 0) {
             return Banco.criarMovimentos([{
               estoque_id: novo.id, tipo: 'entrada', quantidade: qtd, usuario_id: Sessao.atual.id,
@@ -2815,22 +2831,41 @@ function TelaEstoque() {
         b.addEventListener('click', function () {
           var item = cadastro.filter(function (i) { return i.id === b.dataset.id; })[0];
           if (!item) return;
+          var minhas = Estoque.familiasDe(item);
           var m = U.modal({
-            titulo: '📂 Família — ' + item.nome,
-            html: '<p class="mut peq" style="margin-bottom:12px">A família agrupa os materiais na conferência ' +
-                '(ex.: Piso Pantográfico, Tenda, Elétrica). Deixe em branco para tirar.</p>' +
-              '<input class="entrada" id="fam-valor" list="lista-familias" value="' + U.esc(item.familia || '') + '" ' +
-                'placeholder="Ex.: Piso Pantográfico">',
+            titulo: '📂 Famílias — ' + item.nome,
+            html: '<p class="mut peq" style="margin-bottom:12px">Marque todas as famílias deste material ' +
+                '(pode mais de uma — ele aparece em cada uma na conferência).</p>' +
+              (familias.length
+                ? '<div style="max-height:35vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px;margin-bottom:12px">' +
+                  familias.map(function (f, fi) {
+                    return '<label style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:8px 0;cursor:pointer">' +
+                      '<input type="checkbox" class="js-fam-cx" value="' + U.esc(f) + '"' +
+                        (minhas.indexOf(f) >= 0 ? ' checked' : '') + ' style="width:20px;height:20px">' +
+                      '📂 ' + U.esc(f) + '</label>';
+                  }).join('') + '</div>'
+                : '') +
+              '<label class="campo"><span class="campo__rot">Nova(s) família(s) <span class="peq mut">(separe por vírgula)</span></span>' +
+                '<input class="entrada" id="fam-novas" placeholder="Ex.: Palco, Elétrica"></label>',
             pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
                 '<button class="btn btn--verde" data-ok>SALVAR</button>'
           });
           m.querySelector('[data-x]').addEventListener('click', m.fechar);
           m.querySelector('[data-ok]').addEventListener('click', function () {
-            var valor = m.querySelector('#fam-valor').value.trim().replace(/\s+/g, ' ');
-            Banco.atualizarEstoque(item.id, { familia: valor || null })
+            var lista = [];
+            m.querySelectorAll('.js-fam-cx').forEach(function (cx) {
+              if (cx.checked && lista.indexOf(cx.value) < 0) lista.push(cx.value);
+            });
+            m.querySelector('#fam-novas').value.split(',').forEach(function (f) {
+              f = f.trim().replace(/\s+/g, ' ');
+              if (f && lista.indexOf(f) < 0) lista.push(f);
+            });
+            Banco.atualizarEstoque(item.id, { familias: lista, familia: lista[0] || null })
               .then(function () {
                 m.fechar();
-                U.aviso(valor ? '📂 ' + item.nome + ' agora é da família ' + valor + '.' : '📂 Família removida.', 'ok', 4000);
+                U.aviso(lista.length
+                  ? '📂 ' + item.nome + ': ' + lista.join(', ') + '.'
+                  : '📂 Famílias removidas.', 'ok', 4000);
                 App.recarregar();
               }).catch(App.falhou);
           });
@@ -4842,7 +4877,9 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
 
       var familiasEx = [];
       cadastro.forEach(function (i) {
-        if (i.familia && familiasEx.indexOf(i.familia) < 0) familiasEx.push(i.familia);
+        Estoque.familiasDe(i).forEach(function (f) {
+          if (familiasEx.indexOf(f) < 0) familiasEx.push(f);
+        });
       });
       familiasEx.sort();
 
@@ -4863,7 +4900,7 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
                     'placeholder="Qtd" style="width:92px;min-height:44px;padding:8px;text-align:center;flex:none">' +
                 '</div>' +
                 '<input class="entrada js-cad-fam" data-i="' + i + '" list="cad-familias" ' +
-                  'placeholder="📂 Família (ex.: Piso Pantográfico)" ' +
+                  'placeholder="📂 Famílias (pode várias, por vírgula)" ' +
                   'style="margin-top:6px;min-height:42px;padding:8px;font-size:14px">' +
               '</div>';
             }).join('') +
@@ -4888,10 +4925,13 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
           var i = Number(cx.dataset.i);
           var campoQtd = m.querySelector('.js-cad-qtd[data-i="' + i + '"]');
           var campoFam = m.querySelector('.js-cad-fam[data-i="' + i + '"]');
+          var fams = (campoFam ? campoFam.value : '').split(',')
+            .map(function (f) { return f.trim().replace(/\s+/g, ' '); })
+            .filter(function (f) { return f.length > 0; });
           escolhidos.push({
             p: faltantes[i],
             qtd: campoQtd ? U.num(campoQtd.value) : 0,
-            familia: campoFam ? campoFam.value.trim().replace(/\s+/g, ' ') : ''
+            familias: fams
           });
         });
         if (!escolhidos.length) {
@@ -4906,7 +4946,8 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
           return Banco.criarEstoque({
             nome: String(e.p.nome).trim().replace(/\s+/g, ' '),
             unidade: e.p.unidade || 'UN',
-            familia: e.familia || null,
+            familias: e.familias || [],
+            familia: (e.familias && e.familias[0]) || null,
             ativo: true
           }).then(function (novo) {
             /* já ajusta o saldo com a quantidade informada */
@@ -4955,8 +4996,8 @@ function TelaConferencia(arg) {
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
-  var familiaPorChave = {};   /* nome normalizado -> família (vem do estoque) */
-  var agruparFamilia = true;  /* já abre separado por família (o botão alterna) */
+  var familiasPorChave = {};  /* nome normalizado -> [famílias] (vem do estoque) */
+  var filtroFamilia = '';     /* chip escolhido ('' = todas) */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
   var desbloqueada = false;  /* o coordenador liberou a edição com a senha */
 
@@ -4971,7 +5012,8 @@ function TelaConferencia(arg) {
     var movsT = tudo[2];
     saldosT = Terceiros.saldos(movsT);
     (tudo[3] || []).forEach(function (i) {
-      if (i.familia) familiaPorChave[Estoque.chave(i.nome)] = i.familia;
+      var fams = Estoque.familiasDe(i);
+      if (fams.length) familiasPorChave[Estoque.chave(i.nome)] = fams;
     });
 
     pacote = p;
@@ -5344,7 +5386,18 @@ function TelaConferencia(arg) {
       return;
     }
 
-    var temFamilias = linhas.some(function (l) { return familiaPorChave[Estoque.chave(l.nome)]; });
+    /* famílias presentes neste checklist (material pode estar em várias) */
+    function famsDaLinha(l) { return familiasPorChave[Estoque.chave(l.nome)] || []; }
+    var familiasAqui = [];
+    var temSemFamilia = false;
+    linhas.forEach(function (l) {
+      var fams = famsDaLinha(l);
+      if (!fams.length) { temSemFamilia = true; return; }
+      fams.forEach(function (f) { if (familiasAqui.indexOf(f) < 0) familiasAqui.push(f); });
+    });
+    familiasAqui.sort();
+    var temFamilias = familiasAqui.length > 0;
+    if (filtroFamilia && filtroFamilia !== '__sem' && familiasAqui.indexOf(filtroFamilia) < 0) filtroFamilia = '';
 
     if (linhas.length > 8 || temFamilias) {
       h += '<div class="busca-prod">' +
@@ -5352,39 +5405,32 @@ function TelaConferencia(arg) {
           ? '<input type="search" id="busca-prod" placeholder="🔍 Buscar produto pelo nome..." autocomplete="off">'
           : '') +
         (temFamilias
-          ? '<button class="btn ' + (agruparFamilia ? '' : 'btn--branco') + ' btn--bloco" id="btn-familia" style="margin-top:8px">' +
-            '📂 ' + (agruparFamilia ? 'VENDO POR FAMÍLIA — voltar à ordem normal' : 'VER MATERIAL POR FAMÍLIA') + '</button>'
+          ? '<div class="btn-linha" style="margin-top:8px">' +
+              '<button class="btn ' + (filtroFamilia === '' ? '' : 'btn--branco') + ' btn--peq js-chip-fam" data-fam="">📂 Todas</button>' +
+              familiasAqui.map(function (f) {
+                return '<button class="btn ' + (filtroFamilia === f ? '' : 'btn--branco') + ' btn--peq js-chip-fam" data-fam="' + U.esc(f) + '">' + U.esc(f) + '</button>';
+              }).join('') +
+              (temSemFamilia
+                ? '<button class="btn ' + (filtroFamilia === '__sem' ? '' : 'btn--branco') + ' btn--peq js-chip-fam" data-fam="__sem">Sem família</button>'
+                : '') +
+            '</div>'
           : '') +
       '</div>';
     }
 
-    var listaDesenho = linhas;
-    if (agruparFamilia && temFamilias) {
-      /* agrupa: cada família em ordem alfabética, "Sem família" por último */
-      var grupos = {};
-      linhas.forEach(function (l) {
-        var fam = familiaPorChave[Estoque.chave(l.nome)] || 'Sem família';
-        (grupos[fam] = grupos[fam] || []).push(l);
-      });
-      var nomesFam = Object.keys(grupos).sort(function (a, b) {
-        if (a === 'Sem família') return 1;
-        if (b === 'Sem família') return -1;
-        return a.localeCompare(b);
-      });
-      listaDesenho = [];
-      nomesFam.forEach(function (fam) {
-        listaDesenho.push({ __cabecalho: fam, __qtd: grupos[fam].length });
-        grupos[fam].forEach(function (l) { listaDesenho.push(l); });
-      });
+    var listaDesenho = linhas.filter(function (l) {
+      if (!filtroFamilia) return true;
+      var fams = famsDaLinha(l);
+      if (filtroFamilia === '__sem') return fams.length === 0;
+      return fams.indexOf(filtroFamilia) >= 0;
+    });
+    if (filtroFamilia) {
+      h += '<h2 class="secao__tit" style="margin-top:14px">📂 ' +
+        (filtroFamilia === '__sem' ? 'Sem família' : U.esc(filtroFamilia)) +
+        ' <span class="n">' + listaDesenho.length + '</span></h2>';
     }
 
-    h += listaDesenho.map(function (l) {
-      if (l.__cabecalho) {
-        return '<h2 class="secao__tit" style="margin-top:18px">📂 ' + U.esc(l.__cabecalho) +
-          ' <span class="n">' + l.__qtd + '</span></h2>';
-      }
-      return cardProduto(l);
-    }).join('');
+    h += listaDesenho.map(function (l) { return cardProduto(l); }).join('');
 
     function cardProduto(l) {
       var id = l.produto.id;
@@ -5436,10 +5482,11 @@ function TelaConferencia(arg) {
       });
     });
 
-    var botaoFam = U.$('#btn-familia', tela);
-    if (botaoFam) botaoFam.addEventListener('click', function () {
-      agruparFamilia = !agruparFamilia;
-      desenhar();   /* a contagem fica guardada nas variáveis: nada se perde */
+    U.$$('.js-chip-fam', tela).forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        filtroFamilia = chip.dataset.fam;
+        desenhar();   /* a contagem fica guardada nas variáveis: nada se perde */
+      });
     });
 
     U.$$('.js-campo', tela).forEach(function (el) {
