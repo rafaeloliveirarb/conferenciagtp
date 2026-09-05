@@ -6228,20 +6228,53 @@ function TelaConferencia(arg) {
         '\n' + info.base + ': ' + U.fmt(r.base) + '\nDivergências: ' + r.divergencias +
         '\nFoto do carregamento: anexada ✓';
 
+    /* Saída com nota fiscal anexada: imprimir a nota é OBRIGATÓRIO para
+       finalizar. Sem nota anexada, finaliza normal. */
+    var notasFin = (!cega && pacote.evento && pacote.evento.notas_fiscais) ? pacote.evento.notas_fiscais : [];
+    var notaAberta = notasFin.length === 0;   /* sem nota: já liberado */
+
     var m = U.modal({
       titulo: 'Finalizar ' + (cega ? 'retorno' : 'conferência'),
       html: '<pre style="font-family:inherit;font-size:16px;white-space:pre-wrap;margin:0 0 14px">' + U.esc(texto) + '</pre>' +
         (cega
           ? '<p class="mut peq" style="margin-bottom:10px">O retorno é às cegas e pode ser parcial: se chegar mais mercadoria em outro caminhão, registre um novo retorno na tela do evento.</p>'
           : '') +
+        (notasFin.length
+          ? '<div class="aviso aviso--azul" style="margin-bottom:12px"><span class="aviso__ico">🧾</span><div>' +
+            '<b>Imprima a nota fiscal para finalizar.</b>' +
+            'Toque no botão: a nota abre em outra aba, imprima e volte aqui.' +
+            '<div class="btn-linha" style="margin-top:10px">' +
+            notasFin.map(function (n, i) {
+              return '<button class="btn btn--laranja js-nf-fin" data-url="' + U.esc(n.url) + '">🧾 IMPRIMIR NOTA' +
+                (notasFin.length > 1 ? ' ' + (i + 1) : ' FISCAL') + '</button>';
+            }).join('') +
+            '</div></div></div>'
+          : '') +
         '<p><b>Deseja finalizar?</b></p>' +
         '<p class="mut peq" style="margin-top:6px">Depois de finalizada, a conferência <b>trava</b>: só o coordenador consegue alterar, com a senha.</p>',
       pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
-          '<button class="btn btn--verde" data-ok>FINALIZAR</button>',
+          '<button class="btn btn--verde" data-ok' + (notaAberta ? '' : ' disabled') + '>' +
+            (notaAberta ? 'FINALIZAR' : '🧾 IMPRIMA A NOTA PRIMEIRO') + '</button>',
       travado: true
     });
     m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+
+    /* abrir a nota libera o FINALIZAR */
+    U.$$('.js-nf-fin', m).forEach(function (bNf) {
+      bNf.addEventListener('click', function () {
+        window.open(bNf.dataset.url, '_blank');
+        bNf.textContent = '✓ Nota aberta — imprima e finalize';
+        bNf.className = 'btn js-nf-fin';
+        if (!notaAberta) {
+          notaAberta = true;
+          var ok = m.querySelector('[data-ok]');
+          ok.disabled = false;
+          ok.textContent = 'FINALIZAR';
+        }
+      });
+    });
     m.querySelector('[data-ok]').addEventListener('click', function () {
+      if (!notaAberta) return U.aviso('🧾 Abra e imprima a nota fiscal antes de finalizar.', 'erro', 5000);
       var b = m.querySelector('[data-ok]');
       b.disabled = true; b.textContent = 'Salvando...';
       salvar(true).then(function () {
