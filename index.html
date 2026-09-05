@@ -3531,15 +3531,9 @@ function TelaEscolhaArea() {
         '<span class="etapa__c"><span class="etapa__t">Material Terceirizado</span>' +
         '<span class="etapa__d">Chegadas de fornecedores, envios para eventos e devoluções</span></span>' +
         '<span class="etapa__seta">›</span></button>' +
-      '<button class="etapa" id="ir-ferramentas">' +
-        '<span class="etapa__n">🧰</span>' +
-        '<span class="etapa__c"><span class="etapa__t">Ferramentas</span>' +
-        '<span class="etapa__d">Carrinho 4 rodas, escada, martelete, marreta — saiu e voltou</span></span>' +
-        '<span class="etapa__seta">›</span></button>' +
     '</div>';
   U.$('#ir-eventos').addEventListener('click', function () { App.abrir(TelaMeusEventos); });
   U.$('#ir-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
-  U.$('#ir-ferramentas').addEventListener('click', function () { App.abrir(TelaFerramentas); });
 }
 
 /* ============================================================
@@ -4048,9 +4042,24 @@ function TelaMeusEventos() {
   var tela = U.$('#tela');
   tela.innerHTML = U.carregando('Buscando os eventos...');
 
-  App.carregarBase().then(function () {
+  Promise.all([App.carregarBase(), Banco.listarCarregamentos()]).then(function (rr) {
+    var todosCarregamentos = rr[1] || [];
     var meus = App.eventos.filter(function (e) { return e.conferente_id === Sessao.atual.id; });
     var outros = App.eventos.filter(function (e) { return e.conferente_id !== Sessao.atual.id; });
+
+    /* Em que fase o evento está?
+       SAÍDA: ainda não tem carregamento, ou existe saída não finalizada.
+       RETORNO: todas as saídas abertas foram finalizadas — agora é receber de volta. */
+    function faseDoEvento(ev) {
+      var cgs = todosCarregamentos.filter(function (c) { return c.evento_id === ev.id && c.sentido !== 'retorno'; });
+      if (!cgs.length) return 'saida';
+      var pendente = cgs.some(function (cg) {
+        return !App.conferencias.some(function (c) {
+          return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em;
+        });
+      });
+      return pendente ? 'saida' : 'retorno';
+    }
 
     function cartao(ev) {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
@@ -4095,8 +4104,8 @@ function TelaMeusEventos() {
     function terminou(ev) { return ev.status === 'Finalizado' || ev.status === 'Com divergência'; }
     var terminados = App.eventos.filter(terminou);
     var ativos = App.eventos.filter(function (ev) { return !terminou(ev); });
-    var meusAtivos = meus.filter(function (ev) { return !terminou(ev); });
-    var outrosAtivos = outros.filter(function (ev) { return !terminou(ev); });
+    var emSaida = ativos.filter(function (ev) { return faseDoEvento(ev) === 'saida'; });
+    var emRetorno = ativos.filter(function (ev) { return faseDoEvento(ev) === 'retorno'; });
 
     /* cartão do evento finalizado: só consulta, sem botão de conferir */
     function cartaoFinalizado(ev) {
@@ -4121,8 +4130,9 @@ function TelaMeusEventos() {
     var h = '<div class="btn-linha" style="margin-bottom:14px">' +
       '<button class="btn btn--branco btn--bloco" id="btn-atualizar">🔄 ATUALIZAR</button></div>' +
       '<div class="abas">' +
-        '<button class="aba is-ativa" data-aba="ativos">Eventos<span class="n">' + ativos.length + '</span></button>' +
-        '<button class="aba" data-aba="terminados">Eventos finalizados<span class="n">' + terminados.length + '</span></button>' +
+        '<button class="aba is-ativa" data-aba="saida">🚚 Saída<span class="n">' + emSaida.length + '</span></button>' +
+        '<button class="aba" data-aba="retorno">↩️ Retorno<span class="n">' + emRetorno.length + '</span></button>' +
+        '<button class="aba" data-aba="terminados">🏁 Finalizados<span class="n">' + terminados.length + '</span></button>' +
       '</div>' +
       '<div id="lista-eventos"></div>';
 
@@ -4136,22 +4146,32 @@ function TelaMeusEventos() {
           ? terminados.map(cartaoFinalizado).join('')
           : '<div class="vazio"><p class="vazio__ico">🏁</p><h3>Nenhum evento finalizado</h3>' +
             '<p>Quando o coordenador encerrar um evento, ele aparece aqui para consulta.</p></div>';
-      } else if (!ativos.length) {
-        hh = '<div class="vazio"><p class="vazio__ico">📭</p><h3>Nenhum evento em andamento</h3>' +
-          '<p>Assim que o coordenador criar um evento, ele aparece aqui.</p>' +
-          '<p style="margin-top:10px">Toque em <b>🔄 ATUALIZAR</b> para conferir de novo.</p></div>';
       } else {
-        if (meusAtivos.length) {
-          hh += '<h2 class="secao__tit">Designados para você <span class="n">' + meusAtivos.length + '</span></h2>' +
-            meusAtivos.map(cartao).join('');
-        }
-        if (outrosAtivos.length) {
-          hh += '<h2 class="secao__tit"' + (meusAtivos.length ? ' style="margin-top:26px"' : '') + '>' +
-            'Outros eventos <span class="n">' + outrosAtivos.length + '</span></h2>' +
-            '<div class="aviso aviso--azul"><span class="aviso__ico">ℹ</span><div>' +
-            'Você também pode conferir estes. Cada conferência guarda o nome de quem contou, ' +
-            'então dá para dividir: um faz a saída, outro registra os retornos.</div></div>' +
-            outrosAtivos.map(cartao).join('');
+        var lista = aba === 'retorno' ? emRetorno : emSaida;
+        if (!lista.length) {
+          hh = aba === 'retorno'
+            ? '<div class="vazio"><p class="vazio__ico">↩️</p><h3>Nenhum evento aguardando retorno</h3>' +
+              '<p>Quando a saída de um evento for finalizada, ele passa para cá até a mercadoria voltar.</p></div>'
+            : '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhuma saída pendente</h3>' +
+              '<p>Assim que o coordenador criar um evento, ele aparece aqui para a conferência de saída.</p>' +
+              '<p style="margin-top:10px">Toque em <b>🔄 ATUALIZAR</b> para conferir de novo.</p></div>';
+        } else {
+          var meusDaAba = lista.filter(function (ev) { return ev.conferente_id === Sessao.atual.id; });
+          var outrosDaAba = lista.filter(function (ev) { return ev.conferente_id !== Sessao.atual.id; });
+          if (meusDaAba.length) {
+            hh += '<h2 class="secao__tit">Designados para você <span class="n">' + meusDaAba.length + '</span></h2>' +
+              meusDaAba.map(cartao).join('');
+          }
+          if (outrosDaAba.length) {
+            hh += '<h2 class="secao__tit"' + (meusDaAba.length ? ' style="margin-top:26px"' : '') + '>' +
+              'Outros eventos <span class="n">' + outrosDaAba.length + '</span></h2>' +
+              (aba === 'saida'
+                ? '<div class="aviso aviso--azul"><span class="aviso__ico">ℹ</span><div>' +
+                  'Você também pode conferir estes. Cada conferência guarda o nome de quem contou, ' +
+                  'então dá para dividir: um faz a saída, outro registra os retornos.</div></div>'
+                : '') +
+              outrosDaAba.map(cartao).join('');
+          }
         }
       }
       caixa.innerHTML = hh;
@@ -4175,7 +4195,7 @@ function TelaMeusEventos() {
       });
     }
 
-    desenharLista('ativos');
+    desenharLista('saida');
 
     U.$('#btn-atualizar').addEventListener('click', function () {
       U.aviso('Atualizando...', 'info', 1200);
