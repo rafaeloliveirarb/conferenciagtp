@@ -1941,9 +1941,29 @@ var Estoque = {
   chave: function (nome) {
     return String(nome || '').trim().replace(/\s+/g, ' ').toUpperCase();
   },
-  /* subgrupo = o kit dentro da família (ex.: "Tenda Piramidal 5x5") */
+  /* Subgrupo = o kit dentro da família (ex.: "Tenda Piramidal 5x5").
+     Se não foi definido, o app DEDUZ pelo nome: tudo antes do " - "
+     vira o kit ("TENDA PIRAMIDAL 5x5 - CANTO" → "TENDA PIRAMIDAL 5x5").
+     Só vale como kit se houver PELO MENOS 2 peças com o mesmo prefixo. */
   subgrupoDe: function (item) {
-    return (item && item.subgrupo) ? String(item.subgrupo).trim() : '';
+    if (item && item.subgrupo) return String(item.subgrupo).trim();
+    var m = String((item && item.nome) || '').match(/^(.+?)\s+[-–]\s+\S/);
+    return m ? m[1].trim() : '';
+  },
+  /* aplica a dedução em lote, mas descarta kits de UMA peça só (nome com
+     hífen que não é kit, ex.: "Cabo - reserva") */
+  subgrupoValido: function (itens) {
+    var conta = {};
+    (itens || []).forEach(function (i) {
+      var s = Estoque.subgrupoDe(i);
+      if (s) conta[s.toUpperCase()] = (conta[s.toUpperCase()] || 0) + 1;
+    });
+    return function (item) {
+      var s = Estoque.subgrupoDe(item);
+      if (!s) return '';
+      if (item && item.subgrupo) return s;              /* definido à mão: vale sempre */
+      return conta[s.toUpperCase()] >= 2 ? s : '';       /* deduzido: precisa de 2+ peças */
+    };
   },
   /* um material pode pertencer a VÁRIAS famílias */
   familiasDe: function (item) {
@@ -2576,6 +2596,7 @@ function TelaEstoque() {
       h += '<div class="busca-prod"><input type="search" id="busca-estoque" ' +
         'placeholder="🔍 Buscar peça pelo nome..." autocomplete="off"></div>';
 
+      TelaEstoque._subDe = Estoque.subgrupoValido(cadastro);
       var temAlgumaFamilia = cadastro.some(function (i) { return Estoque.familiasDe(i).length > 0; });
       if (cadastro.length && !temAlgumaFamilia) {
         h += '<div class="aviso aviso--azul"><span class="aviso__ico">📂</span><div>' +
@@ -2617,9 +2638,10 @@ function TelaEstoque() {
                 (grupos[fam].length === 1 ? 'material' : 'materiais') + '</span></button>';
           }
           /* dentro da família: primeiro os kits (subgrupos), depois as peças soltas */
+          var subDeEst = Estoque.subgrupoValido(cadastro);
           var porSub = {};
           grupos[fam].forEach(function (i) {
-            var sg = Estoque.subgrupoDe(i) || '';
+            var sg = subDeEst(i) || '';
             (porSub[sg] = porSub[sg] || []).push(i);
           });
           var subs = Object.keys(porSub).filter(function (s) { return s !== ''; }).sort();
@@ -2646,8 +2668,8 @@ function TelaEstoque() {
                 Estoque.familiasDe(i).map(function (f) {
                   return ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(f) + '</span>';
                 }).join('') +
-                (Estoque.subgrupoDe(i)
-                  ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' + U.esc(Estoque.subgrupoDe(i)) + '</span>'
+                (TelaEstoque._subDe && TelaEstoque._subDe(i)
+                  ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' + U.esc(TelaEstoque._subDe(i)) + '</span>'
                   : '') +
                 '<span class="peq mut" style="display:block">' +
                   'Saldo no galpão: <b style="color:' + (saldo < 0 ? 'var(--vermelho)' : 'var(--verde)') + '">' +
@@ -5130,10 +5152,11 @@ function TelaConferencia(arg) {
     fornecedoresT = tudo[1];
     var movsT = tudo[2];
     saldosT = Terceiros.saldos(movsT);
+    var subDeConf = Estoque.subgrupoValido(tudo[3] || []);
     (tudo[3] || []).forEach(function (i) {
       var fams = Estoque.familiasDe(i);
       if (fams.length) familiasPorChave[Estoque.chave(i.nome)] = fams;
-      var sg = Estoque.subgrupoDe(i);
+      var sg = subDeConf(i);
       if (sg) subgrupoPorChave[Estoque.chave(i.nome)] = sg;
     });
 
