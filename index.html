@@ -1941,6 +1941,10 @@ var Estoque = {
   chave: function (nome) {
     return String(nome || '').trim().replace(/\s+/g, ' ').toUpperCase();
   },
+  /* subgrupo = o kit dentro da família (ex.: "Tenda Piramidal 5x5") */
+  subgrupoDe: function (item) {
+    return (item && item.subgrupo) ? String(item.subgrupo).trim() : '';
+  },
   /* um material pode pertencer a VÁRIAS famílias */
   familiasDe: function (item) {
     if (!item) return [];
@@ -2259,11 +2263,21 @@ function TelaPainel() {
     var ativos = App.eventos.filter(function (ev) {
       return ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
     });
+    /* EM ANDAMENTO = o conferente FINALIZOU alguma conferência de saída
+       (mercadoria na rua). Antes disso, o evento fica em "Eventos". */
+    function saidaFinalizada(ev) {
+      return App.conferencias.some(function (c) {
+        return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em;
+      });
+    }
+    var aguardando = ativos.filter(function (ev) { return !saidaFinalizada(ev); });
+    var andamento = ativos.filter(saidaFinalizada);
 
     h += '<div id="alerta-terceiros"></div>' +
     '<div class="abas">' +
-      '<button class="aba is-ativa" data-aba="ativos">Eventos<span class="n">' + ativos.length + '</span></button>' +
-      '<button class="aba" data-aba="terminados">Eventos finalizados<span class="n">' + terminados.length + '</span></button>' +
+      '<button class="aba is-ativa" data-aba="ativos">Eventos<span class="n">' + aguardando.length + '</span></button>' +
+      '<button class="aba" data-aba="andamento">Em andamento<span class="n">' + andamento.length + '</span></button>' +
+      '<button class="aba" data-aba="terminados">Finalizados<span class="n">' + terminados.length + '</span></button>' +
     '</div>' +
     '<div id="lista-eventos"></div>';
 
@@ -2349,12 +2363,15 @@ function TelaPainel() {
 
     function desenharLista(aba) {
       var caixa = U.$('#lista-eventos', tela);
-      var lista = aba === 'terminados' ? terminados : ativos;
+      var lista = aba === 'terminados' ? terminados : aba === 'andamento' ? andamento : aguardando;
       if (!lista.length) {
         caixa.innerHTML = aba === 'terminados'
           ? '<div class="vazio"><p class="vazio__ico">🏁</p><h3>Nenhum evento finalizado</h3>' +
             '<p>Quando o coordenador encerrar um evento (🏁 ENCERRAR EVENTO), ele aparece aqui com todos os relatórios.</p></div>'
-          : '<div class="vazio"><p class="vazio__ico">📋</p><h3>Nenhum evento em andamento</h3>' +
+          : aba === 'andamento'
+          ? '<div class="vazio"><p class="vazio__ico">⏳</p><h3>Nenhum evento em andamento</h3>' +
+            '<p>Quando um conferente começar a saída ou o retorno de um evento, ele passa para cá.</p></div>'
+          : '<div class="vazio"><p class="vazio__ico">📋</p><h3>Nenhum evento aguardando</h3>' +
             '<p>Toque em <b>+ ANEXAR CHECKLIST</b>: o evento é criado junto com a lista de produtos.</p></div>';
       } else {
         caixa.innerHTML = lista.map(cartaoEvento).join('');
@@ -2528,7 +2545,19 @@ function TelaEstoque() {
             '<input id="es-nome" class="entrada" placeholder="Ex.: Travessa 1,00 m"></label>' +
           '<label class="campo"><span class="campo__rot">Famílias do material <span class="peq mut">(pode várias, separadas por vírgula)</span></span>' +
             '<input id="es-familia" class="entrada" list="lista-familias" placeholder="Ex.: Piso Pantográfico, Palco"></label>' +
+          '<label class="campo"><span class="campo__rot">Subgrupo/kit <span class="peq mut">(opcional — o conjunto dentro da família)</span></span>' +
+            '<input id="es-subgrupo" class="entrada" list="lista-subgrupos" placeholder="Ex.: Tenda Piramidal 5x5"></label>' +
           datalistFam +
+          '<datalist id="lista-subgrupos">' +
+            (function () {
+              var subs = [];
+              cadastro.forEach(function (i) {
+                var s = Estoque.subgrupoDe(i);
+                if (s && subs.indexOf(s) < 0) subs.push(s);
+              });
+              return subs.sort().map(function (s) { return '<option value="' + U.esc(s) + '">'; }).join('');
+            })() +
+          '</datalist>' +
           '<div class="btn-linha">' +
             '<label class="campo" style="flex:1"><span class="campo__rot">Unidade</span>' +
               '<input id="es-unidade" class="entrada" value="UN"></label>' +
@@ -2587,8 +2616,25 @@ function TelaEstoque() {
               ' <span class="peq mut" style="margin-left:auto">' + grupos[fam].length + ' ' +
                 (grupos[fam].length === 1 ? 'material' : 'materiais') + '</span></button>';
           }
-          h += '<div class="js-fam-grupo" data-fam="' + U.esc(fam) + '"' + (aberta ? '' : ' hidden') + '>' +
-            grupos[fam].map(linhaPeca).join('') + '</div>';
+          /* dentro da família: primeiro os kits (subgrupos), depois as peças soltas */
+          var porSub = {};
+          grupos[fam].forEach(function (i) {
+            var sg = Estoque.subgrupoDe(i) || '';
+            (porSub[sg] = porSub[sg] || []).push(i);
+          });
+          var subs = Object.keys(porSub).filter(function (s) { return s !== ''; }).sort();
+          var corpoFam = '';
+          subs.forEach(function (sg) {
+            corpoFam += '<p class="peq" style="margin:12px 0 6px;font-weight:800;color:#5B3FA8">🧩 ' +
+              U.esc(sg) + ' <span class="mut">(' + porSub[sg].length + ')</span></p>' +
+              porSub[sg].map(linhaPeca).join('');
+          });
+          if (porSub['']) {
+            corpoFam += (subs.length
+              ? '<p class="peq" style="margin:12px 0 6px;font-weight:800;color:var(--txt-2)">Peças avulsas <span class="mut">(' + porSub[''].length + ')</span></p>'
+              : '') + porSub[''].map(linhaPeca).join('');
+          }
+          h += '<div class="js-fam-grupo" data-fam="' + U.esc(fam) + '"' + (aberta ? '' : ' hidden') + '>' + corpoFam + '</div>';
         });
       }
       function linhaPeca(i) {
@@ -2600,6 +2646,9 @@ function TelaEstoque() {
                 Estoque.familiasDe(i).map(function (f) {
                   return ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(f) + '</span>';
                 }).join('') +
+                (Estoque.subgrupoDe(i)
+                  ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' + U.esc(Estoque.subgrupoDe(i)) + '</span>'
+                  : '') +
                 '<span class="peq mut" style="display:block">' +
                   'Saldo no galpão: <b style="color:' + (saldo < 0 ? 'var(--vermelho)' : 'var(--verde)') + '">' +
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
@@ -2797,6 +2846,7 @@ function TelaEstoque() {
         var familiasNovas = U.$('#es-familia').value.split(',')
           .map(function (f) { return f.trim().replace(/\s+/g, ' '); })
           .filter(function (f) { return f.length > 0; });
+        var subgrupoNovo = U.$('#es-subgrupo').value.trim().replace(/\s+/g, ' ');
         var unidade = U.$('#es-unidade').value.trim() || 'UN';
         var qtd = U.num(U.$('#es-qtd').value);
         if (!nome) return U.aviso('Dê um nome para a peça.', 'erro');
@@ -2804,7 +2854,7 @@ function TelaEstoque() {
         if (repetida) return U.aviso('Já existe uma peça com esse nome. Use o AJUSTAR dela.', 'erro', 5000);
         var botao = this;
         botao.disabled = true; botao.textContent = 'Cadastrando...';
-        Banco.criarEstoque({ nome: nome, unidade: unidade, familias: familiasNovas, familia: familiasNovas[0] || null, ativo: true }).then(function (novo) {
+        Banco.criarEstoque({ nome: nome, unidade: unidade, familias: familiasNovas, familia: familiasNovas[0] || null, subgrupo: subgrupoNovo || null, ativo: true }).then(function (novo) {
           if (qtd > 0) {
             return Banco.criarMovimentos([{
               estoque_id: novo.id, tipo: 'entrada', quantidade: qtd, usuario_id: Sessao.atual.id,
@@ -2869,7 +2919,10 @@ function TelaEstoque() {
                   }).join('') + '</div>'
                 : '') +
               '<label class="campo"><span class="campo__rot">Nova(s) família(s) <span class="peq mut">(separe por vírgula)</span></span>' +
-                '<input class="entrada" id="fam-novas" placeholder="Ex.: Palco, Elétrica"></label>',
+                '<input class="entrada" id="fam-novas" placeholder="Ex.: Palco, Elétrica"></label>' +
+              '<label class="campo"><span class="campo__rot">🧩 Subgrupo/kit <span class="peq mut">(em branco = peça avulsa)</span></span>' +
+                '<input class="entrada" id="fam-subgrupo" list="lista-subgrupos" value="' + U.esc(Estoque.subgrupoDe(item)) + '" ' +
+                  'placeholder="Ex.: Tenda Piramidal 5x5"></label>',
             pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
                 '<button class="btn btn--verde" data-ok>SALVAR</button>'
           });
@@ -2883,7 +2936,8 @@ function TelaEstoque() {
               f = f.trim().replace(/\s+/g, ' ');
               if (f && lista.indexOf(f) < 0) lista.push(f);
             });
-            Banco.atualizarEstoque(item.id, { familias: lista, familia: lista[0] || null })
+            var sgNovo = m.querySelector('#fam-subgrupo').value.trim().replace(/\s+/g, ' ');
+            Banco.atualizarEstoque(item.id, { familias: lista, familia: lista[0] || null, subgrupo: sgNovo || null })
               .then(function () {
                 m.fechar();
                 U.aviso(lista.length
@@ -4512,6 +4566,10 @@ function TelaEvento(eventoId) {
     }
 
     var novoCarreg = U.$('#btn-novo-carreg', tela);
+    if (novoCarreg && TelaEvento._abrirNovaSaida) {
+      TelaEvento._abrirNovaSaida = false;
+      setTimeout(function () { novoCarreg.click(); }, 400);
+    }
     if (novoCarreg) novoCarreg.addEventListener('click', function () {
       escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (camId) {
         if (!camId) return;
@@ -4945,11 +5003,25 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
                 '<input class="entrada js-cad-fam" data-i="' + i + '" list="cad-familias" ' +
                   'placeholder="📂 Famílias (pode várias, por vírgula)" ' +
                   'style="margin-top:6px;min-height:42px;padding:8px;font-size:14px">' +
+                '<input class="entrada js-cad-sub" data-i="' + i + '" list="cad-subgrupos" ' +
+                  'value="' + U.esc((String(p.nome).match(/^(.+?)\s+[-–]\s+/) || [,''])[1].trim()) + '" ' +
+                  'placeholder="🧩 Subgrupo/kit (ex.: Tenda Piramidal 5x5)" ' +
+                  'style="margin-top:6px;min-height:42px;padding:8px;font-size:14px">' +
               '</div>';
             }).join('') +
           '</div>' +
           '<datalist id="cad-familias">' +
             familiasEx.map(function (f) { return '<option value="' + U.esc(f) + '">'; }).join('') +
+          '</datalist>' +
+          '<datalist id="cad-subgrupos">' +
+            (function () {
+              var subs = [];
+              cadastro.forEach(function (i) {
+                var s = Estoque.subgrupoDe(i);
+                if (s && subs.indexOf(s) < 0) subs.push(s);
+              });
+              return subs.sort().map(function (s) { return '<option value="' + U.esc(s) + '">'; }).join('');
+            })() +
           '</datalist>',
         pe: '<button class="btn btn--branco" data-nada>NÃO CADASTRAR NADA</button>' +
             '<button class="btn btn--verde" data-ok>CADASTRAR MARCADOS</button>',
@@ -4968,13 +5040,15 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
           var i = Number(cx.dataset.i);
           var campoQtd = m.querySelector('.js-cad-qtd[data-i="' + i + '"]');
           var campoFam = m.querySelector('.js-cad-fam[data-i="' + i + '"]');
+          var campoSub = m.querySelector('.js-cad-sub[data-i="' + i + '"]');
           var fams = (campoFam ? campoFam.value : '').split(',')
             .map(function (f) { return f.trim().replace(/\s+/g, ' '); })
             .filter(function (f) { return f.length > 0; });
           escolhidos.push({
             p: faltantes[i],
             qtd: campoQtd ? U.num(campoQtd.value) : 0,
-            familias: fams
+            familias: fams,
+            subgrupo: campoSub ? campoSub.value.trim().replace(/\s+/g, ' ') : ''
           });
         });
         if (!escolhidos.length) {
@@ -4991,6 +5065,7 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
             unidade: e.p.unidade || 'UN',
             familias: e.familias || [],
             familia: (e.familias && e.familias[0]) || null,
+            subgrupo: e.subgrupo || null,
             ativo: true
           }).then(function (novo) {
             /* já ajusta o saldo com a quantidade informada */
@@ -5040,6 +5115,7 @@ function TelaConferencia(arg) {
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
   var familiasPorChave = {};  /* nome normalizado -> [famílias] (vem do estoque) */
+  var subgrupoPorChave = {};  /* nome normalizado -> subgrupo/kit */
   var filtroFamilia = '';     /* chip escolhido ('' = todas) */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
   var desbloqueada = false;  /* o coordenador liberou a edição com a senha */
@@ -5057,6 +5133,8 @@ function TelaConferencia(arg) {
     (tudo[3] || []).forEach(function (i) {
       var fams = Estoque.familiasDe(i);
       if (fams.length) familiasPorChave[Estoque.chave(i.nome)] = fams;
+      var sg = Estoque.subgrupoDe(i);
+      if (sg) subgrupoPorChave[Estoque.chave(i.nome)] = sg;
     });
 
     pacote = p;
@@ -5473,7 +5551,27 @@ function TelaConferencia(arg) {
         ' <span class="n">' + listaDesenho.length + '</span></h2>';
     }
 
-    h += listaDesenho.map(function (l) { return cardProduto(l); }).join('');
+    /* dentro da lista: os kits (subgrupos) juntos, com cabecinho roxo */
+    var temSubgrupo = listaDesenho.some(function (l) { return subgrupoPorChave[Estoque.chave(l.nome)]; });
+    if (temSubgrupo) {
+      var porSub2 = {};
+      listaDesenho.forEach(function (l) {
+        var sg = subgrupoPorChave[Estoque.chave(l.nome)] || '';
+        (porSub2[sg] = porSub2[sg] || []).push(l);
+      });
+      var subs2 = Object.keys(porSub2).filter(function (s) { return s !== ''; }).sort();
+      subs2.forEach(function (sg) {
+        h += '<p class="peq" style="margin:14px 0 6px;font-weight:800;color:#5B3FA8">🧩 ' + U.esc(sg) +
+          ' <span class="mut">(' + porSub2[sg].length + ')</span></p>' +
+          porSub2[sg].map(function (l) { return cardProduto(l); }).join('');
+      });
+      if (porSub2['']) {
+        h += '<p class="peq" style="margin:14px 0 6px;font-weight:800;color:var(--txt-2)">Peças avulsas <span class="mut">(' + porSub2[''].length + ')</span></p>' +
+          porSub2[''].map(function (l) { return cardProduto(l); }).join('');
+      }
+    } else {
+      h += listaDesenho.map(function (l) { return cardProduto(l); }).join('');
+    }
 
     function cardProduto(l) {
       var id = l.produto.id;
@@ -6377,11 +6475,27 @@ function TelaConferencia(arg) {
     var notasFin = (!cega && pacote.evento && pacote.evento.notas_fiscais) ? pacote.evento.notas_fiscais : [];
     var notaAberta = notasFin.length === 0;   /* sem nota: já liberado */
 
+    /* Saída com item faltando: pergunta se o resto vai em OUTRO carregamento */
+    var faltando = cega ? [] : linhas.filter(function (l) {
+      var t = valorTotal(l.produto.id);
+      return t !== null && t < Calculo.base(l, 'saida');
+    });
+
     var m = U.modal({
       titulo: 'Finalizar ' + (cega ? 'retorno' : 'conferência'),
       html: '<pre style="font-family:inherit;font-size:16px;white-space:pre-wrap;margin:0 0 14px">' + U.esc(texto) + '</pre>' +
         (cega
           ? '<p class="mut peq" style="margin-bottom:10px">O retorno é às cegas e pode ser parcial: se chegar mais mercadoria em outro caminhão, registre um novo retorno na tela do evento.</p>'
+          : '') +
+        (faltando.length
+          ? '<div class="aviso aviso--amarelo" style="margin-bottom:12px"><span class="aviso__ico">🚚</span><div>' +
+            '<b>Faltaram itens neste carregamento:</b>' +
+            faltando.slice(0, 5).map(function (l) {
+              var t = valorTotal(l.produto.id);
+              return '<br>• ' + U.esc(l.nome) + ' — faltam ' + U.fmt(Calculo.base(l, 'saida') - t);
+            }).join('') +
+            (faltando.length > 5 ? '<br>• ... e mais ' + (faltando.length - 5) : '') +
+            '<br><b>O que faltou vai em outro carregamento?</b> Escolha abaixo.</div></div>'
           : '') +
         (notasFin.length
           ? '<div class="aviso aviso--azul" style="margin-bottom:12px"><span class="aviso__ico">🧾</span><div>' +
@@ -6397,8 +6511,12 @@ function TelaConferencia(arg) {
         '<p><b>Deseja finalizar?</b></p>' +
         '<p class="mut peq" style="margin-top:6px">Depois de finalizada, a conferência <b>trava</b>: só o coordenador consegue alterar, com a senha.</p>',
       pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
-          '<button class="btn btn--verde" data-ok' + (notaAberta ? '' : ' disabled') + '>' +
-            (notaAberta ? 'FINALIZAR' : '🧾 IMPRIMA A NOTA PRIMEIRO') + '</button>',
+          (faltando.length
+            ? '<button class="btn btn--branco" data-ok data-destino="mesmo"' + (notaAberta ? '' : ' disabled') + '>FINALIZAR ASSIM MESMO</button>' +
+              '<button class="btn btn--verde" data-ok data-destino="outro"' + (notaAberta ? '' : ' disabled') + '>' +
+                (notaAberta ? '🚚 VAI EM OUTRO CARREGAMENTO' : '🧾 IMPRIMA A NOTA PRIMEIRO') + '</button>'
+            : '<button class="btn btn--verde" data-ok data-destino="mesmo"' + (notaAberta ? '' : ' disabled') + '>' +
+                (notaAberta ? 'FINALIZAR' : '🧾 IMPRIMA A NOTA PRIMEIRO') + '</button>'),
       travado: true
     });
     m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
@@ -6411,24 +6529,37 @@ function TelaConferencia(arg) {
         bNf.className = 'btn js-nf-fin';
         if (!notaAberta) {
           notaAberta = true;
-          var ok = m.querySelector('[data-ok]');
-          ok.disabled = false;
-          ok.textContent = 'FINALIZAR';
+          U.$$('[data-ok]', m).forEach(function (ok) {
+            ok.disabled = false;
+            if (ok.dataset.destino === 'outro') ok.textContent = '🚚 VAI EM OUTRO CARREGAMENTO';
+            else if (faltando.length) ok.textContent = 'FINALIZAR ASSIM MESMO';
+            else ok.textContent = 'FINALIZAR';
+          });
         }
       });
     });
-    m.querySelector('[data-ok]').addEventListener('click', function () {
-      if (!notaAberta) return U.aviso('🧾 Abra e imprima a nota fiscal antes de finalizar.', 'erro', 5000);
-      var b = m.querySelector('[data-ok]');
-      b.disabled = true; b.textContent = 'Salvando...';
-      salvar(true).then(function () {
-        m.fechar();
-        desbloqueada = false;
-        U.aviso('✓ ' + (cega ? 'Retorno finalizado.' : 'Conferência finalizada.') + ' Agora ela está travada.', 'ok', 5000);
-        recarregarDados();
-      }).catch(function (e) {
-        b.disabled = false; b.textContent = 'FINALIZAR';
-        if (e.message !== 'vazio') App.falhou(e);
+    U.$$('[data-ok]', m).forEach(function (bOk) {
+      bOk.addEventListener('click', function () {
+        if (!notaAberta) return U.aviso('🧾 Abra e imprima a nota fiscal antes de finalizar.', 'erro', 5000);
+        var destino = bOk.dataset.destino;
+        U.$$('[data-ok]', m).forEach(function (x) { x.disabled = true; });
+        bOk.textContent = 'Salvando...';
+        salvar(true).then(function () {
+          m.fechar();
+          desbloqueada = false;
+          if (destino === 'outro') {
+            U.aviso('✓ Carregamento finalizado. Agora crie o PRÓXIMO carregamento para o que faltou.', 'ok', 6000);
+            TelaEvento._abrirNovaSaida = true;   /* a tela do evento já abre escolhendo o caminhão */
+            App.trocar(TelaEvento, eventoId);
+          } else {
+            U.aviso('✓ ' + (cega ? 'Retorno finalizado.' : 'Conferência finalizada.') + ' Agora ela está travada.', 'ok', 5000);
+            recarregarDados();
+          }
+        }).catch(function (e) {
+          U.$$('[data-ok]', m).forEach(function (x) { x.disabled = false; });
+          bOk.textContent = destino === 'outro' ? '🚚 VAI EM OUTRO CARREGAMENTO' : (faltando.length ? 'FINALIZAR ASSIM MESMO' : 'FINALIZAR');
+          if (e.message !== 'vazio') App.falhou(e);
+        });
       });
     });
   }
