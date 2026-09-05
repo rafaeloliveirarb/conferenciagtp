@@ -2538,6 +2538,14 @@ function TelaEstoque() {
       h += '<div class="busca-prod"><input type="search" id="busca-estoque" ' +
         'placeholder="🔍 Buscar peça pelo nome..." autocomplete="off"></div>';
 
+      var temAlgumaFamilia = cadastro.some(function (i) { return !!i.familia; });
+      if (cadastro.length && !temAlgumaFamilia) {
+        h += '<div class="aviso aviso--azul"><span class="aviso__ico">📂</span><div>' +
+          '<b>Nenhuma peça tem família ainda.</b>' +
+          'Toque no botão <b>Família</b> de cada peça (ex.: Piso Pantográfico, Tenda, Elétrica) — ' +
+          'a lista aqui e a conferência dos conferentes passam a vir separadas por família na hora.</div></div>';
+      }
+
       h += '<h2 class="secao__tit">Peças <span class="n">' + cadastro.length + '</span></h2>';
       if (!cadastro.length) {
         h += '<div class="vazio"><p class="vazio__ico">📦</p><h3>Estoque vazio</h3>' +
