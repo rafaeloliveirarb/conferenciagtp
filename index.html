@@ -2574,21 +2574,22 @@ function TelaEstoque() {
           if (b === 'Sem família') return -1;
           return a.localeCompare(b);
         });
-        var listaEstoque = [];
+        /* As famílias vêm FECHADAS: toque numa para abrir os materiais dela.
+           A escolha de abertas/fechadas fica guardada enquanto a sessão durar. */
+        TelaEstoque._abertas = TelaEstoque._abertas || {};
+        var soUmaFamilia = nomesFam2.length === 1 && nomesFam2[0] === 'Sem família';
         nomesFam2.forEach(function (fam) {
-          if (nomesFam2.length > 1 || fam !== 'Sem família') {
-            listaEstoque.push({ __cabecalho: fam, __qtd: grupos[fam].length });
+          var aberta = soUmaFamilia || !!TelaEstoque._abertas[fam];
+          if (!soUmaFamilia) {
+            h += '<button class="btn btn--branco btn--bloco js-fam-toggle" data-fam="' + U.esc(fam) + '" ' +
+              'style="margin-top:14px;justify-content:flex-start;text-align:left;font-weight:800;color:var(--azul)">' +
+              (aberta ? '▾' : '▸') + ' 📂 ' + U.esc(fam) +
+              ' <span class="peq mut" style="margin-left:auto">' + grupos[fam].length + ' ' +
+                (grupos[fam].length === 1 ? 'material' : 'materiais') + '</span></button>';
           }
-          grupos[fam].forEach(function (i) { listaEstoque.push(i); });
+          h += '<div class="js-fam-grupo" data-fam="' + U.esc(fam) + '"' + (aberta ? '' : ' hidden') + '>' +
+            grupos[fam].map(linhaPeca).join('') + '</div>';
         });
-
-        h += listaEstoque.map(function (i) {
-          if (i.__cabecalho) {
-            return '<h2 class="secao__tit" style="margin-top:18px;font-size:16px">📂 ' + U.esc(i.__cabecalho) +
-              ' <span class="n">' + i.__qtd + '</span></h2>';
-          }
-          return linhaPeca(i);
-        }).join('');
       }
       function linhaPeca(i) {
           var saldo = saldos[i.id] || 0;
@@ -2652,9 +2653,31 @@ function TelaEstoque() {
         });
       });
 
+      U.$$('.js-fam-toggle', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var fam = b.dataset.fam;
+          var grupo = U.$('.js-fam-grupo[data-fam="' + fam.replace(/"/g, '\\"') + '"]', tela);
+          if (!grupo) return;
+          var abrir = grupo.hidden;
+          grupo.hidden = !abrir;
+          TelaEstoque._abertas = TelaEstoque._abertas || {};
+          TelaEstoque._abertas[fam] = abrir;
+          b.innerHTML = b.innerHTML.replace(abrir ? '▸' : '▾', abrir ? '▾' : '▸');
+        });
+      });
+
       var busca = U.$('#busca-estoque', tela);
       if (busca) busca.addEventListener('input', function () {
         var t = busca.value.trim().toLowerCase();
+        /* pesquisando: abre todas as famílias para mostrar o que achou;
+           limpou a busca: volta ao aberto/fechado de antes */
+        U.$$('.js-fam-grupo', tela).forEach(function (g) {
+          g.hidden = t ? false : !(TelaEstoque._abertas && TelaEstoque._abertas[g.dataset.fam]);
+        });
+        U.$$('.js-fam-toggle', tela).forEach(function (b) {
+          var aberto = t ? true : !!(TelaEstoque._abertas && TelaEstoque._abertas[b.dataset.fam]);
+          b.innerHTML = b.innerHTML.replace(aberto ? '▸' : '▾', aberto ? '▾' : '▸');
+        });
         U.$$('.carga[data-nome]', tela).forEach(function (cx) {
           cx.style.display = !t || (cx.dataset.nome || '').indexOf(t) >= 0 ? '' : 'none';
         });
