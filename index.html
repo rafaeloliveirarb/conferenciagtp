@@ -947,6 +947,13 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* Exclui um carregamento: as conferências dele, os itens e os movimentos
+     de estoque/terceiros ligados são apagados juntos (cascade no banco). */
+  apagarCarregamento: function (id) {
+    return this.cliente.from('carregamentos').delete().eq('id', id)
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
+
   /* apaga os movimentos de uma conferência (para re-finalizar sem duplicar) */
   apagarMovimentosConferencia: function (conferenciaId) {
     return this.cliente.from('movimentos_estoque').delete().eq('conferencia_id', conferenciaId)
@@ -4462,7 +4469,10 @@ function TelaEvento(eventoId) {
         h += '<div class="carga">' +
           '<div class="carga__topo"><span class="carga__tit">🚚 SAÍDA — CARREG. ' + cg.numero + '</span>' + selo(cg.status) + '</div>' +
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
-            (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '" style="margin-left:auto">Trocar caminhão</button>' : '') +
+            '<span style="margin-left:auto;display:flex;gap:6px">' +
+            (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
+            (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
+            '</span>' +
           '</div>' +
           '<div class="carga__corpo">' +
             '<button class="etapa js-conf" data-cg="' + cg.id + '" data-tipo="saida">' +
@@ -4516,7 +4526,10 @@ function TelaEvento(eventoId) {
         h += '<div class="carga">' +
           '<div class="carga__topo"><span class="carga__tit">↩️ RETORNO — CARREG. ' + cg.numero + '</span>' + selo(cg.status) + '</div>' +
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
-            (!retornoFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '" style="margin-left:auto">Trocar caminhão</button>' : '') +
+            '<span style="margin-left:auto;display:flex;gap:6px">' +
+            (!retornoFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
+            (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
+            '</span>' +
           '</div>' +
           '<div class="carga__corpo">' +
             '<button class="etapa js-conf" data-cg="' + cg.id + '" data-tipo="retorno">' +
@@ -4605,6 +4618,31 @@ function TelaEvento(eventoId) {
         App.recarregar();
       });
     }
+
+    U.$$('.js-excluir-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cgId = b.dataset.cg;
+        var confsDele = p.conferencias.filter(function (c) { return c.carregamento_id === cgId; });
+        var temFinalizada = confsDele.some(function (c) { return c.finalizada_em; });
+        pedirSenhaCoordenador('Excluir carregamento ' + b.dataset.num,
+          'Apagar o CARREG. ' + b.dataset.num + ' deste evento? ' +
+          (confsDele.length
+            ? 'As ' + confsDele.length + ' conferência(s) dele somem junto' +
+              (temFinalizada ? ', e os movimentos de estoque e de terceiros lançados por elas são DESFEITOS' : '') + '. '
+            : 'Ele ainda não tem conferência. ') +
+          'Não dá para desfazer. Digite a senha do coordenador.')
+          .then(function (ok) {
+            if (!ok) return;
+            Banco.apagarCarregamento(cgId)
+              .then(function () {
+                U.aviso('🗑️ Carregamento ' + b.dataset.num + ' excluído' +
+                  (temFinalizada ? ' — estoque e terceiros ajustados de volta.' : '.'), 'ok', 6000);
+                App.recarregar();
+              })
+              .catch(App.falhou);
+          });
+      });
+    });
 
     var novoCarreg = U.$('#btn-novo-carreg', tela);
     if (novoCarreg && TelaEvento._abrirNovaSaida) {
