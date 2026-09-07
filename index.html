@@ -1635,9 +1635,11 @@ const Calculo = {
         saida: saida,
         retorno: retorno,
         enviado: enviado,
-        esperadoRetorno: enviado,
+        /* sem conferência de saída: o retorno compara com o PREVISTO;
+           com saída conferida: compara com o que realmente SAIU */
+        esperadoRetorno: saida === null ? prevista : enviado,
         difSaida: saida === null ? null : saida - prevista,
-        difRetorno: retorno === null ? null : retorno - enviado,
+        difRetorno: retorno === null ? null : retorno - (saida === null ? prevista : enviado),
         dano: iR ? {
           qtd: U.num(iR.qtd_danificada) || 0,
           descricao: iR.dano_descricao || '',
@@ -1668,12 +1670,13 @@ const Calculo = {
         if (l.dano) danificado += l.dano.qtd;
       });
       var enviado = saida === null ? 0 : saida;
+      var baseRet = saida === null ? prevista : enviado;
       return {
         produto: p, nome: p.nome, unidade: p.unidade || 'UN',
         prevista: prevista,
         saida: saida, retorno: retorno, enviado: enviado, danificado: danificado,
         difSaida: saida === null ? null : saida - prevista,
-        difRetorno: retorno === null ? null : retorno - enviado
+        difRetorno: retorno === null ? null : retorno - baseRet
       };
     });
   },
@@ -1683,13 +1686,15 @@ const Calculo = {
   totaisEvento: function (produtos, carregamentos, conferencias, itens) {
     var linhas = Calculo.montarEvento(produtos, carregamentos, conferencias, itens);
     var t = { previsto: 0, enviado: 0, retornado: 0, falta: 0, pct: 0 };
+    var baseTotal = 0;
     linhas.forEach(function (l) {
       t.previsto += l.prevista;
       t.enviado += l.saida || 0;
       t.retornado += l.retorno || 0;
+      baseTotal += (l.esperadoRetorno !== undefined ? l.esperadoRetorno : (l.saida === null ? l.prevista : (l.saida || 0)));
     });
-    t.falta = Math.max(0, t.enviado - t.retornado);
-    t.pct = t.enviado ? Math.min(100, Math.round(t.retornado / t.enviado * 100)) : 0;
+    t.falta = Math.max(0, baseTotal - t.retornado);
+    t.pct = baseTotal ? Math.min(100, Math.round(t.retornado / baseTotal * 100)) : 0;
     return t;
   },
 
@@ -4469,8 +4474,17 @@ function TelaEvento(eventoId) {
         '</div>';
       });
 
-      if (!eventoFechado) {
-        h += '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-novo-carreg" style="margin-top:4px">➕ NOVO CARREGAMENTO (SAÍDA)</button>';
+      /* só oferece novo carregamento se ainda houver item previsto sem sair */
+      var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens);
+      var faltaSair = 0;
+      linhasEv.forEach(function (l) { faltaSair += Math.max(0, l.prevista - (l.saida || 0)); });
+
+      if (!eventoFechado && faltaSair > 0) {
+        h += '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-novo-carreg" style="margin-top:4px">' +
+          '➕ NOVO CARREGAMENTO (SAÍDA) <span class="peq" style="font-weight:600">· faltam ' + U.fmt(faltaSair) + ' itens</span></button>';
+      } else if (!eventoFechado && p.carregamentos.some(function (c) { return c.sentido !== 'retorno'; })) {
+        h += '<div class="aviso aviso--verde" style="margin-top:4px"><span class="aviso__ico">✓</span><div>' +
+          '<b>Todo o material previsto já saiu.</b>Se precisar levar mais alguma coisa, ajuste o checklist primeiro.</div></div>';
       }
 
       /* --- carregamentos de RETORNO (vários caminhões, às cegas) --- */
@@ -4514,12 +4528,17 @@ function TelaEvento(eventoId) {
         '</div>';
       });
 
-      if (algumaSaidaFinal && !eventoFechado) {
-        h += '<button class="btn btn--verde btn--bloco btn--gg" id="btn-novo-retorno" style="margin-top:4px">↩️ REGISTRAR RETORNO (escolher caminhão)</button>';
+      var totEv = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens);
+      if (algumaSaidaFinal && !eventoFechado && totEv.falta > 0) {
+        h += '<button class="btn btn--verde btn--bloco btn--gg" id="btn-novo-retorno" style="margin-top:4px">' +
+          '↩️ REGISTRAR RETORNO (escolher caminhão) <span class="peq" style="font-weight:600">· faltam voltar ' + U.fmt(totEv.falta) + '</span></button>';
+      } else if (algumaSaidaFinal && !eventoFechado) {
+        h += '<div class="aviso aviso--verde" style="margin-top:4px"><span class="aviso__ico">✓</span><div>' +
+          '<b>Tudo retornou!</b>O material enviado já voltou por completo — o coordenador pode encerrar o evento.</div></div>';
       }
 
-      /* --- relatórios (coordenador): tudo dentro do evento --- */
-      if (ehCoord && p.conferencias.length) {
+      /* --- relatórios: coordenador E conferentes imprimem --- */
+      if (p.conferencias.length) {
         h += '<h2 class="secao__tit" style="margin-top:26px">Relatórios do evento</h2><div class="btn-linha">';
         saidas.forEach(function (cg) {
           if (Calculo.confDe(p.conferencias, cg.id, 'saida')) {
@@ -5133,6 +5152,7 @@ function TelaConferencia(arg) {
   var embalagem = {};   /* produto_id -> como a conta foi feita (pallet/caixa) */
   var dano = {};        /* produto_id -> { qtd, desc, foto } (só no retorno) */
   var terc = {};        /* produto_id -> quantos do total contado são terceirizados */
+  var correcaoPendente = null;   /* texto obrigatório ao re-finalizar uma conferência corrigida */
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
@@ -5461,7 +5481,19 @@ function TelaConferencia(arg) {
         '<img src="' + foto + '" alt="Foto do carregamento"></div>';
     }
 
-    h += '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-desbloquear">🔓 DESBLOQUEAR (SENHA DO COORDENADOR)</button>' +
+    var corrs = (conferencia && conferencia.correcoes) || [];
+    if (corrs.length) {
+      h += '<div class="cartao"><div class="cartao__topo"><h3>📝 Correções após finalizar</h3>' +
+        '<span class="mut peq">' + corrs.length + '</span></div><div class="cartao__corpo">' +
+        corrs.map(function (c) {
+          return '<div style="border-bottom:1px solid var(--linha);padding:8px 0">' +
+            '“' + U.esc(c.texto) + '”' +
+            '<span class="peq mut" style="display:block">' + U.esc(c.nome || '') + ' · ' + U.fmtDataHora(c.em) + '</span></div>';
+        }).join('') +
+      '</div></div>';
+    }
+
+    h += '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-desbloquear">✏️ CORRIGIR CONFERÊNCIA (com observação obrigatória)</button>' +
       '<button class="btn btn--branco btn--bloco" style="margin-top:10px" onclick="App.voltar()">Voltar para o evento</button>';
 
     tela.innerHTML = h;
@@ -5469,21 +5501,33 @@ function TelaConferencia(arg) {
     ligarBotoesNotaFiscal(U.$('#tela'));
 
     U.$('#btn-desbloquear').addEventListener('click', function () {
-      pedirSenhaCoordenador('Desbloquear conferência',
-        'Esta conferência já foi finalizada. Digite a senha do coordenador para liberar a edição.')
-        .then(function (ok) {
-          if (!ok) return;
-          desbloqueada = true;
-          /* fica registrado quem estava logado e quando o desbloqueio aconteceu */
-          var registro = (conferencia.desbloqueios || []).concat([{
-            por: Sessao.atual.id, em: new Date().toISOString()
-          }]);
-          Banco.atualizarConferencia(conferencia.id, { desbloqueios: registro })
-            .then(function (c) { if (c) conferencia = c; })
-            .catch(function () { /* sem internet: o desbloqueio vale, o registro vai no próximo salvar */ });
-          U.aviso('🔓 Edição liberada pelo coordenador. Ao finalizar de novo, ela trava outra vez.', 'ok', 6000);
-          desenhar();
-        });
+      /* Sem senha: qualquer conferente pode corrigir. A contrapartida é a
+         trilha completa — fica registrado quem abriu, e ao finalizar de novo
+         é OBRIGATÓRIO escrever o que foi corrigido. */
+      var m = U.modal({
+        titulo: '✏️ Corrigir esta conferência',
+        html: '<p>Esta conferência já foi finalizada. Você pode abrir para corrigir, ' +
+            'e fica registrado que <b>' + U.esc(Sessao.atual.nome) + '</b> abriu agora.</p>' +
+          '<p class="mut peq" style="margin-top:8px">📝 Ao finalizar de novo, será <b>obrigatório escrever ' +
+            'o que foi corrigido</b> — isso sai na tela e nos relatórios.</p>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--laranja" data-ok>ABRIR PARA CORRIGIR</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        m.fechar();
+        desbloqueada = true;
+        /* fica registrado quem estava logado e quando o desbloqueio aconteceu */
+        var registro = (conferencia.desbloqueios || []).concat([{
+          por: Sessao.atual.id, em: new Date().toISOString()
+        }]);
+        Banco.atualizarConferencia(conferencia.id, { desbloqueios: registro })
+          .then(function (c) { if (c) conferencia = c; })
+          .catch(function () { /* sem internet: o desbloqueio vale, o registro vai no próximo salvar */ });
+        U.aviso('✏️ Edição liberada. Ao finalizar, escreva o que foi corrigido.', 'ok', 6000);
+        desenhar();
+      });
     });
   }
 
@@ -6301,6 +6345,15 @@ function TelaConferencia(arg) {
         foto_base64: foto || null
       };
       if (finalizando) campos.finalizada_em = new Date().toISOString();
+      if (finalizando && correcaoPendente) {
+        campos.correcoes = ((conferencia && conferencia.correcoes) || []).concat([{
+          em: new Date().toISOString(),
+          usuario_id: Sessao.atual.id,
+          nome: Sessao.atual.nome,
+          texto: correcaoPendente
+        }]);
+        correcaoPendente = null;
+      }
       return Banco.atualizarConferencia(conferencia.id, campos);
     }).then(function (c) {
       conferencia = c || conferencia;
@@ -6498,6 +6551,10 @@ function TelaConferencia(arg) {
     var notasFin = (!cega && pacote.evento && pacote.evento.notas_fiscais) ? pacote.evento.notas_fiscais : [];
     var notaAberta = notasFin.length === 0;   /* sem nota: já liberado */
 
+    /* Conferência que JÁ FOI finalizada e está sendo corrigida:
+       a observação do que mudou é obrigatória. */
+    var precisaCorrecao = !!(conferencia && conferencia.finalizada_em);
+
     /* Saída com item faltando: pergunta se o resto vai em OUTRO carregamento */
     var faltando = cega ? [] : linhas.filter(function (l) {
       var t = valorTotal(l.produto.id);
@@ -6530,6 +6587,14 @@ function TelaConferencia(arg) {
                 (notasFin.length > 1 ? ' ' + (i + 1) : ' FISCAL') + '</button>';
             }).join('') +
             '</div></div></div>'
+          : '') +
+        (precisaCorrecao
+          ? '<div class="aviso aviso--amarelo" style="margin-bottom:12px"><span class="aviso__ico">📝</span><div>' +
+            '<b>Esta conferência já tinha sido finalizada.</b>' +
+            'Escreva o que foi corrigido (obrigatório) — fica registrado com seu nome:' +
+            '<textarea class="entrada" id="fin-correcao" rows="2" ' +
+              'placeholder="Ex.: contei 2 travas a mais; corrigi de 19 para 21" ' +
+              'style="margin-top:8px;resize:vertical"></textarea></div></div>'
           : '') +
         '<p><b>Deseja finalizar?</b></p>' +
         '<p class="mut peq" style="margin-top:6px">Depois de finalizada, a conferência <b>trava</b>: só o coordenador consegue alterar, com a senha.</p>',
@@ -6564,6 +6629,13 @@ function TelaConferencia(arg) {
     U.$$('[data-ok]', m).forEach(function (bOk) {
       bOk.addEventListener('click', function () {
         if (!notaAberta) return U.aviso('🧾 Abra e imprima a nota fiscal antes de finalizar.', 'erro', 5000);
+        if (precisaCorrecao) {
+          var txtCor = (m.querySelector('#fin-correcao').value || '').trim();
+          if (txtCor.length < 5) {
+            return U.aviso('📝 Escreva o que foi corrigido (obrigatório nesta re-finalização).', 'erro', 6000);
+          }
+          correcaoPendente = txtCor;
+        }
         var destino = bOk.dataset.destino;
         U.$$('[data-ok]', m).forEach(function (x) { x.disabled = true; });
         bOk.textContent = 'Salvando...';
@@ -6612,6 +6684,26 @@ const Relatorio = {
       var y = Relatorio._cabecalho(doc, pacote, 'RELATÓRIO DE CONFERÊNCIA', dados);
       y = Relatorio._tabela(doc, dados, y);
       y = Relatorio._resumo(doc, dados, y);
+
+      /* correções feitas depois da primeira finalização */
+      var corrs = (dados.conferencia && dados.conferencia.correcoes) || [];
+      if (corrs.length) {
+        if (y > 250) { doc.addPage(); y = 20; }
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.text('CORREÇÕES APÓS FINALIZAR', 15, y); y += 6;
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(9);
+        corrs.forEach(function (c) {
+          var linhasTxt = doc.splitTextToSize('• "' + c.texto + '" — ' + (c.nome || '') + ', ' + U.fmtDataHora(c.em), 180);
+          linhasTxt.forEach(function (t) {
+            if (y > 285) { doc.addPage(); y = 20; }
+            doc.text(t, 15, y); y += 4.5;
+          });
+        });
+        y += 4;
+      }
+
       y = Relatorio._foto(doc, dados, y);
       Relatorio._assinaturas(doc, y);
       Relatorio._salvar(doc, pacote.evento.nome + ' - Carreg ' + cg.numero + ' - ' + Calculo.TIPOS[tipo].curto);
