@@ -6790,20 +6790,20 @@ const Relatorio = {
       /* correções feitas depois da primeira finalização */
       var corrs = (dados.conferencia && dados.conferencia.correcoes) || [];
       if (corrs.length) {
-        if (y > 250) { doc.addPage(); y = 20; }
+        if (y > 272) { doc.addPage(); y = 14; }
         doc.setFont(undefined, 'bold');
-        doc.setFontSize(11);
-        doc.text('CORREÇÕES APÓS FINALIZAR', 15, y); y += 6;
+        doc.setFontSize(8.5);
+        doc.text('CORREÇÕES APÓS FINALIZAR', 12, y); y += 4;
         doc.setFont(undefined, 'normal');
-        doc.setFontSize(9);
+        doc.setFontSize(7.5);
         corrs.forEach(function (c) {
-          var linhasTxt = doc.splitTextToSize('• "' + c.texto + '" — ' + (c.nome || '') + ', ' + U.fmtDataHora(c.em), 180);
+          var linhasTxt = doc.splitTextToSize('• "' + c.texto + '" — ' + (c.nome || '') + ', ' + U.fmtDataHora(c.em), 186);
           linhasTxt.forEach(function (t) {
-            if (y > 285) { doc.addPage(); y = 20; }
-            doc.text(t, 15, y); y += 4.5;
+            if (y > 288) { doc.addPage(); y = 14; }
+            doc.text(t, 12, y); y += 3.6;
           });
         });
-        y += 4;
+        y += 2;
       }
 
       y = Relatorio._foto(doc, dados, y);
@@ -6857,42 +6857,49 @@ const Relatorio = {
     var y = Relatorio._cabecalho(doc, pacote, 'RELATÓRIO COMPLETO DO EVENTO', null);
 
     blocos.forEach(function (b, i) {
-      if (i > 0 && y > 200) { doc.addPage(); y = 20; }
-      doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-      doc.text('CARREGAMENTO ' + b.carregamento.numero + ' — ' + Calculo.TIPOS[b.tipo].rotulo.toUpperCase(), 15, y);
-      y += 6;
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-      doc.text('Caminhão: ' + b.caminhao + '   ·   Conferente: ' + b.conferente +
-        '   ·   Situação: ' + b.conferencia.status +
-        '   ·   ' + U.fmtDataHora(b.conferencia.finalizada_em || b.conferencia.updated_at || b.conferencia.created_at), 15, y);
+      /* só quebra de página se realmente não couber o começo da seção */
+      if (i > 0 && y > 252) { doc.addPage(); y = 14; }
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+      doc.text('CARREGAMENTO ' + b.carregamento.numero + ' — ' + Calculo.TIPOS[b.tipo].rotulo.toUpperCase(), 12, y);
       y += 4;
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
+      doc.text('Caminhão: ' + b.caminhao + ' · Conferente: ' + b.conferente +
+        ' · ' + b.conferencia.status +
+        ' · ' + U.fmtDataHora(b.conferencia.finalizada_em || b.conferencia.updated_at || b.conferencia.created_at), 12, y);
+      y += 3;
       y = Relatorio._tabela(doc, b, y);
       y = Relatorio._resumo(doc, b, y);
-      y += 6;
+      y += 3;
     });
 
-    /* fechamento do evento */
-    if (y > 200) { doc.addPage(); y = 20; }
+    /* fechamento do evento — compacto, em duas colunas */
+    if (y > 240) { doc.addPage(); y = 14; }
     var fim = Relatorio._fechamento(pacote);
-    doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-    doc.text('RESUMO FINAL', 15, y); y += 7;
-    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+    doc.text('RESUMO FINAL', 12, y); y += 5;
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal');
     var saidasN = (pacote.carregamentos || []).filter(function (c) { return (c.sentido || 'saida') === 'saida'; }).length;
     var retornosN = (pacote.carregamentos || []).filter(function (c) { return c.sentido === 'retorno'; }).length;
     var pct = fim.saiu ? Math.min(100, Math.round(fim.retorno / fim.saiu * 100)) : 0;
-    [['Carregamentos de saída', saidasN],
-     ['Retornos registrados (caminhões)', retornosN],
-     ['Total previsto no checklist', fim.previsto],
-     ['Total conferido na saída', fim.saiu],
-     ['Total retornado (todos os caminhões)', U.fmt(fim.retorno) + '  (' + pct + '%)'],
-     ['Falta voltar', fim.falta],
-     ['Danificados no retorno', fim.danificados],
-     ['Divergências registradas', fim.divergencias]
-    ].forEach(function (l) {
-      doc.text(l[0] + ': ' + (typeof l[1] === 'string' ? l[1] : U.fmt(l[1])), 15, y); y += 5.5;
+    var itensFim = [
+      ['Carregamentos de saída', saidasN],
+      ['Retornos (caminhões)', retornosN],
+      ['Previsto no checklist', fim.previsto],
+      ['Conferido na saída', fim.saiu],
+      ['Retornado', U.fmt(fim.retorno) + ' (' + pct + '%)'],
+      ['Falta voltar', fim.falta],
+      ['Danificados no retorno', fim.danificados],
+      ['Divergências', fim.divergencias]
+    ];
+    var metadeFim = Math.ceil(itensFim.length / 2);
+    itensFim.forEach(function (l, i) {
+      var x = i < metadeFim ? 12 : 108;
+      var yy = y + (i % metadeFim) * 4.4;
+      doc.text(l[0] + ': ' + (typeof l[1] === 'string' ? l[1] : U.fmt(l[1])), x, yy);
     });
+    y += metadeFim * 4.4;
 
-    Relatorio._assinaturas(doc, y + 4);
+    Relatorio._assinaturas(doc, y);
     Relatorio._salvar(doc, pacote.evento.nome + ' - Relatorio completo');
   },
 
@@ -6936,16 +6943,14 @@ const Relatorio = {
   _cabecalho: function (doc, pacote, titulo, dados) {
     var ev = pacote.evento;
     doc.setFillColor(11, 79, 158);
-    doc.rect(0, 0, 210, 26, 'F');
+    doc.rect(0, 0, 210, 17, 'F');
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(15); doc.setFont('helvetica', 'bold');
-    doc.text(titulo, 15, 12);
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.text('Central de Conferência — Gestão de Mercadorias para Eventos', 15, 19);
+    doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+    doc.text(titulo, 12, 8.5);
+    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
+    doc.text('Central de Conferência — Gestão de Mercadorias para Eventos', 12, 13.5);
 
     doc.setTextColor(20, 30, 40);
-    var y = 36;
-    doc.setFontSize(10);
     var campos = [
       ['Evento', ev.nome],
       ['Cliente', ev.cliente || '—'],
@@ -6953,21 +6958,26 @@ const Relatorio = {
       ['Data do evento', U.fmtData(ev.data)]
     ];
     if (dados) {
-      campos.push(['Carregamento', 'Carregamento ' + dados.carregamento.numero]);
-      campos.push(['Caminhão', dados.caminhao]);
+      campos.push(['Carregamento', 'Carreg. ' + dados.carregamento.numero + ' · ' + dados.caminhao]);
       campos.push(['Conferência', Calculo.TIPOS[dados.tipo].rotulo + (dados.tipo === 'retorno' ? ' (às cegas)' : '')]);
-      campos.push(['Conferente', dados.conferente]);
-      campos.push(['Situação', dados.conferencia.status]);
+      campos.push(['Conferente', dados.conferente + ' · ' + dados.conferencia.status]);
       campos.push(['Data/hora', U.fmtDataHora(dados.conferencia.finalizada_em || dados.conferencia.updated_at || dados.conferencia.created_at)]);
     } else {
       campos.push(['Conferente', App.nomeUsuario(ev.conferente_id)]);
     }
-    campos.forEach(function (c) {
-      doc.setFont('helvetica', 'bold'); doc.text(c[0] + ':', 15, y);
-      doc.setFont('helvetica', 'normal'); doc.text(String(c[1]), 55, y);
-      y += 5.5;
+    /* duas colunas: metade esquerda, metade direita — ocupa metade da altura */
+    var metade = Math.ceil(campos.length / 2);
+    var y = 23;
+    doc.setFontSize(8.5);
+    campos.forEach(function (c, i) {
+      var col = i < metade ? 0 : 1;
+      var yy = y + (i % metade) * 4.4;
+      var x = col === 0 ? 12 : 108;
+      doc.setFont('helvetica', 'bold'); doc.text(c[0] + ':', x, yy);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(c[1]).slice(0, 46), x + (col === 0 ? 24 : 26), yy);
     });
-    return y + 4;
+    return y + metade * 4.4 + 3;
   },
 
   _tabela: function (doc, dados, y) {
@@ -7004,12 +7014,12 @@ const Relatorio = {
         head: [cabecalho],
         body: corpo,
         theme: 'grid',
-        styles: { fontSize: 9, cellPadding: 2.4 },
-        headStyles: { fillColor: [11, 79, 158], textColor: 255, fontStyle: 'bold' },
-        columnStyles: { 1: { halign: 'center', cellWidth: 16 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-        margin: { left: 15, right: 15 }
+        styles: { fontSize: 7.5, cellPadding: 1.1 },
+        headStyles: { fillColor: [11, 79, 158], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        columnStyles: { 1: { halign: 'center', cellWidth: 12 }, 2: { halign: 'right', cellWidth: 22 }, 3: { halign: 'right', cellWidth: 22 }, 4: { halign: 'right', cellWidth: 24 } },
+        margin: { left: 12, right: 12 }
       });
-      return doc.lastAutoTable.finalY + 8;
+      return doc.lastAutoTable.finalY + 4;
     }
 
     doc.setFontSize(9);
@@ -7027,78 +7037,77 @@ const Relatorio = {
 
   _resumo: function (doc, dados, y) {
     var r = dados.resumo;
-    if (y > 250) { doc.addPage(); y = 20; }
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-    doc.text('RESUMO', 15, y); y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    var itensResumo;
+    if (y > 275) { doc.addPage(); y = 20; }
+    var texto;
     if (dados.tipo === 'retorno') {
       var registrados = dados.linhas.filter(function (l) { return l.retorno !== null; });
       var total = 0, dan = 0;
       registrados.forEach(function (l) { total += l.retorno; dan += (l.dano ? l.dano.qtd : 0); });
-      itensResumo = [
-        ['Produtos registrados neste caminhão', registrados.length],
-        ['Total que chegou neste caminhão', total],
-        ['Danificados (com foto e descrição)', dan]
-      ];
+      texto = 'RESUMO: ' + registrados.length + ' produtos registrados · chegou ' + U.fmt(total) +
+        ' · danificados ' + U.fmt(dan);
     } else {
-      itensResumo = [
-        ['Total de produtos', r.produtos],
-        ['Total ' + Calculo.TIPOS[dados.tipo].base.toLowerCase(), r.previsto],
-        ['Total conferido', r.conferido],
-        ['Total de divergências', r.divergencias]
-      ];
+      texto = 'RESUMO: ' + r.produtos + ' produtos · ' + Calculo.TIPOS[dados.tipo].base.toLowerCase() + ' ' +
+        U.fmt(r.previsto) + ' · conferido ' + U.fmt(r.conferido) + ' · divergências ' + U.fmt(r.divergencias);
     }
-    itensResumo.forEach(function (l) { doc.text(l[0] + ': ' + U.fmt(l[1]), 15, y); y += 5.5; });
-    return y + 2;
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'bold');
+    doc.text(texto, 12, y);
+    doc.setFont('helvetica', 'normal');
+    return y + 5;
   },
 
-  /* Foto do carregamento dentro do PDF. */
+  /* Fotos no PDF: menores e em DUAS colunas para caber mais por folha. */
   _foto: function (doc, dados, y) {
-    var b64 = Relatorio._b64(dados.conferencia && dados.conferencia.foto_base64);
-    if (b64) {
-      if (y > 190) { doc.addPage(); y = 20; }
-      doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-      doc.text('FOTO DO CARREGAMENTO', 15, y); y += 4;
-      try {
-        doc.addImage(b64, 'JPEG', 15, y, 90, 65);
-        y += 70;
-      } catch (e) { /* se a imagem falhar, o PDF sai sem ela */ }
-    }
+    var LARG = 62, ALT = 45;                 /* antes: 90x65 */
+    var fotos = [];
 
-    /* fotos dos itens danificados (retorno) */
+    var b64 = Relatorio._b64(dados.conferencia && dados.conferencia.foto_base64);
+    if (b64) fotos.push({ titulo: 'FOTO DO CARREGAMENTO', img: b64 });
+
     if (dados.tipo === 'retorno') {
       dados.linhas.forEach(function (l) {
         if (!l.dano || !(l.dano.qtd > 0)) return;
-        if (y > 185) { doc.addPage(); y = 20; }
-        doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-        doc.text('DANIFICADO: ' + l.nome.slice(0, 50) + ' (' + U.fmt(l.dano.qtd) + ')', 15, y); y += 5;
-        if (l.dano.descricao) {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-          var quebrado = doc.splitTextToSize(l.dano.descricao, 175);
-          doc.text(quebrado, 15, y);
-          y += quebrado.length * 4 + 2;
-        }
-        var fotoDano = Relatorio._b64(l.dano.foto);
-        if (fotoDano) {
-          if (y > 205) { doc.addPage(); y = 20; }
-          try { doc.addImage(fotoDano, 'JPEG', 15, y, 90, 65); y += 70; } catch (e) { }
-        }
-        y += 3;
+        fotos.push({
+          titulo: 'DANIFICADO: ' + l.nome.slice(0, 38) + ' (' + U.fmt(l.dano.qtd) + ')',
+          desc: l.dano.descricao || '',
+          img: Relatorio._b64(l.dano.foto)
+        });
       });
     }
+    if (!fotos.length) return y;
+
+    var col = 0;
+    fotos.forEach(function (f) {
+      if (col === 0 && y > 290 - (ALT + 14)) { doc.addPage(); y = 14; }
+      var x = col === 0 ? 12 : 108;
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.text(f.titulo.slice(0, 52), x, y);
+      var yy = y + 3;
+      if (f.desc) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+        var quebrado = doc.splitTextToSize(f.desc, LARG + 24).slice(0, 2);
+        doc.text(quebrado, x, yy + 2.5);
+        yy += quebrado.length * 3.4 + 1;
+      }
+      if (f.img) {
+        try { doc.addImage(f.img, 'JPEG', x, yy, LARG, ALT); } catch (e) { }
+      }
+      if (col === 0) { col = 1; }
+      else { col = 0; y = yy + ALT + 7; }
+    });
+    if (col === 1) y += ALT + 14;   /* terminou com uma foto na esquerda */
     return y;
   },
 
   _assinaturas: function (doc, y) {
-    if (y > 245) { doc.addPage(); y = 40; }
-    y = Math.max(y + 18, 240);
+    /* logo abaixo do conteúdo — sem empurrar para o pé da página */
+    y += 14;
+    if (y > 280) { doc.addPage(); y = 30; }
     doc.setDrawColor(60);
-    doc.line(20, y, 95, y);
-    doc.line(115, y, 190, y);
-    doc.setFontSize(9);
-    doc.text('Conferente', 57, y + 5, { align: 'center' });
-    doc.text('Responsável', 152, y + 5, { align: 'center' });
+    doc.line(16, y, 92, y);
+    doc.line(118, y, 194, y);
+    doc.setFontSize(8);
+    doc.text('Conferente', 54, y + 4, { align: 'center' });
+    doc.text('Responsável', 156, y + 4, { align: 'center' });
   },
 
   _salvar: function (doc, nome) {
