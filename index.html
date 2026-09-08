@@ -3447,7 +3447,14 @@ async function enviarParaEscala(id, silencioso){
       if(m) casados.push({plan:nm, id:m.id});
       else semCadastro.push(nm);
     });
-    if(!casados.length){ if(!silencioso) toast('Nenhum montador do evento foi encontrado no cadastro da Escala.'); return; }
+    if(!casados.length){
+      if(!silencioso){
+        toast(!listaEscala || !listaEscala.length
+          ? 'A Escala está SEM montadores cadastrados neste Supabase — a migração dos 19 montadores não foi concluída. Rode o SQL novo e o migrador de novo.'
+          : 'Nenhum nome bateu com a Escala (' + listaEscala.length + ' cadastrados lá). Faltando: ' + nomes.join(', ') + '.');
+      }
+      return;
+    }
     /* não atropela férias, atestado, folga...: só preenche onde está vazio ou já é T */
     const chaves = [];
     casados.forEach(c => dias.forEach(d => chaves.push(d + '|' + c.id)));
