@@ -1876,6 +1876,24 @@ function seletorUnidade(valor, indice, classe) {
       return '<option value="' + U.esc(u) + '"' + (u === atual ? ' selected' : '') + '>' + U.esc(u) + '</option>';
     }).join('') + '</select>';
 }
+/* Status calculado do evento: acompanha o progresso de verdade.
+   Nos cartões usa as conferências; na tela do evento entra também o %. */
+function statusVivo(ev, pct) {
+  if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return ev.status;
+  var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
+  if (!confs.length) return 'Aguardando conferência';
+  var saidaFin = confs.some(function (c) { return c.tipo === 'saida' && c.finalizada_em; });
+  var saidaComecou = confs.some(function (c) { return c.tipo === 'saida'; });
+  var retComecou = confs.some(function (c) { return c.tipo === 'retorno'; });
+  if (!saidaFin) return saidaComecou ? 'Saída em andamento' : 'Aguardando conferência';
+  if (typeof pct === 'number') {
+    if (pct >= 100) return 'Retorno 100% — pode encerrar';
+    if (retComecou || pct > 0) return 'Retorno ' + pct + '%';
+    return 'Aguardando retorno';
+  }
+  return retComecou ? 'Retorno em andamento' : 'Aguardando retorno';
+}
+
 function selo(situacao) {
   var mapa = {
     'Aguardando conferência': 'aguardando',
@@ -1890,9 +1908,13 @@ function selo(situacao) {
     'Retorno em andamento': 'andamento',
     'Retorno finalizado': 'finalizado',
     'Concluído': 'finalizado',
-    'Concluído com divergência': 'divergencia'
+    'Concluído com divergência': 'divergencia',
+    'Aguardando retorno': 'salvo',
+    'Retorno 100% — pode encerrar': 'finalizado'
   };
-  return '<span class="sit sit--' + (mapa[situacao] || 'aguardando') + '">' + U.esc(situacao) + '</span>';
+  var classe = mapa[situacao];
+  if (!classe && /^Retorno \d+%$/.test(situacao)) classe = 'andamento';
+  return '<span class="sit sit--' + (classe || 'aguardando') + '">' + U.esc(situacao) + '</span>';
 }
 
 /* Nome amigável do caminhão (tipo + modelo + placa). */
@@ -2368,7 +2390,7 @@ function TelaPainel() {
       var parado = diasParado(ev, confs);
       return '<div class="evento">' +
         '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(ev.status) +
+          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
         '</div>' +
         (parado >= 3
           ? '<div class="aviso aviso--amarelo" style="margin:10px 0 4px"><span class="aviso__ico">⏳</span><div>' +
@@ -4190,7 +4212,7 @@ function TelaMeusEventos() {
 
       return '<div class="evento">' +
         '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(ev.status) +
+          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
         '</div>' +
         '<dl class="evento__dl">' +
           '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
@@ -4227,7 +4249,7 @@ function TelaMeusEventos() {
       }).join('<br>');
       return '<div class="evento">' +
         '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(ev.status) +
+          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
         '</div>' +
         '<dl class="evento__dl">' +
           '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
@@ -4340,7 +4362,12 @@ function TelaEvento(eventoId) {
     var h = '';
 
     /* --- dados do evento --- */
-    h += '<div class="cartao"><div class="cartao__topo"><h3>Dados do evento</h3>' + selo(ev.status) + '</div>' +
+    var pctEvento = (function () {
+      var tt = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens);
+      return tt.retornado > 0 || tt.enviado > 0 ? tt.pct : null;
+    })();
+    h += '<div class="cartao"><div class="cartao__topo"><h3>Dados do evento</h3>' +
+      selo(statusVivo(ev, pctEvento === null ? undefined : pctEvento)) + '</div>' +
       '<div class="cartao__corpo"><dl class="evento__dl">' +
         '<dt>Evento</dt><dd>' + U.esc(ev.nome) + '</dd>' +
         '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
@@ -4754,17 +4781,57 @@ function TelaEvento(eventoId) {
       var t = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens);
       var temDiv = linhas.some(function (l) { return (l.difSaida || 0) !== 0 || (l.difRetorno || 0) !== 0; });
       var statusFinal = temDiv ? 'Com divergência' : 'Finalizado';
-      pedirSenhaCoordenador('Encerrar evento',
-        'Voltaram ' + U.fmt(t.retornado) + ' de ' + U.fmt(t.enviado) + ' itens enviados (' + t.pct + '%).' +
-        (t.falta > 0 ? ' Ainda faltam ' + U.fmt(t.falta) + ' itens.' : '') +
-        ' O evento será marcado como "' + statusFinal + '". Digite a senha do coordenador para confirmar.')
-        .then(function (ok) {
-          if (!ok) return;
-          Banco.atualizarEvento(eventoId, { status: statusFinal })
-            .then(function () { return App.carregarBase(); })
-            .then(function () { U.aviso('🏁 Evento encerrado: ' + statusFinal + '.', 'ok', 5000); App.recarregar(); })
-            .catch(App.falhou);
-        });
+
+      /* Antes de encerrar: IMPRIMIR o relatório completo é obrigatório */
+      var relAberto = false;
+      var m = U.modal({
+        titulo: '🏁 Encerrar evento',
+        html: '<p>Voltaram <b>' + U.fmt(t.retornado) + '</b> de <b>' + U.fmt(t.enviado) + '</b> itens enviados (' + t.pct + '%).' +
+            (t.falta > 0 ? ' <b style="color:var(--vermelho)">Ainda faltam ' + U.fmt(t.falta) + ' itens.</b>' : ' ✓ Tudo retornou.') + '</p>' +
+          '<p style="margin-top:8px">O evento será marcado como <b>"' + statusFinal + '"</b> e vira só consulta.</p>' +
+          '<div class="aviso aviso--azul" style="margin:12px 0"><span class="aviso__ico">📑</span><div>' +
+            '<b>Imprima o relatório completo antes de encerrar.</b>' +
+            'Ele gera o PDF com todos os carregamentos, divergências e correções.' +
+            '<div class="btn-linha" style="margin-top:10px">' +
+              '<button class="btn btn--laranja" id="enc-rel">📑 IMPRIMIR RELATÓRIO COMPLETO</button>' +
+            '</div></div></div>' +
+          '<label class="campo"><span class="campo__rot">Senha do coordenador</span>' +
+            '<input class="entrada" id="enc-senha" type="password" inputmode="numeric" autocomplete="off"></label>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--azul" data-ok disabled>📑 IMPRIMA O RELATÓRIO PRIMEIRO</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      m.querySelector('#enc-rel').addEventListener('click', function () {
+        var btnRel = U.$('.js-pdf-completo', tela);
+        if (btnRel) btnRel.click();
+        else U.aviso('Gere o relatório na seção "Relatórios do evento".', 'info', 5000);
+        relAberto = true;
+        this.textContent = '✓ Relatório gerado — confira o PDF';
+        this.className = 'btn';
+        var ok = m.querySelector('[data-ok]');
+        ok.disabled = false;
+        ok.textContent = '🏁 ENCERRAR EVENTO';
+      });
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        if (!relAberto) return U.aviso('📑 Imprima o relatório completo antes de encerrar.', 'erro', 5000);
+        if (m.querySelector('#enc-senha').value !== SENHA_COORDENADOR) {
+          return U.aviso('Senha do coordenador incorreta.', 'erro', 4000);
+        }
+        var b = m.querySelector('[data-ok]');
+        b.disabled = true; b.textContent = 'Encerrando...';
+        Banco.atualizarEvento(eventoId, { status: statusFinal })
+          .then(function () { return App.carregarBase(); })
+          .then(function () {
+            m.fechar();
+            U.aviso('🏁 Evento encerrado: ' + statusFinal + '.', 'ok', 5000);
+            App.recarregar();
+          })
+          .catch(function (e) {
+            b.disabled = false; b.textContent = '🏁 ENCERRAR EVENTO';
+            App.falhou(e);
+          });
+      });
     });
 
     U.$$('.js-trocar-cam', tela).forEach(function (b) {
