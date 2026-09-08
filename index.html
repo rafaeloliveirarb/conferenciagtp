@@ -4592,7 +4592,8 @@ function TelaEvento(eventoId) {
         });
         h += '<button class="btn js-pdf-completo">📑 RELATÓRIO COMPLETO DO EVENTO</button></div>';
 
-        /* encerrar evento: só o coordenador, com senha */
+        /* encerrar evento: coordenador OU conferente, sem senha —
+           a exigência é imprimir o relatório completo antes */
         if (ev.status !== 'Finalizado' && ev.status !== 'Com divergência') {
           h += '<button class="btn btn--azul btn--bloco" id="btn-encerrar" style="margin-top:14px">🏁 ENCERRAR EVENTO</button>';
         }
@@ -4795,8 +4796,7 @@ function TelaEvento(eventoId) {
             '<div class="btn-linha" style="margin-top:10px">' +
               '<button class="btn btn--laranja" id="enc-rel">📑 IMPRIMIR RELATÓRIO COMPLETO</button>' +
             '</div></div></div>' +
-          '<label class="campo"><span class="campo__rot">Senha do coordenador</span>' +
-            '<input class="entrada" id="enc-senha" type="password" inputmode="numeric" autocomplete="off"></label>',
+          '<p class="mut peq">Fica registrado que <b>' + U.esc(Sessao.atual.nome) + '</b> encerrou o evento.</p>',
         pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
             '<button class="btn btn--azul" data-ok disabled>📑 IMPRIMA O RELATÓRIO PRIMEIRO</button>',
         travado: true
@@ -4815,12 +4815,9 @@ function TelaEvento(eventoId) {
       });
       m.querySelector('[data-ok]').addEventListener('click', function () {
         if (!relAberto) return U.aviso('📑 Imprima o relatório completo antes de encerrar.', 'erro', 5000);
-        if (m.querySelector('#enc-senha').value !== SENHA_COORDENADOR) {
-          return U.aviso('Senha do coordenador incorreta.', 'erro', 4000);
-        }
         var b = m.querySelector('[data-ok]');
         b.disabled = true; b.textContent = 'Encerrando...';
-        Banco.atualizarEvento(eventoId, { status: statusFinal })
+        Banco.atualizarEvento(eventoId, { status: statusFinal, encerrado_por: Sessao.atual.id, encerrado_em: new Date().toISOString() })
           .then(function () { return App.carregarBase(); })
           .then(function () {
             m.fechar();
