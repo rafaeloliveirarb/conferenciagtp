@@ -5563,7 +5563,10 @@ function oferecerCadastroEstoque(produtosChecklist, aoTerminar) {
 function TelaConferencia(arg) {
   var eventoId = arg.eventoId, carregamentoId = arg.carregamentoId, tipo = arg.tipo;
   var info = Calculo.TIPOS[tipo];
-  var cega = tipo === 'retorno';           /* conferência às cegas */
+  var cega = tipo === 'retorno';           /* retorno: parcial, com danificados */
+  /* Conferência às cegas nos DOIS sentidos: o conferente conta sem ver o
+     previsto. A comparação aparece só ao finalizar e na tela travada. */
+  var escondePrevisto = true;
   var tela = U.$('#tela');
   tela.innerHTML = U.carregando('Preparando a conferência...');
 
@@ -5957,16 +5960,15 @@ function TelaConferencia(arg) {
 
     var h = '';
 
-    /* barra de porcentagem do retorno (até finalizar) */
-    if (cega) {
-      h += '<div class="progresso-fixa" id="prog-topo"></div>';
-    }
+    /* barra de andamento da contagem (não revela quantidades) */
+    h += '<div class="progresso-fixa" id="prog-topo"></div>';
 
     var explicacao = cega
       ? '<span class="cega-tag">ÀS CEGAS</span> Conte o que chegou <b>neste caminhão</b>, sem olhar o que saiu. ' +
         '<b>Não precisa voltar tudo de uma vez:</b> o que não veio neste caminhão pode ficar em branco — ' +
         'outros retornos podem ser registrados depois. A comparação geral fica na tela do evento.'
-      : 'Conte o que está sendo carregado no caminhão. A diferença é calculada sozinha: <b>Conferido − Previsto</b>';
+      : '<span class="cega-tag">ÀS CEGAS</span> Conte o que está sendo carregado no caminhão, ' +
+        '<b>sem olhar o checklist</b>. A comparação com o previsto aparece quando você finalizar.';
 
     h += '<div class="aviso aviso--azul"><span class="aviso__ico">ℹ</span><div>' + explicacao + '</div></div>';
 
@@ -6069,7 +6071,7 @@ function TelaConferencia(arg) {
           ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + '). ' +
             'Separe o que voltou <b>em bom estado</b> do que voltou <b>danificado</b>.</p>' +
             '<p class="dano__rot" style="color:var(--verde)">🟢 BOM (voltou inteiro)</p>'
-          : '<p class="prod__prev">' + U.esc(info.base) + ': <b>' + U.fmt(base) + ' ' + U.esc(l.unidade) + '</b></p>') +
+          : '<p class="prod__prev mut">Conte o que está indo no caminhão (' + U.esc(l.unidade) + ').</p>') +
         '<div class="contador">' +
           '<button class="contador__btn js-menos" data-id="' + id + '" aria-label="Diminuir">−</button>' +
           '<input class="contador__campo js-campo" data-id="' + id + '" type="number" inputmode="numeric" ' +
@@ -6077,8 +6079,7 @@ function TelaConferencia(arg) {
           '<button class="contador__btn js-mais" data-id="' + id + '" aria-label="Aumentar">+</button>' +
         '</div>' +
         '<div class="atalhos">' +
-          (cega ? '' : '<button class="atalho js-igual" data-id="' + id + '" data-v="' + base + '">Bateu certo (' + U.fmt(base) + ')</button>') +
-          '<button class="atalho js-zero" data-id="' + id + '">Não veio nada (0)</button>' +
+          '<button class="atalho js-zero" data-id="' + id + '">' + (cega ? 'Não veio nada (0)' : 'Não foi (0)') + '</button>' +
         '</div>' +
         (cega ? blocoDano(l) : '') +
         blocoTerc(l) +
@@ -6556,7 +6557,7 @@ function TelaConferencia(arg) {
       return;
     }
 
-    if (cega) {
+    if (cega || escondePrevisto) {
       /* às cegas: nada de mostrar o esperado */
       dica.innerHTML = 'Pallet/caixa de <b>' + U.fmt(por) + '</b> ' + U.esc(linha.unidade) +
         '. Preencha fechados e avulsas que o total vai direto para o contador.';
@@ -6632,20 +6633,15 @@ function TelaConferencia(arg) {
         ? '🔵 Registrado: ' + partes.join(' + ') + ' = <b>' + U.fmt(valorTotal(id)) + ' ' + U.esc(linha.unidade) + '</b>'
         : '🔵 Registrado: <b>' + U.fmt(v) + ' ' + U.esc(linha.unidade) + '</b>';
     } else {
+      /* saída às cegas: mostra o que foi contado, sem revelar o previsto */
       var total = valorTotal(id);
       var tqui = ehFlag100(id) ? 0 : U.num(terc[id]);
-      var soma = tqui > 0 ? U.fmt(v) + ' do nosso estoque + ' + U.fmt(tqui) + ' terceirizado' + (tqui > 1 ? 's' : '') + ' = <b>' + U.fmt(total) + '</b> · ' : '';
-      var dif = total - base;
-      if (dif === 0) {
-        caixa.classList.add('ok'); campo.classList.add('ok');
-        res.className = 'prod__res ok';
-        res.innerHTML = '🟢 ' + soma + 'Confere com o ' + info.base.toLowerCase() + '.';
-      } else {
-        caixa.classList.add('dif'); campo.classList.add('dif');
-        res.className = 'prod__res ' + (dif < 0 ? 'dif' : 'mais');
-        res.innerHTML = '🔴 ' + soma + (dif < 0 ? 'Faltam ' : 'Sobrando ') + '<b>' + U.fmt(Math.abs(dif)) + '</b>' +
-          ' · Divergência: <b>' + (dif > 0 ? '+' : '') + U.fmt(dif) + '</b>';
-      }
+      caixa.classList.add('ok'); campo.classList.add('ok');
+      res.className = 'prod__res ok';
+      res.innerHTML = tqui > 0
+        ? '🔵 Registrado: <b>' + U.fmt(v) + '</b> do nosso estoque + <b>' + U.fmt(tqui) + '</b> terceirizado' +
+          (tqui > 1 ? 's' : '') + ' = <b>' + U.fmt(total) + ' ' + U.esc(linha.unidade) + '</b>'
+        : '🔵 Registrado: <b>' + U.fmt(v) + ' ' + U.esc(linha.unidade) + '</b>';
     }
     var tq = tercQtd(id);
     if (v !== null && tq > 0 && !ehFlag100(id) && cega) {
@@ -6666,7 +6662,8 @@ function TelaConferencia(arg) {
       var pct = r.produtos ? Math.round(feitos / r.produtos * 100) : 0;
       prog.innerHTML =
         '<div class="progresso"><div class="progresso__fill" style="width:' + pct + '%"></div></div>' +
-        '<div class="progresso__rot"><span>Registrar retorno · ' + feitos + ' de ' + r.produtos + ' produtos</span>' +
+        '<div class="progresso__rot"><span>' + (cega ? 'Registrar retorno' : 'Conferência de saída') +
+        ' · ' + feitos + ' de ' + r.produtos + ' produtos</span>' +
         '<span>' + pct + '%</span></div>';
     }
 
@@ -6676,9 +6673,7 @@ function TelaConferencia(arg) {
       '<h3 style="font-size:18px;color:var(--azul);margin-bottom:10px">Resumo</h3>' +
       '<dl class="evento__dl">' +
         '<dt>Produtos</dt><dd>' + r.produtos + '</dd>' +
-        (cega ? '' : '<dt>' + U.esc(info.base) + '</dt><dd>' + U.fmt(r.base) + '</dd>') +
         '<dt>Conferido</dt><dd>' + U.fmt(r.contado) + '</dd>' +
-        (cega ? '' : '<dt>Divergências</dt><dd>' + r.divergencias + '</dd>') +
         (r.terceirizados ? '<dt>Terceirizados</dt><dd>🔗 ' + U.fmt(r.terceirizados) + ' (fora do estoque)</dd>' : '') +
         (cega && r.danificados ? '<dt>Danificados</dt><dd>🟠 ' + U.fmt(r.danificados) + '</dd>' : '') +
         (r.pendentes
