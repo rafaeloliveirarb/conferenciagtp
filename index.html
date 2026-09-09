@@ -2028,6 +2028,32 @@ function seletorUnidade(valor, indice, classe) {
 }
 /* Status calculado do evento: acompanha o progresso de verdade.
    Nos cartões usa as conferências; na tela do evento entra também o %. */
+/* Agrupa os eventos finalizados por MÊS (mais recente primeiro).
+   Usa a data do evento; sem ela, a data de encerramento. */
+function porMes(eventos, montarCartao) {
+  var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+               'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  var grupos = {};
+  (eventos || []).forEach(function (ev) {
+    var iso = ev.data || ev.encerrado_em || ev.created_at || '';
+    var d = String(iso).slice(0, 10).split('-');
+    var chave = (d.length >= 2 && d[0].length === 4) ? d[0] + '-' + d[1] : '0000-00';
+    (grupos[chave] = grupos[chave] || []).push(ev);
+  });
+  return Object.keys(grupos).sort().reverse().map(function (ch) {
+    var partes = ch.split('-');
+    var titulo = ch === '0000-00'
+      ? 'Sem data'
+      : (MESES[Number(partes[1]) - 1] || '') + ' de ' + partes[0];
+    var lista = grupos[ch].slice().sort(function (a, b) {
+      return String(b.data || '').localeCompare(String(a.data || ''));
+    });
+    return '<h2 class="secao__tit" style="margin-top:20px">📅 ' + U.esc(titulo) +
+      ' <span class="n">' + lista.length + '</span></h2>' +
+      lista.map(montarCartao).join('');
+  }).join('');
+}
+
 function statusVivo(ev, pct) {
   if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return ev.status;
   var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
@@ -2579,7 +2605,9 @@ function TelaPainel() {
           : '<div class="vazio"><p class="vazio__ico">📋</p><h3>Nenhum evento aguardando</h3>' +
             '<p>Toque em <b>+ ANEXAR CHECKLIST</b>: o evento é criado junto com a lista de produtos.</p></div>';
       } else {
-        caixa.innerHTML = lista.map(cartaoEvento).join('');
+        caixa.innerHTML = aba === 'terminados'
+          ? porMes(lista, cartaoEvento)
+          : lista.map(cartaoEvento).join('');
       }
       U.$$('.js-abrir', caixa).forEach(function (b) {
         b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
@@ -4427,7 +4455,7 @@ function TelaMeusEventos() {
       var hh = '';
       if (aba === 'terminados') {
         hh = terminados.length
-          ? terminados.map(cartaoFinalizado).join('')
+          ? porMes(terminados, cartaoFinalizado)
           : '<div class="vazio"><p class="vazio__ico">🏁</p><h3>Nenhum evento finalizado</h3>' +
             '<p>Quando o coordenador encerrar um evento, ele aparece aqui para consulta.</p></div>';
       } else {
