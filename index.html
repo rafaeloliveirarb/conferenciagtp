@@ -6224,16 +6224,17 @@ function TelaConferencia(arg) {
         var linhaAlvo = linhas.filter(function (l) { return l.produto.id === id; })[0];
         if (!linhaAlvo) return;
 
+        /* só oferece TRELIÇAS como peça de composição */
         var sugestoes = linhas.map(function (l) { return l.nome; })
-          .concat(Object.keys(familiasPorChave).length ? [] : []);
+          .filter(function (n) { return ehTrelica(n) && Estoque.chave(n) !== Estoque.chave(linhaAlvo.nome); });
         var m = U.modal({
           titulo: '🧩 Compor ' + linhaAlvo.nome,
-          html: '<p class="mut peq" style="margin-bottom:12px">Não tem a peça inteira? Diga quantas você está ' +
-              '<b>montando com outras</b> e quais peças estão indo no lugar. ' +
+          html: '<p class="mut peq" style="margin-bottom:12px">Não tem esta treliça inteira? Diga quantas você está ' +
+              '<b>montando com outras treliças</b> (ex.: 1 de 5m = 1 de 2m + 1 de 3m). ' +
               'Elas entram na contagem como itens reais — no <b>retorno</b> vai aparecer o que saiu de verdade.</p>' +
             '<label class="campo"><span class="campo__rot">Quantas ' + U.esc(linhaAlvo.nome) + ' estão sendo compostas?</span>' +
               '<input class="entrada" id="cp-qtd" type="number" inputmode="numeric" min="1" value="1"></label>' +
-            '<p class="campo__rot" style="margin-bottom:6px">Peças usadas no lugar</p>' +
+            '<p class="campo__rot" style="margin-bottom:6px">Treliças usadas no lugar</p>' +
             '<div id="cp-itens"></div>' +
             '<button class="btn btn--branco btn--bloco btn--peq" id="cp-add" style="border-style:dashed">➕ Adicionar peça</button>' +
             '<datalist id="cp-lista">' +
@@ -6248,7 +6249,7 @@ function TelaConferencia(arg) {
           var div = document.createElement('div');
           div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
           div.innerHTML =
-            '<input class="entrada cp-nome" list="cp-lista" placeholder="Peça (ex.: Treliça Q30 2m)" value="' + U.esc(nome || '') + '" style="flex:1;min-height:44px;padding:8px">' +
+            '<input class="entrada cp-nome" list="cp-lista" placeholder="Treliça (ex.: Treliça Q30 2m)" value="' + U.esc(nome || '') + '" style="flex:1;min-height:44px;padding:8px">' +
             '<input class="entrada cp-q" type="number" inputmode="numeric" min="1" value="' + (qtd || 1) + '" style="width:80px;min-height:44px;padding:8px;text-align:center;flex:none">' +
             '<button class="btn btn--branco btn--peq cp-x" style="flex:none;color:var(--vermelho)">✕</button>';
           div.querySelector('.cp-x').addEventListener('click', function () { div.remove(); });
@@ -6272,6 +6273,10 @@ function TelaConferencia(arg) {
             if (nome && q > 0) itens.push({ nome: nome, quantidade: q });
           });
           if (itens.length < 1) return U.aviso('Informe pelo menos uma peça usada no lugar.', 'erro', 5000);
+          var naoTrelica = itens.filter(function (x) { return !ehTrelica(x.nome); })[0];
+          if (naoTrelica) {
+            return U.aviso('🧩 A composição é só de treliça: "' + naoTrelica.nome + '" não é treliça.', 'erro', 6000);
+          }
 
           var b = m.querySelector('[data-ok]');
           b.disabled = true; b.textContent = 'Registrando...';
@@ -6545,12 +6550,19 @@ function TelaConferencia(arg) {
     '</div>';
   }
 
+  /* Composição vale só para TRELIÇA (box truss): é o material que se
+     monta emendando tamanhos (1 de 5m = 1 de 2m + 1 de 3m). */
+  function ehTrelica(nome) {
+    return /treli[cç]a|box\s*truss/i.test(String(nome || ''));
+  }
+
   /* ---------- composição: peça montada com outras (só na saída) ----------
      Ex.: não há Treliça Q30 5m — vão 1 de 2m + 1 de 3m no lugar.
      As peças usadas entram na contagem como itens reais, então o
      RETORNO cobra exatamente o que saiu (2m e 3m), não a de 5m. */
   function blocoComposicao(l) {
     var id = l.produto.id;
+    if (!ehTrelica(l.nome)) return '';   /* só treliça compõe */
     var c = composicao[id];
     return '<div class="terc" data-comp="' + id + '" style="border-color:#D6C8F2;background:#FAF7FF">' +
       (c
