@@ -793,6 +793,52 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* ACRESCENTA itens ao checklist sem regravar o resto: produto com o
+     mesmo nome tem a quantidade SOMADA; nome novo é inserido. As
+     conferências e os planos de carga existentes ficam intactos. */
+  acrescentarProdutos: function (eventoId, lista, semSomar) {
+    var self = this;
+    return self.listarProdutos(eventoId).then(function (atuais) {
+      var porChave = {};
+      atuais.forEach(function (p) { porChave[Estoque.chave(p.nome)] = p; });
+      var novos = [];
+      var atualizacoes = [];
+      lista.forEach(function (p) {
+        var ch = Estoque.chave(p.nome);
+        var q = U.num(p.quantidade_prevista);
+        if (!ch || !(q > 0)) return;
+        var existente = porChave[ch];
+        if (existente) {
+          if (semSomar) return;   /* checklist do caminhão: o total do evento não muda */
+          existente.quantidade_prevista = U.num(existente.quantidade_prevista) + q;
+          atualizacoes.push(existente);
+        } else {
+          var novo = {
+            evento_id: eventoId, nome: p.nome.trim().replace(/\s+/g, ' '),
+            quantidade_prevista: q, unidade: p.unidade || 'UN',
+            terceirizado: !!p.terceirizado
+          };
+          porChave[ch] = novo;   /* arquivo com o mesmo nome 2x: soma no novo */
+          novos.push(novo);
+        }
+      });
+      var passos = atualizacoes.map(function (p) {
+        return self.cliente.from('produtos')
+          .update({ quantidade_prevista: p.quantidade_prevista }).eq('id', p.id)
+          .then(function (r) { if (r.error) Banco._erro(r.error); });
+      });
+      if (novos.length) {
+        passos.push(self.cliente.from('produtos').insert(novos).select().then(function (r) {
+          if (r.error) Banco._erro(r.error);
+          (r.data || []).forEach(function (p) { porChave[Estoque.chave(p.nome)] = p; });
+        }));
+      }
+      return Promise.all(passos).then(function () {
+        return { porChave: porChave, somados: atualizacoes.length, novos: novos.length };
+      });
+    });
+  },
+
   salvarProdutos: function (eventoId, lista) {
     var self = this;
     /* O checklist é reescrito por inteiro: apaga o antigo e grava o novo. */
@@ -4476,7 +4522,9 @@ function TelaEvento(eventoId) {
         (ehCoord
           ? (ev.status === 'Finalizado' || ev.status === 'Com divergência'
               ? ''
-              : '<button class="btn btn--branco btn--bloco js-checklist" style="margin-top:8px">Editar checklist</button>' +
+              : '<button class="btn btn--laranja btn--bloco" id="btn-anexar-mais" style="margin-top:8px">📎 ANEXAR MAIS CHECKLIST</button>' +
+                '<input type="file" id="campo-anexar-mais" accept=".pdf,.xml,.xlsx,.xls,.txt,.csv" multiple hidden>' +
+                '<button class="btn btn--branco btn--bloco js-checklist" style="margin-top:8px">Editar checklist</button>' +
                 '<button class="btn btn--branco btn--bloco" id="btn-excluir-checklist" ' +
                   'style="margin-top:8px;color:var(--vermelho);border-color:var(--vermelho)">🗑️ EXCLUIR CHECKLIST</button>')
           : '<p class="mut peq" style="margin-top:8px">O checklist é o que o coordenador lançou. ' +
@@ -4693,6 +4741,141 @@ function TelaEvento(eventoId) {
         App.recarregar();
       });
     }
+
+    /* 📎 anexar MAIS checklist ao evento já criado — somando ao que existe,
+       e com a opção de jogar os itens direto na carga de um caminhão */
+    var btnMais = U.$('#btn-anexar-mais', tela);
+    var campoMais = U.$('#campo-anexar-mais', tela);
+    if (btnMais) btnMais.addEventListener('click', function () { campoMais.click(); });
+    if (campoMais) campoMais.addEventListener('change', function () {
+      var arquivos = campoMais.files;
+      if (!arquivos || !arquivos.length) return;
+      var espera = U.modal({ titulo: 'Lendo o checklist', html: U.carregando('Isso leva alguns segundos...'), travado: true });
+
+      Checklist.lerVarios(arquivos).then(function (res) {
+        espera.fechar();
+        campoMais.value = '';
+        if (res.falhas.length) U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
+        var lidos = (res.produtos || []).filter(function (x) { return x.nome && U.num(x.quantidade_prevista) > 0; });
+        if (!lidos.length) return U.aviso('Não encontrei itens com quantidade nos arquivos.', 'erro', 6000);
+
+        var totalLido = 0;
+        lidos.forEach(function (x) { totalLido += U.num(x.quantidade_prevista); });
+        var saidasAbertas = p.carregamentos.filter(function (c) {
+          if (c.sentido === 'retorno') return false;
+          var cS = Calculo.confDe(p.conferencias, c.id, 'saida');
+          return !(cS && (cS.status === 'Finalizado' || cS.status === 'Com divergência'));
+        });
+
+        var m = U.modal({
+          titulo: '📎 ' + lidos.length + ' itens lidos (' + U.fmt(totalLido) + ' unid.)',
+          html: '<p class="mut peq" style="margin-bottom:12px">Para onde vai este checklist?</p>' +
+            '<div class="etapas">' +
+              '<button class="etapa" data-destino="caminhao">' +
+                '<span class="etapa__n">🚚</span>' +
+                '<span class="etapa__c"><span class="etapa__t">Checklist de um CARREGAMENTO</span>' +
+                '<span class="etapa__d">Novo caminhão dentro do evento, com checklist próprio — a conferência dele cobra SÓ estes itens. O total do evento não é somado.</span></span>' +
+                '<span class="etapa__seta">›</span></button>' +
+              '<button class="etapa" data-destino="evento">' +
+                '<span class="etapa__n">📋</span>' +
+                '<span class="etapa__c"><span class="etapa__t">Somar ao checklist do evento</span>' +
+                '<span class="etapa__d">Produto repetido soma a quantidade; produto novo entra no total</span></span>' +
+                '<span class="etapa__seta">›</span></button>' +
+            '</div>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+        function somar(semSomar) {
+          return Banco.acrescentarProdutos(eventoId, lidos, semSomar).then(function (r) {
+            U.aviso(semSomar
+              ? '✓ ' + r.novos + ' produto(s) novo(s) cadastrados no evento (totais preservados).'
+              : '✓ Checklist atualizado: ' + r.novos + ' produto(s) novo(s), ' + r.somados + ' com quantidade somada.', 'ok', 6000);
+            return r;
+          });
+        }
+
+        function planejarNoCarregamento(cgId, porChave) {
+          /* checklist NOVO do caminhão: o plano vira exatamente o arquivo lido */
+          var planoNovo = {};
+          lidos.forEach(function (x) {
+            var prod = porChave[Estoque.chave(x.nome)];
+            if (!prod || !prod.id) return;
+            planoNovo[prod.id] = (planoNovo[prod.id] || 0) + U.num(x.quantidade_prevista);
+          });
+          var linhasPlano = Object.keys(planoNovo).map(function (pid) {
+            return { carregamento_id: cgId, produto_id: pid, quantidade: planoNovo[pid] };
+          });
+          return Banco.salvarPlano(cgId, linhasPlano);
+        }
+
+        m.querySelectorAll('[data-destino]').forEach(function (op) {
+          op.addEventListener('click', function () {
+            var destino = op.dataset.destino;
+            m.fechar();
+
+            if (destino === 'evento') {
+              somar(false).then(function () {
+                oferecerCadastroEstoque(lidos, function () { App.recarregar(); });
+              }).catch(App.falhou);
+              return;
+            }
+
+            /* escolher o carregamento: um aberto OU criar novo com caminhão */
+            var m2 = U.modal({
+              titulo: '🚚 Em qual caminhão?',
+              html: '<div class="etapas">' +
+                saidasAbertas.map(function (c) {
+                  return '<button class="etapa js-cg-destino" data-cg="' + c.id + '">' +
+                    '<span class="etapa__n">🚛</span>' +
+                    '<span class="etapa__c"><span class="etapa__t">CARREG. ' + c.numero + '</span>' +
+                    '<span class="etapa__d">' + U.esc(nomeCaminhao(p.caminhoes, c.caminhao_id)) + '</span></span>' +
+                    '<span class="etapa__seta">›</span></button>';
+                }).join('') +
+                '<button class="etapa" id="cg-novo">' +
+                  '<span class="etapa__n">➕</span>' +
+                  '<span class="etapa__c"><span class="etapa__t">Novo carregamento</span>' +
+                  '<span class="etapa__d">Escolher o caminhão agora</span></span>' +
+                  '<span class="etapa__seta">›</span></button>' +
+              '</div>',
+              pe: '<button class="btn btn--branco" data-x>Cancelar</button>',
+              travado: true
+            });
+            m2.querySelector('[data-x]').addEventListener('click', m2.fechar);
+
+            function fecharECarregar(cgPromessa) {
+              m2.fechar();
+              var esperando = U.modal({ titulo: 'Salvando', html: U.carregando('Somando ao checklist e planejando a carga...'), travado: true });
+              Promise.all([somar(true), cgPromessa]).then(function (rr) {
+                return planejarNoCarregamento(rr[1], rr[0].porChave).then(function () {
+                  esperando.fechar();
+                  U.aviso('🚚 Checklist do carregamento salvo — a conferência dele cobra só estes itens.', 'ok', 6000);
+                  oferecerCadastroEstoque(lidos, function () { App.recarregar(); });
+                });
+              }).catch(function (e) { esperando.fechar(); App.falhou(e); });
+            }
+
+            m2.querySelectorAll('.js-cg-destino').forEach(function (bcg) {
+              bcg.addEventListener('click', function () {
+                fecharECarregar(Promise.resolve(bcg.dataset.cg));
+              });
+            });
+            m2.querySelector('#cg-novo').addEventListener('click', function () {
+              m2.fechar();
+              escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (camId) {
+                if (!camId) return;
+                var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+                fecharECarregar(Banco.criarCarregamento({
+                  evento_id: eventoId, numero: numero, caminhao_id: camId,
+                  sentido: 'saida', status: 'Saída pendente'
+                }).then(function (novo) { return novo.id; }));
+              });
+            });
+          });
+        });
+      }).catch(function (e) { espera.fechar(); App.falhou(e); });
+    });
 
     /* 📋 planejar a carga: o coordenador "joga" o checklist no caminhão */
     U.$$('.js-plano-cg', tela).forEach(function (b) {
