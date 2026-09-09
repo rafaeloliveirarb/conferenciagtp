@@ -4336,6 +4336,8 @@ function TelaNovoEvento() {
         ? '✓ Evento criado com ' + limpos.length + ' produtos no checklist.'
         : '✓ Evento criado. Anexe o checklist quando quiser.', 'ok', 5000);
       oferecerCadastroEstoque(limpos, function () {
+        /* evento criado: já abre a escolha do caminhão do 1º carregamento */
+        TelaEvento._abrirNovaSaida = true;
         App.trocar(TelaEvento, novoEvento.id);
       });
     }).catch(function (e) {
