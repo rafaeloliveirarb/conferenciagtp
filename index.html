@@ -782,7 +782,7 @@ const Banco = {
       nome: p.nome,
       quantidade_prevista: U.num(p.quantidade_prevista),
       unidade: p.unidade || 'UN',
-      terceirizado: true
+      terceirizado: p.terceirizado === undefined ? true : !!p.terceirizado
     }).select().then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
   },
 
@@ -1234,7 +1234,28 @@ const Checklist = {
     if (/^\s*(nome do evento|evento|cliente|contratante|empresa|razao social|razão social|local|endereco|endereço|pavilhao|pavilhão|espaco|espaço|data|data do evento|responsavel|responsável|conferente|coordenador|os|ordem de servico|ordem de serviço|obs|observacao|observação|telefone|contato|cnpj|cpf|emissao|emissão|nota fiscal|nf|nfe)\s*[:\-–—]/i.test(linha)) return null;
     if (/^(quantidade|qtd|qtde|quant)\b/i.test(linha) && !/\d\s*$/.test(linha)) return null;
 
+    if (/^(item|produto|material|descri)\b.*\b(qtd|qtde|quant|peso|volume)/i.test(linha)) return null;   /* cabeçalho de tabela */
+    if (/^(carga total|peso total|volume total|observa)/i.test(linha)) return null;
+    if (/^(peso|volume|conferência|conferencia)\b\s*(\(|$)/i.test(linha)) return null;
+
     var nome = null, qtd = null, unidade = null, m;
+
+    /* Tabela com colunas QTD · PESO · VOLUME: o nome vem seguido de 2+ números.
+       A QUANTIDADE é o PRIMEIRO número — os outros são peso e volume. */
+    if ((m = linha.match(/^(.*[A-Za-zÀ-ÿ].*?)\s+((?:\d[\d.,]*\s+){1,3}\d[\d.,]*)\s*$/))) {
+      var numeros = m[2].trim().split(/\s+/);
+      /* "PLACA ... 1000X1000" tem número no nome: só entra aqui com 2+ colunas no fim */
+      if (numeros.length >= 2) {
+        var nomeCol = m[1];
+        var primeiro = Checklist._numeroBR(numeros[0]);
+        if (primeiro > 0 && /[A-Za-zÀ-ÿ]/.test(nomeCol)) {
+          nomeCol = nomeCol.replace(/[\s.\-—–:]+$/, '').trim();
+          if (nomeCol.length >= 2) {
+            return { nome: nomeCol, quantidade_prevista: primeiro, unidade: 'UN' };
+          }
+        }
+      }
+    }
 
     /* "5 x Cadeira"  /  "5x Cadeira" */
     if ((m = linha.match(/^(\d+(?:[.,]\d+)?)\s*[xX]\s+(.{2,})$/))) {
@@ -1267,6 +1288,15 @@ const Checklist = {
     return { nome: nome, quantidade_prevista: n, unidade: sigla };
   },
 
+  /* Número em formato brasileiro ou misto: "869.00" → 869 · "1.738" → 1738
+     · "1,304" → 1.304 · "12.500,5" → 12500.5 */
+  _numeroBR: function (txt) {
+    var t = String(txt || '').trim();
+    if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));        /* 1.738 = milhar */
+    if (t.indexOf(',') >= 0) return Number(t.replace(/\./g, '').replace(',', '.'));  /* 1.304,5 */
+    return Number(t);                                                                 /* 869.00 */
+  },
+
   /* A linha é só uma quantidade? ("22", "5cx", "87un") */
   soQuantidade: function (linha) {
     var t = String(linha || '').trim();
@@ -1281,35 +1311,63 @@ const Checklist = {
      são costuradas de volta. */
   deTexto: function (texto) {
     var cruas = String(texto || '').split(/\r?\n/)
-      .map(function (l) { return l.replace(/\s+/g, ' ').trim(); })
-      .filter(function (l) { return l.length > 0; });
+      .map(function (l) {
+        return l.replace(/\s+/g, ' ')
+                .replace(/(\s[—–-]+)+$/, '')   /* colunas vazias no fim: "2 — —" */
+                .trim();
+      })
+      .filter(function (l) {
+        if (!l.length) return false;
+        /* títulos e cabeçalhos de tabela não entram na costura de nomes */
+        if (/^(check\s?list|checklist|pedido consolidado|romaneio|lista de material)/i.test(l)) return false;
+        if (/^item\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
+        if (/^(produto|material|descri\w+)\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
+        if (/^(carga total|peso total|volume total|observa\w*)\b/i.test(l)) return false;
+        /* pedaços soltos do cabeçalho quando a tabela quebra em várias linhas */
+        if (/^(qtd|qtde|quant[a-zà-ÿ]*|peso|volume|confer[a-zà-ÿ]*|un|unid[a-zà-ÿ]*|item)$/i.test(l)) return false;
+        if (/^\(?\s*(kg|m³|m3|un)\s*\)?$/i.test(l)) return false;
+        return true;
+      });
 
     var achados = [];
 
+    /* Em PDF o nome quebra em 2 ou 3 linhas ("SUPORTE DE FERRO PISO ELEVADO" /
+       "REGULÁVEL 100A170H" / "466.00 186,4 0,14"). Tenta ler a linha sozinha;
+       não dando, costura com a seguinte e, por fim, com as duas seguintes. */
+    /* A linha da tabela está inteira quando termina em coluna numérica
+       ("... 869.00 1.738 1,304") ou é do tipo "5 x Cadeira". */
+    function completa(t) {
+      /* o número final precisa ser uma COLUNA (com espaço antes), senão é
+         parte do nome: "PLACA ... 1000X1000" não fecha a linha */
+      if (/(^|\s)\d[\d.,]*\s*$/.test(t)) return true;
+      if (/^\d+(?:[.,]\d+)?\s*[xX]\s+\S/.test(t)) return true;
+      /* fecha com quantidade + unidade de CONTAGEM ("8 un", "5cx", "2 pç").
+         Medidas coladas no nome ("9M", "960MM", "4,90 MTS") não fecham a linha. */
+      var mu = t.match(/(^|\s)\d[\d.,]*\s*([A-Za-zÀ-ÿ.]{1,10})\s*$/);
+      return !!(mu && /^(un|und|unid|unidade|unidades|pc|pç|pcs|peca|peça|pecas|peças|cx|caixa|caixas|par|pares|kit|kits|jg|jogo|jogos)\.?$/i.test(mu[2]));
+    }
+
     for (var i = 0; i < cruas.length; i++) {
       var linha = cruas[i];
-      var lido = Checklist.lerLinha(linha);
+      var consumidas = 0;
 
-      /* não deu: talvez o nome tenha quebrado e o resto esteja na linha seguinte */
-      if (!lido && i + 1 < cruas.length) {
-        var proxima = cruas[i + 1];
-        var juntar = false;
-
-        if (Checklist.soQuantidade(proxima)) {
-          juntar = true;                                   /* "Extensão" + "11" */
-        } else {
-          var lidoProx = Checklist.lerLinha(proxima);
-          /* "Emenda de" + "montante 22" — continuação começa em minúscula */
-          if (lidoProx && /^[a-zà-ÿ]/.test(lidoProx.nome)) juntar = true;
-        }
-
-        if (juntar) {
-          lido = Checklist.lerLinha(linha + ' ' + proxima);
-          if (lido) i++;   /* consumiu as duas linhas */
-        }
+      /* costura enquanto a linha não fecha em número (nome quebrado no PDF) */
+      var junto = linha;
+      while (!completa(junto) && consumidas < 2 && i + consumidas + 1 < cruas.length) {
+        consumidas++;
+        junto += ' ' + cruas[i + consumidas];
       }
 
-      if (lido) achados.push(lido);
+      var lido = Checklist.lerLinha(junto);
+      if (!lido && consumidas > 0) {      /* a costura atrapalhou: tenta a linha sozinha */
+        lido = Checklist.lerLinha(linha);
+        if (lido) consumidas = 0;
+      }
+
+      if (lido) {
+        achados.push(lido);
+        i += consumidas;
+      }
     }
 
     return Checklist.juntarIguais(achados);
@@ -1697,7 +1755,8 @@ const Calculo = {
       return i ? {
         por_embalagem: i.por_embalagem, embalagens: i.embalagens,
         avulsas: i.avulsas, observacao: i.observacao,
-        qtd_terceirizada: U.num(i.qtd_terceirizada) || 0
+        qtd_terceirizada: U.num(i.qtd_terceirizada) || 0,
+        composicao: i.composicao || null
       } : null;
     }
 
@@ -1735,6 +1794,7 @@ const Calculo = {
         } : null,
         tercSaida: iS ? U.num(iS.qtd_terceirizada) || 0 : 0,
         tercRetorno: iR ? U.num(iR.qtd_terceirizada) || 0 : 0,
+        composicao: iS ? (iS.composicao || null) : null,
         detalhes: { saida: det(iS), retorno: det(iR) }
       };
     });
@@ -5576,6 +5636,10 @@ function TelaConferencia(arg) {
   var dano = {};        /* produto_id -> { qtd, desc, foto } (só no retorno) */
   var terc = {};        /* produto_id -> quantos do total contado são terceirizados */
   var correcaoPendente = null;   /* texto obrigatório ao re-finalizar uma conferência corrigida */
+  /* Composição: peça que não tinha e foi montada com outras
+     (ex.: 1 Treliça Q30 5m = 1 de 2m + 1 de 3m).
+     produto_id -> { qtd: quantas foram compostas, itens: [{nome, quantidade}] } */
+  var composicao = {};
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
@@ -5643,6 +5707,9 @@ function TelaConferencia(arg) {
 
       var tq = (d.qtd_terceirizada || 0);
       terc[l.produto.id] = tq ? String(tq) : '';
+
+      var comp = tipo === 'saida' ? (d.composicao || (l.itemSaida && l.itemSaida.composicao)) : null;
+      if (comp && comp.qtd) composicao[l.produto.id] = comp;
     });
 
     /* Rascunho guardado no aparelho (modo offline): mais novo que o servidor? */
@@ -5668,6 +5735,7 @@ function TelaConferencia(arg) {
         if (ras.dano) dano = ras.dano;
         if (ras.terc) terc = ras.terc;
         if (ras.tercSel) tercSel = ras.tercSel;
+        if (ras.composicao) composicao = ras.composicao;
         if (ras.foto) foto = ras.foto;
         m.fechar();
         U.aviso('✓ Contagem recuperada. Toque em SALVAR para enviar ao sistema.', 'ok', 6000);
@@ -5692,7 +5760,8 @@ function TelaConferencia(arg) {
     clearTimeout(rascunhoTimer);
     rascunhoTimer = setTimeout(function () {
       Rascunho.guardar(carregamentoId, tipo, {
-        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel, foto: foto
+        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel,
+        composicao: composicao, foto: foto
       });
     }, 400);
   }
@@ -5872,7 +5941,12 @@ function TelaConferencia(arg) {
           var c = Calculo.contado(l, tipo);
           var dif = c === null ? null : c - base;
           var conta = Calculo.detalhe(l, tipo);
+          var compL = l.composicao;
           return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
+            (compL && compL.qtd
+              ? '<br><span class="peq" style="color:#5B3FA8">🧩 ' + U.fmt(compL.qtd) + ' composta(s): ' +
+                U.esc((compL.itens || []).map(function (x) { return U.fmt(x.quantidade) + '× ' + x.nome; }).join(' + ')) + '</span>'
+              : '') +
             (conta ? '<br><span class="peq" style="color:var(--txt-3)">📦 ' + U.esc(conta) + '</span>' : '') + '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(base) + '</td>' +
@@ -6081,7 +6155,7 @@ function TelaConferencia(arg) {
         '<div class="atalhos">' +
           '<button class="atalho js-zero" data-id="' + id + '">' + (cega ? 'Não veio nada (0)' : 'Não foi (0)') + '</button>' +
         '</div>' +
-        (cega ? blocoDano(l) : '') +
+        (cega ? blocoDano(l) : blocoComposicao(l)) +
         blocoTerc(l) +
         '<p class="prod__res"></p>' +
         blocoEmbalagem(l, base) +
@@ -6132,6 +6206,117 @@ function TelaConferencia(arg) {
     });
     U.$$('.js-zero', tela).forEach(function (el) {
       el.addEventListener('click', function () { definir(el.dataset.id, 0); });
+    });
+
+    /* 🧩 compor peça com outras */
+    U.$$('.js-comp-tirar', tela).forEach(function (el) {
+      el.addEventListener('click', function () {
+        delete composicao[el.dataset.id];
+        guardarRascunho();
+        desenhar();
+        U.aviso('🧩 Composição desfeita. As peças usadas continuam contadas — ajuste se precisar.', 'info', 6000);
+      });
+    });
+
+    U.$$('.js-comp', tela).forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.dataset.id;
+        var linhaAlvo = linhas.filter(function (l) { return l.produto.id === id; })[0];
+        if (!linhaAlvo) return;
+
+        var sugestoes = linhas.map(function (l) { return l.nome; })
+          .concat(Object.keys(familiasPorChave).length ? [] : []);
+        var m = U.modal({
+          titulo: '🧩 Compor ' + linhaAlvo.nome,
+          html: '<p class="mut peq" style="margin-bottom:12px">Não tem a peça inteira? Diga quantas você está ' +
+              '<b>montando com outras</b> e quais peças estão indo no lugar. ' +
+              'Elas entram na contagem como itens reais — no <b>retorno</b> vai aparecer o que saiu de verdade.</p>' +
+            '<label class="campo"><span class="campo__rot">Quantas ' + U.esc(linhaAlvo.nome) + ' estão sendo compostas?</span>' +
+              '<input class="entrada" id="cp-qtd" type="number" inputmode="numeric" min="1" value="1"></label>' +
+            '<p class="campo__rot" style="margin-bottom:6px">Peças usadas no lugar</p>' +
+            '<div id="cp-itens"></div>' +
+            '<button class="btn btn--branco btn--bloco btn--peq" id="cp-add" style="border-style:dashed">➕ Adicionar peça</button>' +
+            '<datalist id="cp-lista">' +
+              sugestoes.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') +
+            '</datalist>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+              '<button class="btn btn--verde" data-ok>CONFIRMAR COMPOSIÇÃO</button>',
+          travado: true
+        });
+
+        function linhaItem(nome, qtd) {
+          var div = document.createElement('div');
+          div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+          div.innerHTML =
+            '<input class="entrada cp-nome" list="cp-lista" placeholder="Peça (ex.: Treliça Q30 2m)" value="' + U.esc(nome || '') + '" style="flex:1;min-height:44px;padding:8px">' +
+            '<input class="entrada cp-q" type="number" inputmode="numeric" min="1" value="' + (qtd || 1) + '" style="width:80px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+            '<button class="btn btn--branco btn--peq cp-x" style="flex:none;color:var(--vermelho)">✕</button>';
+          div.querySelector('.cp-x').addEventListener('click', function () { div.remove(); });
+          return div;
+        }
+        var caixaItens = m.querySelector('#cp-itens');
+        caixaItens.appendChild(linhaItem('', 1));
+        caixaItens.appendChild(linhaItem('', 1));
+        m.querySelector('#cp-add').addEventListener('click', function () {
+          caixaItens.appendChild(linhaItem('', 1));
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          var qtdComp = U.num(m.querySelector('#cp-qtd').value);
+          if (!(qtdComp > 0)) return U.aviso('Informe quantas peças estão sendo compostas.', 'erro');
+          var itens = [];
+          m.querySelectorAll('#cp-itens > div').forEach(function (d) {
+            var nome = d.querySelector('.cp-nome').value.trim().replace(/\s+/g, ' ');
+            var q = U.num(d.querySelector('.cp-q').value);
+            if (nome && q > 0) itens.push({ nome: nome, quantidade: q });
+          });
+          if (itens.length < 1) return U.aviso('Informe pelo menos uma peça usada no lugar.', 'erro', 5000);
+
+          var b = m.querySelector('[data-ok]');
+          b.disabled = true; b.textContent = 'Registrando...';
+
+          /* cada peça usada precisa existir no evento para ser contada e cobrada no retorno */
+          var porChaveProd = {};
+          pacote.produtos.forEach(function (pr) { porChaveProd[Estoque.chave(pr.nome)] = pr; });
+
+          var criacoes = itens.filter(function (x) { return !porChaveProd[Estoque.chave(x.nome)]; })
+            .map(function (x) {
+              return Banco.criarProduto(eventoId, {
+                nome: x.nome, quantidade_prevista: 0,
+                unidade: linhaAlvo.unidade || 'UN', terceirizado: false
+              }).then(function (novo) { if (novo) porChaveProd[Estoque.chave(novo.nome)] = novo; });
+            });
+
+          Promise.all(criacoes).then(function () {
+            return Banco.listarProdutos(eventoId);
+          }).then(function (todos) {
+            pacote.produtos = todos;
+            todos.forEach(function (pr) { porChaveProd[Estoque.chave(pr.nome)] = pr; });
+
+            /* soma as peças usadas na contagem */
+            itens.forEach(function (x) {
+              var pr = porChaveProd[Estoque.chave(x.nome)];
+              if (!pr) return;
+              var atual = U.num(contagem[pr.id]);
+              contagem[pr.id] = String(atual + x.quantidade);
+              if (!embalagem[pr.id]) embalagem[pr.id] = { por: '', qtd: '', soltas: '', obs: '' };
+              if (!dano[pr.id]) dano[pr.id] = { qtd: '', desc: '', foto: null };
+            });
+
+            composicao[id] = { qtd: qtdComp, itens: itens };
+            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos);
+
+            m.fechar();
+            guardarRascunho();
+            desenhar();
+            U.aviso('🧩 ' + U.fmt(qtdComp) + ' ' + linhaAlvo.nome + ' composta(s). As peças usadas entraram na contagem.', 'ok', 7000);
+          }).catch(function (e) {
+            b.disabled = false; b.textContent = 'CONFIRMAR COMPOSIÇÃO';
+            App.falhou(e);
+          });
+        });
+      });
     });
 
     U.$$('.js-terc-forn', tela).forEach(function (el) {
@@ -6357,6 +6542,24 @@ function TelaConferencia(arg) {
         '<input class="emb__obs js-emb-obs" data-id="' + id + '" placeholder="Observação (ex.: pallet aberto, caixa amassada)" ' +
           'value="' + U.esc(e.obs) + '">' +
       '</div>' +
+    '</div>';
+  }
+
+  /* ---------- composição: peça montada com outras (só na saída) ----------
+     Ex.: não há Treliça Q30 5m — vão 1 de 2m + 1 de 3m no lugar.
+     As peças usadas entram na contagem como itens reais, então o
+     RETORNO cobra exatamente o que saiu (2m e 3m), não a de 5m. */
+  function blocoComposicao(l) {
+    var id = l.produto.id;
+    var c = composicao[id];
+    return '<div class="terc" data-comp="' + id + '" style="border-color:#D6C8F2;background:#FAF7FF">' +
+      (c
+        ? '<div class="terc__linha"><span class="terc__rot" style="color:#5B3FA8">🧩 ' + U.fmt(c.qtd) +
+            ' composta(s) com: ' + U.esc(c.itens.map(function (x) { return U.fmt(x.quantidade) + '× ' + x.nome; }).join(' + ')) +
+          '</span>' +
+          '<button class="btn btn--branco btn--peq js-comp-tirar" data-id="' + id + '">Desfazer</button></div>'
+        : '<div class="terc__linha"><span class="terc__rot" style="color:#5B3FA8">🧩 Não tem esta peça? Monte com outras</span>' +
+          '<button class="btn btn--branco btn--peq js-comp" data-id="' + id + '">COMPOR</button></div>') +
     '</div>';
   }
 
@@ -6704,6 +6907,7 @@ function TelaConferencia(arg) {
         observacao: e.obs,
         qtd_danificada: dq,
         qtd_terceirizada: tq2,
+        composicao: composicao[l.produto.id] || null,
         dano_descricao: dq > 0 ? (d.desc || '').trim() : null,
         dano_foto_base64: dq > 0 ? d.foto : null
       });
@@ -6973,7 +7177,9 @@ function TelaConferencia(arg) {
     /* Saída com item faltando: pergunta se o resto vai em OUTRO carregamento */
     var faltando = cega ? [] : linhas.filter(function (l) {
       var t = valorTotal(l.produto.id);
-      return t !== null && t < Calculo.base(l, 'saida');
+      var comp = composicao[l.produto.id];
+      var coberto = (t === null ? 0 : t) + (comp ? U.num(comp.qtd) : 0);
+      return t !== null && coberto < Calculo.base(l, 'saida');
     });
 
     var m = U.modal({
@@ -6986,8 +7192,10 @@ function TelaConferencia(arg) {
           ? '<div class="aviso aviso--amarelo" style="margin-bottom:12px"><span class="aviso__ico">🚚</span><div>' +
             '<b>Faltaram itens neste carregamento:</b>' +
             faltando.slice(0, 5).map(function (l) {
-              var t = valorTotal(l.produto.id);
-              return '<br>• ' + U.esc(l.nome) + ' — faltam ' + U.fmt(Calculo.base(l, 'saida') - t);
+              var t = valorTotal(l.produto.id) || 0;
+              var comp = composicao[l.produto.id];
+              var coberto = t + (comp ? U.num(comp.qtd) : 0);
+              return '<br>• ' + U.esc(l.nome) + ' — faltam ' + U.fmt(Calculo.base(l, 'saida') - coberto);
             }).join('') +
             (faltando.length > 5 ? '<br>• ... e mais ' + (faltando.length - 5) : '') +
             '<br><b>O que faltou vai em outro carregamento?</b> Escolha abaixo.</div></div>'
@@ -7307,8 +7515,13 @@ const Relatorio = {
     var corpo = linhasUteis.map(function (l) {
       var conta = Calculo.detalhe(l, tipo);
       var tq = tipo === 'retorno' ? l.tercRetorno : l.tercSaida;
+      var comp = tipo === 'saida' ? (l.composicao || (l.detalheSaida && l.detalheSaida.composicao)) : null;
       var nome = l.nome + (l.produto && l.produto.terceirizado ? ' [TERCEIRIZADO]' : '') +
         (tq && !(l.produto && l.produto.terceirizado) ? '\n[' + U.fmt(tq) + ' terceirizados]' : '') +
+        (comp && comp.qtd
+          ? '\n[' + U.fmt(comp.qtd) + ' composta(s): ' +
+            (comp.itens || []).map(function (x) { return U.fmt(x.quantidade) + 'x ' + x.nome; }).join(' + ') + ']'
+          : '') +
         (conta ? '\n(' + conta + ')' : '');
       if (retorno) {
         if (l.dano && l.dano.qtd > 0 && l.dano.descricao) nome += '\nDano: ' + l.dano.descricao;
