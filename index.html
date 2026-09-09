@@ -1323,9 +1323,16 @@ const Checklist = {
         if (/^item\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
         if (/^(produto|material|descri\w+)\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
         if (/^(carga total|peso total|volume total|observa\w*)\b/i.test(l)) return false;
-        /* pedaços soltos do cabeçalho quando a tabela quebra em várias linhas */
-        if (/^(qtd|qtde|quant[a-zà-ÿ]*|peso|volume|confer[a-zà-ÿ]*|un|unid[a-zà-ÿ]*|item)$/i.test(l)) return false;
+        /* pedaços soltos do cabeçalho quando a tabela quebra em várias linhas:
+           "QTD", "PESO (KG)", "VOLUME", "(M³)", "CONFERÊNCIA", "ITEM" */
+        var semPontuacao = l.replace(/[()\[\]:.\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (/^(item|itens|qtd|qtde|quant[a-zà-ÿ]*|peso|volume|confer[a-zà-ÿ]*|un|unid[a-zà-ÿ]*|medida|obs|descri[a-zà-ÿ]*)(\s+(kg|m3|m³|un|kgs))?$/i.test(semPontuacao)) return false;
         if (/^\(?\s*(kg|m³|m3|un)\s*\)?$/i.test(l)) return false;
+        /* cabeçalho/rodapé impresso pelo navegador: "09/09/2026, 11:37 Piso Elevado | Plenart"
+           e "file:///..." ou "página 1/1" */
+        if (/^\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]/.test(l)) return false;
+        if (/^(file:|https?:)/i.test(l)) return false;
+        if (/^p[áa]gina\s+\d+/i.test(l) || /^\d+\s*\/\s*\d+$/.test(l)) return false;
         return true;
       });
 
