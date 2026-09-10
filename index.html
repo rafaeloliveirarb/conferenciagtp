@@ -4484,7 +4484,11 @@ function TelaEvento(eventoId) {
             'Se algum produto estiver errado, avise ele — assim a contagem sempre é comparada com a lista original.</p>') +
         '</div>' +
       '</div>';
+    }
 
+    /* --- carregamentos: valem MESMO sem checklist no evento, porque é
+       por aqui que o checklist de cada caminhão entra --- */
+    {
       /* --- barra de retorno do EVENTO --- */
       var tot = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
       if (tot.enviado > 0) {
