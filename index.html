@@ -1813,17 +1813,34 @@ const Calculo = {
       return Calculo.montarCarregamento(produtos, conferencias, itens, cg.id, planos);
     });
 
-    return (produtos || []).map(function (p, idx) {
-      var prevista = U.num(p.quantidade_prevista);
-      var saida = null, retorno = null;
-      var danificado = 0;
-      porCarga.forEach(function (ls) {
-        var l = ls[idx];
-        if (!l) return;
-        if (l.saida !== null) saida = (saida || 0) + l.saida;
-        if (l.retorno !== null) retorno = (retorno || 0) + l.retorno;
-        if (l.dano) danificado += l.dano.qtd;
+    /* CRUZAMENTO POR ID DO PRODUTO — nunca por posição na lista.
+       Com plano de carga cada caminhão lista produtos diferentes, então
+       posição não bate e a saída de um item cairia em outro. */
+    var porProduto = {};
+    porCarga.forEach(function (ls) {
+      ls.forEach(function (l) {
+        var pid = l.produto && l.produto.id;
+        if (!pid) return;
+        var acc = porProduto[pid] || (porProduto[pid] = { saida: null, retorno: null, danificado: 0 });
+        if (l.saida !== null) acc.saida = (acc.saida || 0) + l.saida;
+        if (l.retorno !== null) acc.retorno = (acc.retorno || 0) + l.retorno;
+        if (l.dano) acc.danificado += l.dano.qtd;
       });
+    });
+
+    /* Previsto do EVENTO = soma dos checklists dos carregamentos (é aqui que
+       eles se juntam). Produto sem plano usa o previsto do próprio evento. */
+    var previstoPlano = {};
+    (planos || []).forEach(function (pl) {
+      previstoPlano[pl.produto_id] = (previstoPlano[pl.produto_id] || 0) + U.num(pl.quantidade);
+    });
+
+    return (produtos || []).map(function (p) {
+      var prevista = previstoPlano[p.id] !== undefined
+        ? previstoPlano[p.id]
+        : U.num(p.quantidade_prevista);
+      var acc = porProduto[p.id] || { saida: null, retorno: null, danificado: 0 };
+      var saida = acc.saida, retorno = acc.retorno, danificado = acc.danificado;
       var enviado = saida === null ? 0 : saida;
       var baseRet = saida === null ? prevista : enviado;
       return {
@@ -2483,7 +2500,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
-        '<button class="btn btn--laranja" id="btn-novo-evento">+ ANEXAR CHECKLIST</button>' +
+        '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
 
       '';
@@ -2603,7 +2620,7 @@ function TelaPainel() {
           ? '<div class="vazio"><p class="vazio__ico">⏳</p><h3>Nenhum evento em andamento</h3>' +
             '<p>Quando um conferente começar a saída ou o retorno de um evento, ele passa para cá.</p></div>'
           : '<div class="vazio"><p class="vazio__ico">📋</p><h3>Nenhum evento aguardando</h3>' +
-            '<p>Toque em <b>+ ANEXAR CHECKLIST</b>: o evento é criado junto com a lista de produtos.</p></div>';
+            '<p>Toque em <b>+ CRIAR EVENTO</b>: depois você escolhe o caminhão e anexa o checklist de cada carregamento.</p></div>';
       } else {
         caixa.innerHTML = aba === 'terminados'
           ? porMes(lista, cartaoEvento)
@@ -4082,89 +4099,15 @@ function TelaNovoEvento() {
     return;
   }
 
-  App.topo('NOVO EVENTO', 'Anexe o checklist — o evento é criado junto');
+  App.topo('NOVO EVENTO', 'Preencha os dados — o caminhão e o checklist vêm em seguida');
 
-  var podeEditar = true;   /* aqui só entra coordenador */
-  var produtos = [];
-  var imagemApoio = null;
   var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), conferente_id: '' };
+  var produtos = [];   /* o checklist agora é anexado POR CARREGAMENTO, depois */
 
   desenhar();
 
   function desenhar() {
-    var h = '';
-
-    /* --- 1. o checklist é a porta de entrada --- */
-    h += '<div class="cartao"><div class="cartao__corpo">' +
-      '<p style="font-size:17px;font-weight:700;color:var(--azul);margin-bottom:4px">1. Jogue o checklist aqui</p>' +
-      '<p class="mut peq" style="margin-bottom:14px">' + (podeEditar
-        ? 'PDF, XML, foto ou lista copiada. O sistema lê os produtos e já monta o evento. Se preferir, dá para digitar na mão.'
-        : 'PDF, XML ou TXT. O sistema lê os produtos do arquivo e monta o evento. O nome do evento vem do próprio checklist.') + '</p>' +
-      '<input type="file" id="ne-arquivo" accept="' + (podeEditar ? '.pdf,.xml,.xlsx,.xls,.jpg,.jpeg,.png,.txt,.csv' : '.pdf,.xml,.xlsx,.xls,.txt,.csv') + '" multiple hidden>' +
-      '<div class="btn-linha">' +
-        '<button class="btn btn--laranja" id="ne-enviar">📎 ANEXAR ARQUIVO</button>' +
-        (podeEditar ? '<button class="btn btn--branco" id="ne-colar">📝 COLAR LISTA</button>' : '') +
-      '</div>' +
-      '</div></div>';
-
-    if (imagemApoio) {
-      h += '<div class="cartao"><div class="cartao__topo"><h3>Imagem anexada</h3>' +
-        '<button class="btn btn--peq btn--branco" id="ne-tira-img">Remover</button></div>' +
-        '<div class="cartao__corpo"><img src="' + imagemApoio + '" alt="Checklist anexado" ' +
-        'style="width:100%;border-radius:10px;border:1px solid var(--linha)"></div></div>';
-    }
-
-    /* --- 2. produtos encontrados --- */
-    h += '<div class="cartao"><div class="cartao__topo"><h3>2. Produtos</h3>' +
-      '<span class="mut peq">' + produtos.length + '</span></div>';
-
-    if (!produtos.length) {
-      h += '<div class="cartao__corpo"><div class="vazio" style="padding:20px 0">' +
-        '<p class="vazio__ico">📦</p><h3>Nada lido ainda</h3>' +
-        '<p class="peq">' + (podeEditar
-          ? 'Anexe o checklist acima ou adicione os produtos um a um.'
-          : 'Anexe o arquivo do checklist acima.') + '</p></div></div>';
-    } else if (!podeEditar) {
-      /* Conferente vê a lista como ela veio: não pode mexer no previsto. */
-      h += '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
-        '<th>Produto</th><th class="num" style="width:90px">Previsto</th><th style="width:70px">Un.</th>' +
-        '</tr></thead><tbody>' +
-        produtos.map(function (p) {
-          return '<tr><td>' + U.esc(p.nome) + '</td>' +
-            '<td class="num">' + U.fmt(p.quantidade_prevista) + '</td>' +
-            '<td>' + U.esc(p.unidade || 'UN') + '</td></tr>';
-        }).join('') +
-        '</tbody></table></div>';
-    } else {
-      h += '<div class="tabela-rolagem"><table class="tab tab--edit"><thead><tr>' +
-        '<th>Produto</th><th class="num">Qtd.</th><th>Unidade</th><th></th>' +
-        '</tr></thead><tbody>' +
-        produtos.map(function (p, i) {
-          return '<tr>' +
-            '<td><input class="entrada js-nome" data-i="' + i + '" value="' + U.esc(p.nome) + '" style="min-height:44px;padding:9px">' +
-              '<label class="peq" style="display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer;color:var(--txt-2)">' +
-                '<input type="checkbox" class="js-terc" data-i="' + i + '" style="width:18px;height:18px"' + (p.terceirizado ? ' checked' : '') + '>' +
-                '🔗 Terceirizado (não mexe no estoque)</label></td>' +
-            '<td><input class="entrada js-qtd" data-i="' + i + '" type="number" inputmode="decimal" min="0" ' +
-              'value="' + U.esc(p.quantidade_prevista) + '" style="min-height:44px;padding:9px;text-align:right"></td>' +
-            '<td>' + seletorUnidade(p.unidade, i, 'js-un') + '</td>' +
-            '<td><button class="btn btn--peq btn--branco js-remover" data-i="' + i + '" aria-label="Excluir">✕</button></td>' +
-            '</tr>';
-        }).join('') +
-        '</tbody></table></div>';
-    }
-    if (podeEditar) {
-      h += '<div class="cartao__corpo"><button class="btn btn--branco btn--bloco" id="ne-add">+ ADICIONAR PRODUTO</button></div>';
-    } else if (produtos.length) {
-      h += '<div class="cartao__corpo"><p class="mut peq">A lista vem do arquivo e não pode ser alterada por você — ' +
-        'é o que garante que a contagem seja comparada com o checklist original. ' +
-        'Se algo veio errado, anexe outro arquivo ou fale com o coordenador.</p>' +
-        '<button class="btn btn--branco btn--bloco" id="ne-limpar" style="margin-top:10px">Descartar e anexar outro</button></div>';
-    }
-    h += '</div>';
-
-    /* --- 3. dados do evento, já preenchidos quando dá --- */
-    h += '<div class="cartao"><div class="cartao__topo"><h3>3. Dados do evento</h3></div>' +
+    var h = '<div class="cartao"><div class="cartao__topo"><h3>Dados do evento</h3></div>' +
       '<div class="cartao__corpo">' +
         '<label class="campo"><span class="campo__rot">Nome do evento *</span>' +
           '<input class="entrada js-d" data-k="nome" value="' + U.esc(dados.nome) + '" placeholder="Festival XYZ"></label>' +
@@ -4187,107 +4130,19 @@ function TelaNovoEvento() {
         '</div>' +
         '<p class="mut peq">Só o nome é obrigatório. Deixando o conferente <b>em aberto</b>, ' +
         'os três veem o evento e o primeiro que precisar assume.</p>' +
-      '</div></div>';
-
-    h += '<div class="barra-fixa"><button class="btn btn--laranja btn--bloco btn--gg" id="ne-criar">CRIAR EVENTO</button></div>';
+      '</div></div>' +
+      '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
+        '<b>Depois de confirmar:</b> você escolhe o caminhão do 1º carregamento e anexa o ' +
+        'checklist DELE, dando um nome (Piso, Octanorm, Treliça...). Cada carregamento tem o seu checklist.' +
+      '</div></div>' +
+      '<div class="barra-fixa"><button class="btn btn--laranja btn--bloco btn--gg" id="ne-criar">CONFIRMAR EVENTO</button></div>';
 
     tela.innerHTML = h;
-    ligar();
-  }
 
-  function ligar() {
-    U.$('#ne-enviar').addEventListener('click', function () { U.$('#ne-arquivo').click(); });
-
-    U.$('#ne-arquivo').addEventListener('change', function () {
-      var arquivos = this.files;
-      if (!arquivos || !arquivos.length) return;
-      var quantos = arquivos.length;
-      var espera = U.modal({
-        titulo: 'Lendo ' + (quantos > 1 ? quantos + ' arquivos' : 'o checklist'),
-        html: U.carregando('Isso leva alguns segundos...'), travado: true
-      });
-
-      Checklist.lerVarios(arquivos).then(function (res) {
-        espera.fechar();
-        if (res.imagem) imagemApoio = res.imagem;
-
-        /* os arquivos também sugerem o nome do evento e o cliente */
-        if (res.sugestao) {
-          if (!dados.nome && res.sugestao.evento) dados.nome = res.sugestao.evento;
-          if (!dados.cliente && res.sugestao.cliente) dados.cliente = res.sugestao.cliente;
-          if (!dados.local && res.sugestao.local) dados.local = res.sugestao.local;
-          if (res.sugestao.data) dados.data = res.sugestao.data;
-        }
-
-        if (res.produtos.length) {
-          produtos = Checklist.juntarIguais(produtos.concat(res.produtos));
-          U.aviso('✓ ' + res.produtos.length + ' produtos lidos de ' + res.lidos + ' arquivo' + (res.lidos > 1 ? 's' : '') + '. Confira antes de criar.', 'ok', 5000);
-        }
-        if (res.falhas.length) {
-          U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
-        }
-        desenhar();
-      });
-      this.value = '';
-    });
-
-    var btnColar = U.$('#ne-colar');
-    if (btnColar) btnColar.addEventListener('click', function () {
-      var m = U.modal({
-        titulo: 'Colar lista',
-        html: '<p class="mut peq" style="margin-bottom:10px">Um produto por linha. O sistema entende:<br>' +
-          '<b>Cadeira — 100</b> · <b>Mesa: 20</b> · <b>5 x Tenda 10x10</b></p>' +
-          '<textarea class="entrada" id="ne-texto" style="min-height:180px" placeholder="Cadeira — 100&#10;Mesa — 20&#10;Tenda 10x10 — 5"></textarea>',
-        pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--laranja" data-ok>Ler lista</button>'
-      });
-      m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
-      m.querySelector('[data-ok]').addEventListener('click', function () {
-        var achados = Checklist.deTexto(U.$('#ne-texto', m).value);
-        if (!achados.length) return U.aviso('Não entendi nenhuma linha. Use "Produto — quantidade".', 'erro', 5000);
-        produtos = Checklist.juntarIguais(produtos.concat(achados));
-        m.fechar();
-        U.aviso('✓ ' + achados.length + ' produtos adicionados.', 'ok');
-        desenhar();
-      });
-    });
-
-    var btnAdd = U.$('#ne-add');
-    if (btnAdd) btnAdd.addEventListener('click', function () {
-      produtos.push({ nome: '', quantidade_prevista: 0, unidade: 'UN' });
-      desenhar();
-      var campos = U.$$('.js-nome', tela);
-      if (campos.length) campos[campos.length - 1].focus();
-    });
-
-    var btnLimpar = U.$('#ne-limpar');
-    if (btnLimpar) btnLimpar.addEventListener('click', function () {
-      produtos = [];
-      imagemApoio = null;
-      desenhar();
-    });
-
-    U.$$('.js-nome', tela).forEach(function (el) {
-      el.addEventListener('input', function () { produtos[Number(el.dataset.i)].nome = el.value; });
-    });
-    U.$$('.js-qtd', tela).forEach(function (el) {
-      el.addEventListener('input', function () { produtos[Number(el.dataset.i)].quantidade_prevista = U.num(el.value); });
-    });
-    U.$$('.js-un', tela).forEach(function (el) {
-      el.addEventListener('change', function () { produtos[Number(el.dataset.i)].unidade = el.value; });
-    });
-    U.$$('.js-terc', tela).forEach(function (el) {
-      el.addEventListener('change', function () { produtos[Number(el.dataset.i)].terceirizado = el.checked; });
-    });
-    U.$$('.js-remover', tela).forEach(function (el) {
-      el.addEventListener('click', function () { produtos.splice(Number(el.dataset.i), 1); desenhar(); });
-    });
     U.$$('.js-d', tela).forEach(function (el) {
       el.addEventListener('input', function () { dados[el.dataset.k] = el.value; });
       el.addEventListener('change', function () { dados[el.dataset.k] = el.value; });
     });
-    var tiraImg = U.$('#ne-tira-img');
-    if (tiraImg) tiraImg.addEventListener('click', function () { imagemApoio = null; desenhar(); });
-
     U.$('#ne-criar').addEventListener('click', criar);
   }
 
@@ -4681,7 +4536,8 @@ function TelaEvento(eventoId) {
             (planoCg.length ? ' · carga planejada: ' + U.fmt(planoQtd) + ' itens' : '') + ')';
 
         h += '<div class="carga">' +
-          '<div class="carga__topo"><span class="carga__tit">🚚 SAÍDA — CARREG. ' + cg.numero + '</span>' +
+          '<div class="carga__topo"><span class="carga__tit">🚚 SAÍDA — CARREG. ' + cg.numero +
+            (cg.nome ? ' · ' + U.esc(cg.nome) : '') + '</span>' +
             (planoCg.length ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📋 planejado</span>' : '') +
             selo(cg.status) + '</div>' +
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
@@ -4743,7 +4599,8 @@ function TelaEvento(eventoId) {
           : 'Conferência às cegas · ainda não iniciada';
 
         h += '<div class="carga">' +
-          '<div class="carga__topo"><span class="carga__tit">↩️ RETORNO — CARREG. ' + cg.numero + '</span>' + selo(cg.status) + '</div>' +
+          '<div class="carga__topo"><span class="carga__tit">↩️ RETORNO — CARREG. ' + cg.numero +
+            (cg.nome ? ' · ' + U.esc(cg.nome) : '') + '</span>' + selo(cg.status) + '</div>' +
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (!retornoFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
@@ -4774,12 +4631,12 @@ function TelaEvento(eventoId) {
         h += '<h2 class="secao__tit" style="margin-top:26px">Relatórios do evento</h2><div class="btn-linha">';
         saidas.forEach(function (cg) {
           if (Calculo.confDe(p.conferencias, cg.id, 'saida')) {
-            h += '<button class="btn btn--branco js-pdf" data-cg="' + cg.id + '" data-tipo="saida">📄 Saída — Carreg. ' + cg.numero + '</button>';
+            h += '<button class="btn btn--branco js-pdf" data-cg="' + cg.id + '" data-tipo="saida">📄 Saída — Carreg. ' + cg.numero + (cg.nome ? ' (' + U.esc(cg.nome) + ')' : '') + '</button>';
           }
         });
         retornos.forEach(function (cg) {
           if (Calculo.confDe(p.conferencias, cg.id, 'retorno')) {
-            h += '<button class="btn btn--branco js-pdf" data-cg="' + cg.id + '" data-tipo="retorno">📄 Retorno — Carreg. ' + cg.numero + '</button>';
+            h += '<button class="btn btn--branco js-pdf" data-cg="' + cg.id + '" data-tipo="retorno">📄 Retorno — Carreg. ' + cg.numero + (cg.nome ? ' (' + U.esc(cg.nome) + ')' : '') + '</button>';
           }
         });
         h += '<button class="btn js-pdf-completo">📑 RELATÓRIO COMPLETO DO EVENTO</button></div>';
@@ -5095,9 +4952,106 @@ function TelaEvento(eventoId) {
     if (novoCarreg) novoCarreg.addEventListener('click', function () {
       escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (camId) {
         if (!camId) return;
-        criarCarga('saida', camId).catch(App.falhou);
+        nomearEAnexar(camId);
       });
     });
+
+    /* Depois do caminhão: nome do carregamento (Piso, Octanorm, Treliça...)
+       e o CHECKLIST DELE. Cada carregamento tem o seu — nada se mistura. */
+    function nomearEAnexar(camId) {
+      var nomesJa = p.carregamentos.map(function (c) { return c.nome; }).filter(Boolean);
+      var sugestoesNome = ['PISO', 'OCTANORM', 'TRELIÇA', 'TENDA', 'PALCO', 'SOM', 'ILUMINAÇÃO', 'MOBILIÁRIO']
+        .concat(nomesJa).filter(function (n, i, a) { return a.indexOf(n) === i; });
+      var arquivosSel = null;
+
+      var m = U.modal({
+        titulo: '🚚 Novo carregamento',
+        html: '<label class="campo"><span class="campo__rot">Nome do carregamento <span class="peq mut">(o que vai neste caminhão)</span></span>' +
+            '<input class="entrada" id="ncg-nome" list="ncg-nomes" placeholder="Ex.: PISO, OCTANORM, TRELIÇA..." style="text-transform:uppercase"></label>' +
+          '<datalist id="ncg-nomes">' +
+            sugestoesNome.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') +
+          '</datalist>' +
+          '<p class="campo__rot" style="margin:10px 0 6px">📎 Checklist deste carregamento</p>' +
+          '<p class="mut peq" style="margin-bottom:8px">A conferência de saída deste caminhão vai cobrar ' +
+            '<b>exatamente os itens deste arquivo</b>. Os checklists não se misturam entre carregamentos — ' +
+            'eles só se juntam no relatório do evento.</p>' +
+          '<input type="file" id="ncg-arq" accept=".pdf,.xml,.xlsx,.xls,.txt,.csv" multiple hidden>' +
+          '<button class="btn btn--branco btn--bloco" id="ncg-escolher">📎 ESCOLHER ARQUIVO(S)</button>' +
+          '<p class="peq mut" id="ncg-info" style="margin-top:6px"></p>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--branco" data-sem>SEM CHECKLIST AGORA</button>' +
+            '<button class="btn btn--verde" data-ok disabled>CRIAR CARREGAMENTO</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      m.querySelector('#ncg-escolher').addEventListener('click', function () { m.querySelector('#ncg-arq').click(); });
+      m.querySelector('#ncg-arq').addEventListener('change', function () {
+        arquivosSel = this.files && this.files.length ? this.files : null;
+        m.querySelector('#ncg-info').textContent = arquivosSel
+          ? '✓ ' + arquivosSel.length + ' arquivo(s) escolhido(s)' : '';
+        m.querySelector('[data-ok]').disabled = !arquivosSel;
+      });
+
+      function criarCg(nomeCg) {
+        var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+        return Banco.criarCarregamento({
+          evento_id: eventoId, numero: numero, caminhao_id: camId,
+          sentido: 'saida', status: 'Saída pendente', nome: nomeCg || null
+        });
+      }
+
+      m.querySelector('[data-sem]').addEventListener('click', function () {
+        var nomeCg = m.querySelector('#ncg-nome').value.trim().toUpperCase();
+        m.fechar();
+        criarCg(nomeCg).then(function (novo) {
+          U.aviso('✓ Carregamento ' + novo.numero + (nomeCg ? ' (' + nomeCg + ')' : '') +
+            ' criado sem checklist. Anexe depois em 📎 ANEXAR MAIS CHECKLIST.', 'ok', 7000);
+          App.recarregar();
+        }).catch(App.falhou);
+      });
+
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        if (!arquivosSel) return;
+        var nomeCg = m.querySelector('#ncg-nome').value.trim().toUpperCase();
+        var b = m.querySelector('[data-ok]');
+        b.disabled = true; b.textContent = 'Lendo checklist...';
+
+        Checklist.lerVarios(arquivosSel).then(function (res) {
+          if (res.falhas.length) U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
+          var lidos = (res.produtos || []).filter(function (x) { return x.nome && U.num(x.quantidade_prevista) > 0; });
+          if (!lidos.length) {
+            b.disabled = false; b.textContent = 'CRIAR CARREGAMENTO';
+            return U.aviso('Não encontrei itens com quantidade no arquivo.', 'erro', 6000);
+          }
+          b.textContent = 'Criando...';
+          criarCg(nomeCg).then(function (novo) {
+            /* produtos novos entram no evento SEM somar; o plano do caminhão é o arquivo */
+            return Banco.acrescentarProdutos(eventoId, lidos, true).then(function (r) {
+              var planoNovo = {};
+              lidos.forEach(function (x) {
+                var prod = r.porChave[Estoque.chave(x.nome)];
+                if (prod && prod.id) planoNovo[prod.id] = (planoNovo[prod.id] || 0) + U.num(x.quantidade_prevista);
+              });
+              var linhasPlano = Object.keys(planoNovo).map(function (pid) {
+                return { carregamento_id: novo.id, produto_id: pid, quantidade: planoNovo[pid] };
+              });
+              return Banco.salvarPlano(novo.id, linhasPlano);
+            }).then(function () {
+              m.fechar();
+              U.aviso('🚚 Carregamento ' + novo.numero + (nomeCg ? ' — ' + nomeCg : '') +
+                ' criado com ' + lidos.length + ' itens no checklist.', 'ok', 7000);
+              oferecerCadastroEstoque(lidos, function () { App.recarregar(); });
+            });
+          }).catch(function (e) {
+            b.disabled = false; b.textContent = 'CRIAR CARREGAMENTO';
+            App.falhou(e);
+          });
+        }).catch(function (e) {
+          b.disabled = false; b.textContent = 'CRIAR CARREGAMENTO';
+          App.falhou(e);
+        });
+      });
+    }
 
     var novoRetorno = U.$('#btn-novo-retorno', tela);
     if (novoRetorno) novoRetorno.addEventListener('click', function () {
@@ -7430,7 +7384,9 @@ const Relatorio = {
       /* só quebra de página se realmente não couber o começo da seção */
       if (i > 0 && y > 252) { doc.addPage(); y = 14; }
       doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-      doc.text('CARREGAMENTO ' + b.carregamento.numero + ' — ' + Calculo.TIPOS[b.tipo].rotulo.toUpperCase(), 12, y);
+      doc.text('CARREGAMENTO ' + b.carregamento.numero +
+        (b.carregamento.nome ? ' (' + b.carregamento.nome + ')' : '') +
+        ' — ' + Calculo.TIPOS[b.tipo].rotulo.toUpperCase(), 12, y);
       y += 4;
       doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
       doc.text('Caminhão: ' + b.caminhao + ' · Conferente: ' + b.conferente +
@@ -7493,6 +7449,10 @@ const Relatorio = {
   _fechamento: function (pacote) {
     var linhas = Calculo.montarEvento(pacote.produtos, pacote.carregamentos, pacote.conferencias, pacote.itens, pacote.planos);
     var f = { previsto: 0, saiu: 0, retorno: 0, divergencias: 0, danificados: 0 };
+    /* com carregamentos planejados, o previsto do evento é a SOMA dos
+       checklists de cada caminhão (é no relatório que eles se juntam) */
+    var somaPlanos = 0;
+    (pacote.planos || []).forEach(function (pl) { somaPlanos += U.num(pl.quantidade); });
     linhas.forEach(function (l) {
       f.previsto += l.prevista;
       f.saiu += l.saida || 0;
@@ -7502,6 +7462,7 @@ const Relatorio = {
       if (l.difRetorno) f.divergencias++;
     });
     f.falta = Math.max(0, f.saiu - f.retorno);
+    if (somaPlanos > 0) f.previsto = somaPlanos;
     return f;
   },
 
@@ -7528,7 +7489,8 @@ const Relatorio = {
       ['Data do evento', U.fmtData(ev.data)]
     ];
     if (dados) {
-      campos.push(['Carregamento', 'Carreg. ' + dados.carregamento.numero + ' · ' + dados.caminhao]);
+      campos.push(['Carregamento', 'Carreg. ' + dados.carregamento.numero +
+        (dados.carregamento.nome ? ' (' + dados.carregamento.nome + ')' : '') + ' · ' + dados.caminhao]);
       campos.push(['Conferência', Calculo.TIPOS[dados.tipo].rotulo + (dados.tipo === 'retorno' ? ' (às cegas)' : '')]);
       campos.push(['Conferente', dados.conferente + ' · ' + dados.conferencia.status]);
       campos.push(['Data/hora', U.fmtDataHora(dados.conferencia.finalizada_em || dados.conferencia.updated_at || dados.conferencia.created_at)]);
