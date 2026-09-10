@@ -4602,7 +4602,8 @@ function TelaEvento(eventoId) {
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (ehCoord && !saidaFinal && !eventoFechado
               ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Checklist do caminhão' : 'DEFINIR CHECKLIST') + '</button>' +
-                '<button class="btn btn--branco btn--peq js-mais-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">📎 + Checklist</button>'
+                '<button class="btn btn--branco btn--peq js-mais-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">📎 + Checklist</button>' +
+                '<button class="btn btn--branco btn--peq js-digitar-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">✏️ + Digitar item</button>'
               : '') +
             (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
@@ -4762,6 +4763,95 @@ function TelaEvento(eventoId) {
         App.recarregar();
       });
     }
+
+    /* ✏️ acrescentar material DIGITANDO no checklist de um carregamento */
+    U.$$('.js-digitar-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cgId = b.dataset.cg;
+        var num = b.dataset.num;
+
+        /* nomes que já existem no evento e no estoque, para escrever igual */
+        var sugeridos = p.produtos.map(function (pr) { return pr.nome; });
+        Banco.listarEstoque().then(function (cad) {
+          (cad || []).forEach(function (i) {
+            if (sugeridos.indexOf(i.nome) < 0) sugeridos.push(i.nome);
+          });
+        }).catch(function () { }).then(function () {
+          var m = U.modal({
+            titulo: '✏️ Acrescentar itens ao Carreg. ' + num,
+            html: '<p class="mut peq" style="margin-bottom:10px">Escreva o material e a quantidade. ' +
+                'Vai <b>somar ao checklist deste carregamento</b> — os outros não mudam.</p>' +
+              '<div id="dg-linhas"></div>' +
+              '<button class="btn btn--branco btn--bloco btn--peq" id="dg-add" style="border-style:dashed">➕ Adicionar outro item</button>' +
+              '<datalist id="dg-nomes">' +
+                sugeridos.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') +
+              '</datalist>',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn btn--verde" data-ok>ACRESCENTAR</button>',
+            travado: true
+          });
+
+          function linhaNova() {
+            var d = document.createElement('div');
+            d.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+            d.innerHTML =
+              '<input class="entrada dg-nome" list="dg-nomes" placeholder="Material (ex.: Placa 2x1)" ' +
+                'style="flex:1;min-height:46px;padding:9px">' +
+              '<input class="entrada dg-qtd" type="number" inputmode="numeric" min="1" placeholder="Qtd" ' +
+                'style="width:86px;min-height:46px;padding:9px;text-align:center;flex:none">' +
+              '<select class="entrada dg-un" style="width:78px;min-height:46px;padding:9px;flex:none">' +
+                ['UN', 'PÇ', 'CX', 'PAR', 'KIT', 'M', 'KG'].map(function (u) {
+                  return '<option value="' + u + '">' + u + '</option>';
+                }).join('') +
+              '</select>' +
+              '<button class="btn btn--branco btn--peq dg-x" style="flex:none;color:var(--vermelho)">✕</button>';
+            d.querySelector('.dg-x').addEventListener('click', function () { d.remove(); });
+            return d;
+          }
+          var caixa = m.querySelector('#dg-linhas');
+          caixa.appendChild(linhaNova());
+          caixa.appendChild(linhaNova());
+          m.querySelector('#dg-add').addEventListener('click', function () { caixa.appendChild(linhaNova()); });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var itens = [];
+            m.querySelectorAll('#dg-linhas > div').forEach(function (d) {
+              var nome = d.querySelector('.dg-nome').value.trim().replace(/\s+/g, ' ');
+              var qtd = U.num(d.querySelector('.dg-qtd').value);
+              if (nome && qtd > 0) {
+                itens.push({ nome: nome, quantidade_prevista: qtd, unidade: d.querySelector('.dg-un').value });
+              }
+            });
+            if (!itens.length) return U.aviso('Escreva pelo menos um material com quantidade.', 'erro', 5000);
+
+            var bt = m.querySelector('[data-ok]');
+            bt.disabled = true; bt.textContent = 'Salvando...';
+            Banco.acrescentarProdutos(eventoId, itens, true).then(function (r) {
+              var plano = {};
+              (p.planos || []).forEach(function (pl) {
+                if (pl.carregamento_id === cgId) plano[pl.produto_id] = U.num(pl.quantidade);
+              });
+              itens.forEach(function (x) {
+                var prod = r.porChave[Estoque.chave(x.nome)];
+                if (prod && prod.id) plano[prod.id] = (plano[prod.id] || 0) + U.num(x.quantidade_prevista);
+              });
+              var linhasPlano = Object.keys(plano).map(function (pid) {
+                return { carregamento_id: cgId, produto_id: pid, quantidade: plano[pid] };
+              });
+              return Banco.salvarPlano(cgId, linhasPlano).then(function () {
+                m.fechar();
+                U.aviso('✓ ' + itens.length + ' item(ns) acrescentado(s) ao Carreg. ' + num + '.', 'ok', 6000);
+                oferecerCadastroEstoque(itens, function () { App.recarregar(); });
+              });
+            }).catch(function (e) {
+              bt.disabled = false; bt.textContent = 'ACRESCENTAR';
+              App.falhou(e);
+            });
+          });
+        });
+      });
+    });
 
     /* 📎 acrescentar OUTRO checklist a um carregamento já criado:
        soma ao checklist dele, sem tocar nos outros carregamentos */
