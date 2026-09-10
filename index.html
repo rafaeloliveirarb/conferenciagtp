@@ -4564,9 +4564,13 @@ function TelaEvento(eventoId) {
       var faltaSair = 0;
       linhasEv.forEach(function (l) { faltaSair += Math.max(0, l.prevista - (l.saida || 0)); });
 
-      if (!eventoFechado && faltaSair > 0) {
+      if (ehCoord && !eventoFechado && faltaSair > 0) {
         h += '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-novo-carreg" style="margin-top:4px">' +
           '➕ NOVO CARREGAMENTO (SAÍDA) <span class="peq" style="font-weight:600">· faltam ' + U.fmt(faltaSair) + ' itens</span></button>';
+      } else if (!ehCoord && !eventoFechado && faltaSair > 0) {
+        h += '<div class="aviso aviso--azul" style="margin-top:4px"><span class="aviso__ico">ℹ</span><div>' +
+          'Ainda faltam <b>' + U.fmt(faltaSair) + '</b> itens para sair. ' +
+          'Quem cria o próximo carregamento (com caminhão e checklist) é o coordenador.</div></div>';
       } else if (!eventoFechado && p.carregamentos.some(function (c) { return c.sentido !== 'retorno'; })) {
         h += '<div class="aviso aviso--verde" style="margin-top:4px"><span class="aviso__ico">✓</span><div>' +
           '<b>Todo o material previsto já saiu.</b>Se precisar levar mais alguma coisa, ajuste o checklist primeiro.</div></div>';
