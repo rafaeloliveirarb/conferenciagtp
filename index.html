@@ -5937,7 +5937,10 @@ function TelaConferencia(arg) {
           var dif = c === null ? null : c - base;
           var conta = Calculo.detalhe(l, tipo);
           var compL = l.composicao;
+          var detL = (l.detalhes && l.detalhes[tipo]) || null;
+          var obsL = (detL && detL.observacao) || '';
           return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
+            (obsL ? '<br><span class="peq" style="color:var(--amarelo)">📝 ' + U.esc(obsL) + '</span>' : '') +
             (compL && compL.qtd
               ? '<br><span class="peq" style="color:#5B3FA8">🧩 ' + U.fmt(compL.qtd) + ' composta(s): ' +
                 U.esc((compL.itens || []).map(function (x) { return U.fmt(x.quantidade) + '× ' + x.nome; }).join(' + ')) + '</span>'
@@ -5971,6 +5974,11 @@ function TelaConferencia(arg) {
     if (foto) {
       h += '<div class="foto-bloco tem"><p style="font-weight:800;color:var(--azul)">📷 Foto do carregamento</p>' +
         '<img src="' + foto + '" alt="Foto do carregamento"></div>';
+    }
+
+    if (conferencia && conferencia.observacao) {
+      h += '<div class="cartao"><div class="cartao__topo"><h3>📝 Observações do conferente</h3></div>' +
+        '<div class="cartao__corpo"><p>' + U.esc(conferencia.observacao) + '</p></div></div>';
     }
 
     var corrs = (conferencia && conferencia.correcoes) || [];
@@ -6152,6 +6160,7 @@ function TelaConferencia(arg) {
         '</div>' +
         (cega ? blocoDano(l) : blocoComposicao(l)) +
         blocoTerc(l) +
+        blocoObs(l) +
         '<p class="prod__res"></p>' +
         blocoEmbalagem(l, base) +
       '</div>';
@@ -6159,6 +6168,15 @@ function TelaConferencia(arg) {
 
     h += '<button class="btn btn--branco btn--bloco" id="btn-add-terc" style="border-style:dashed">' +
       '➕ ADICIONAR MATERIAL TERCEIRIZADO <span class="terc-tag">🔗 não mexe no estoque</span></button>';
+
+    h += '<div class="cartao"><div class="cartao__topo"><h3>📝 Observações gerais</h3></div>' +
+      '<div class="cartao__corpo">' +
+        '<p class="mut peq" style="margin-bottom:8px">O que aconteceu neste carregamento? ' +
+          'Fica registrado com seu nome e sai no relatório.</p>' +
+        '<textarea class="entrada" id="obs-geral" rows="3" style="resize:vertical" ' +
+          'placeholder="Ex.: material molhado no galpão, caminhão saiu com atraso, cliente pediu troca de peça">' +
+          U.esc(obsGeral) + '</textarea>' +
+      '</div></div>';
 
     h += '<div class="cartao" id="resumo-caixa"><div class="cartao__corpo"></div></div>';
 
@@ -6539,10 +6557,19 @@ function TelaConferencia(arg) {
               'placeholder="0" value="' + U.esc(e.soltas) + '"></label>' +
         '</div>' +
         '<div class="emb__total js-emb-total" data-id="' + id + '"></div>' +
-        '<input class="emb__obs js-emb-obs" data-id="' + id + '" placeholder="Observação (ex.: pallet aberto, caixa amassada)" ' +
-          'value="' + U.esc(e.obs) + '">' +
       '</div>' +
     '</div>';
+  }
+
+  /* Observação do conferente naquele produto (fica no relatório) */
+  function blocoObs(l) {
+    var id = l.produto.id;
+    var e = embalagem[id] || { por: '', qtd: '', soltas: '', obs: '' };
+    return '<label class="campo" style="margin:10px 0 0">' +
+      '<span class="campo__rot" style="font-size:13px">📝 Observação deste item <span class="peq mut">(opcional)</span></span>' +
+      '<input class="entrada js-obs-item" data-id="' + id + '" value="' + U.esc(e.obs || '') + '" ' +
+        'placeholder="Ex.: peça riscada, pallet aberto, veio sem trava" style="min-height:44px;padding:9px">' +
+    '</label>';
   }
 
   /* Composição vale só para TRELIÇA (box truss): é o material que se
@@ -7315,6 +7342,19 @@ const Relatorio = {
       y = Relatorio._tabela(doc, dados, y);
       y = Relatorio._resumo(doc, dados, y);
 
+      /* observação geral do conferente */
+      if (dados.conferencia && dados.conferencia.observacao) {
+        if (y > 268) { doc.addPage(); y = 14; }
+        doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
+        doc.text('OBSERVAÇÕES DO CONFERENTE', 12, y); y += 4;
+        doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
+        doc.splitTextToSize(dados.conferencia.observacao, 186).forEach(function (t) {
+          if (y > 288) { doc.addPage(); y = 14; }
+          doc.text(t, 12, y); y += 3.6;
+        });
+        y += 2;
+      }
+
       /* correções feitas depois da primeira finalização */
       var corrs = (dados.conferencia && dados.conferencia.correcoes) || [];
       if (corrs.length) {
@@ -7530,13 +7570,16 @@ const Relatorio = {
     var corpo = linhasUteis.map(function (l) {
       var conta = Calculo.detalhe(l, tipo);
       var tq = tipo === 'retorno' ? l.tercRetorno : l.tercSaida;
-      var comp = tipo === 'saida' ? (l.composicao || (l.detalheSaida && l.detalheSaida.composicao)) : null;
+      var detPdf = (l.detalhes && l.detalhes[tipo]) || null;
+      var obsPdf = (detPdf && detPdf.observacao) || '';
+      var comp = tipo === 'saida' ? (l.composicao || (detPdf && detPdf.composicao)) : null;
       var nome = l.nome + (l.produto && l.produto.terceirizado ? ' [TERCEIRIZADO]' : '') +
         (tq && !(l.produto && l.produto.terceirizado) ? '\n[' + U.fmt(tq) + ' terceirizados]' : '') +
         (comp && comp.qtd
           ? '\n[' + U.fmt(comp.qtd) + ' composta(s): ' +
             (comp.itens || []).map(function (x) { return U.fmt(x.quantidade) + 'x ' + x.nome; }).join(' + ') + ']'
           : '') +
+        (obsPdf ? '\n[obs: ' + obsPdf + ']' : '') +
         (conta ? '\n(' + conta + ')' : '');
       if (retorno) {
         if (l.dano && l.dano.qtd > 0 && l.dano.descricao) nome += '\nDano: ' + l.dano.descricao;
