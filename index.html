@@ -1949,6 +1949,14 @@ const App = {
   desenhar: function () {
     var t = this.pilha[this.pilha.length - 1];
     if (!t) return;
+    /* saindo de uma tela que pediu para ser avisada (a conferência grava
+       o rascunho e desliga seus vigias antes de sumir) */
+    if (App.aoSair && App._telaAtual !== t.fn) {
+      var sair = App.aoSair;
+      App.aoSair = null;
+      try { sair(); } catch (e) { }
+    }
+    App._telaAtual = t.fn;
     U.$('#topo-voltar').hidden = this.pilha.length <= 1;
     window.scrollTo(0, 0);
     t.fn(t.arg);
@@ -5635,6 +5643,7 @@ function TelaConferencia(arg) {
      (ex.: 1 Treliça Q30 5m = 1 de 2m + 1 de 3m).
      produto_id -> { qtd: quantas foram compostas, itens: [{nome, quantidade}] } */
   var composicao = {};
+  var obsGeral = '';   /* observação geral da conferência (fim da tela) */
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
@@ -5706,23 +5715,38 @@ function TelaConferencia(arg) {
       var comp = tipo === 'saida' ? (d.composicao || (l.itemSaida && l.itemSaida.composicao)) : null;
       if (comp && comp.qtd) composicao[l.produto.id] = comp;
     });
+    if (conferencia && conferencia.observacao) obsGeral = conferencia.observacao;
 
     /* Rascunho guardado no aparelho (modo offline): mais novo que o servidor? */
     var ras = Rascunho.ler(carregamentoId, tipo);
     var baseData = conferencia ? (conferencia.updated_at || conferencia.created_at) : null;
     if (ras && !travada() && (!baseData || ras.em > baseData)) {
       var m = U.modal({
-        titulo: '📱 Contagem guardada neste aparelho',
-        html: '<p>Encontrei uma contagem de <b>' + U.fmtDataHora(ras.em) + '</b> que ainda não foi enviada' +
-          (ras.semFotos ? ' (as fotos não couberam no aparelho e precisam ser tiradas de novo)' : '') + '.</p>' +
-          '<p style="margin-top:8px">Quer recuperar essa contagem?</p>',
-        pe: '<button class="btn btn--branco" data-x>Descartar</button>' +
-            '<button class="btn btn--verde" data-ok>RECUPERAR</button>',
+        titulo: '📱 Sua contagem foi salva neste aparelho',
+        html: (function () {
+          var qtdProdutos = Object.keys(ras.contagem || {}).filter(function (k) {
+            return String(ras.contagem[k]).trim() !== '';
+          }).length;
+          return '<div class="aviso aviso--verde" style="margin-bottom:12px"><span class="aviso__ico">✓</span><div>' +
+            '<b>Nada foi perdido.</b>Se acabou a internet, a tela apagou ou o aparelho desligou, ' +
+            'a contagem continua guardada aqui.</div></div>' +
+            '<p>Encontrei <b>' + qtdProdutos + ' produto(s) contado(s)</b>, salvos em <b>' +
+            U.fmtDataHora(ras.em) + '</b>, que ainda não foram enviados ao sistema' +
+            (ras.semFotos ? ' <b>(as fotos não couberam no aparelho e precisam ser tiradas de novo)</b>' : '') + '.</p>' +
+            '<p style="margin-top:8px">Quer continuar de onde parou?</p>';
+        })(),
+        pe: '<button class="btn btn--branco" data-x>Começar do zero</button>' +
+            '<button class="btn btn--verde" data-ok>CONTINUAR DE ONDE PAREI</button>',
         travado: true
       });
       m.querySelector('[data-x]').addEventListener('click', function () {
-        Rascunho.apagar(carregamentoId, tipo);
-        m.fechar(); desenhar();
+        U.confirmar('Apagar a contagem guardada?',
+          'Você perde o que já foi contado neste aparelho e começa a conferência do zero. Não dá para desfazer.')
+          .then(function (ok) {
+            if (!ok) return;
+            Rascunho.apagar(carregamentoId, tipo);
+            m.fechar(); desenhar();
+          });
       });
       m.querySelector('[data-ok]').addEventListener('click', function () {
         if (ras.contagem) contagem = ras.contagem;
@@ -5731,6 +5755,7 @@ function TelaConferencia(arg) {
         if (ras.terc) terc = ras.terc;
         if (ras.tercSel) tercSel = ras.tercSel;
         if (ras.composicao) composicao = ras.composicao;
+        if (ras.obsGeral) obsGeral = ras.obsGeral;
         if (ras.foto) foto = ras.foto;
         m.fechar();
         U.aviso('✓ Contagem recuperada. Toque em SALVAR para enviar ao sistema.', 'ok', 6000);
@@ -5750,16 +5775,49 @@ function TelaConferencia(arg) {
   }
 
   var rascunhoTimer = null;
+  function pacoteRascunho() {
+    return {
+      contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel,
+      composicao: composicao, obsGeral: obsGeral, foto: foto
+    };
+  }
+
   function guardarRascunho() {
     if (travada()) return;
     clearTimeout(rascunhoTimer);
     rascunhoTimer = setTimeout(function () {
-      Rascunho.guardar(carregamentoId, tipo, {
-        contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel,
-        composicao: composicao, foto: foto
-      });
+      Rascunho.guardar(carregamentoId, tipo, pacoteRascunho());
     }, 400);
   }
+
+  /* Salva IMEDIATAMENTE, sem esperar os 400ms — para quando o celular
+     desliga a tela, o app vai para segundo plano ou o navegador fecha. */
+  function guardarJa() {
+    if (travada()) return;
+    clearTimeout(rascunhoTimer);
+    Rascunho.guardar(carregamentoId, tipo, pacoteRascunho());
+  }
+
+  /* Rede de segurança: tela apagou, trocou de app, fechou a aba, perdeu a
+     internet — em todos esses momentos a contagem é gravada no aparelho. */
+  var salvarNoSumico = function () { guardarJa(); };
+  var salvarSeEscondeu = function () { if (document.visibilityState === 'hidden') guardarJa(); };
+  document.addEventListener('visibilitychange', salvarSeEscondeu);
+  window.addEventListener('pagehide', salvarNoSumico);
+  window.addEventListener('blur', salvarNoSumico);
+  window.addEventListener('offline', salvarNoSumico);
+  /* salvamento periódico: mesmo parado, no máximo 15s de trabalho em risco */
+  var salvamentoRelogio = setInterval(function () { guardarJa(); }, 15000);
+
+  /* ao sair da tela da conferência, desliga os vigias e grava a última versão */
+  App.aoSair = function () {
+    guardarJa();
+    clearInterval(salvamentoRelogio);
+    document.removeEventListener('visibilitychange', salvarSeEscondeu);
+    window.removeEventListener('pagehide', salvarNoSumico);
+    window.removeEventListener('blur', salvarNoSumico);
+    window.removeEventListener('offline', salvarNoSumico);
+  };
 
   function danoDe(id) {
     if (!dano[id]) dano[id] = { qtd: '', desc: '', foto: null };
@@ -6169,6 +6227,12 @@ function TelaConferencia(arg) {
     h += '<button class="btn btn--branco btn--bloco" id="btn-add-terc" style="border-style:dashed">' +
       '➕ ADICIONAR MATERIAL TERCEIRIZADO <span class="terc-tag">🔗 não mexe no estoque</span></button>';
 
+    if (!navigator.onLine) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📴</span><div>' +
+        '<b>Sem internet agora.</b>Pode continuar contando: tudo fica guardado neste aparelho ' +
+        'e você envia quando a conexão voltar.</div></div>';
+    }
+
     h += '<div class="cartao"><div class="cartao__topo"><h3>📝 Observações gerais</h3></div>' +
       '<div class="cartao__corpo">' +
         '<p class="mut peq" style="margin-bottom:8px">O que aconteceu neste carregamento? ' +
@@ -6415,8 +6479,19 @@ function TelaConferencia(arg) {
         });
       });
     });
-    U.$$('.js-emb-obs', tela).forEach(function (el) {
-      el.addEventListener('input', function () { embalagem[el.dataset.id].obs = el.value; });
+    U.$$('.js-obs-item', tela).forEach(function (el) {
+      el.addEventListener('input', function () {
+        var id = el.dataset.id;
+        if (!embalagem[id]) embalagem[id] = { por: '', qtd: '', soltas: '', obs: '' };
+        embalagem[id].obs = el.value;
+        guardarRascunho();
+      });
+    });
+
+    var campoObsGeral = U.$('#obs-geral', tela);
+    if (campoObsGeral) campoObsGeral.addEventListener('input', function () {
+      obsGeral = campoObsGeral.value;
+      guardarRascunho();
     });
 
     /* foto obrigatória: câmera OU galeria do telefone */
@@ -6997,6 +7072,7 @@ function TelaConferencia(arg) {
         conferente_id: Sessao.atual.id,
         foto_base64: foto || null
       };
+      campos.observacao = (obsGeral || '').trim() || null;
       if (finalizando) campos.finalizada_em = new Date().toISOString();
       if (finalizando && correcaoPendente) {
         campos.correcoes = ((conferencia && conferencia.correcoes) || []).concat([{
