@@ -1735,7 +1735,11 @@ const Calculo = {
   },
 
   /* Linhas de UM carregamento: saída x retorno, produto a produto. */
+  /* o evento trabalha com checklist por caminhão? */
+  _eventoComPlanos: function (planos) { return !!(planos && planos.length); },
+
   montarCarregamento: function (produtos, conferencias, itens, carregamentoId, planos) {
+    var planosDoEvento = Calculo._eventoComPlanos;
     var cS = Calculo.confDe(conferencias, carregamentoId, 'saida');
     var cR = Calculo.confDe(conferencias, carregamentoId, 'retorno');
 
@@ -1771,9 +1775,14 @@ const Calculo = {
 
     var lista = (produtos || []);
     if (temPlano && !cR) {
-      /* carregamento de saída planejado: confere só o que está no plano
-         (mais qualquer item que já tenha contagem lançada) */
+      /* SAÍDA com checklist próprio: confere SÓ o que está no checklist deste
+         caminhão (mais o que já tiver contagem lançada). Os checklists dos
+         carregamentos nunca se misturam — só se juntam no relatório. */
       lista = lista.filter(function (p) { return plano[p.id] !== undefined || mS[p.id]; });
+    } else if (!temPlano && !cR && planosDoEvento(planos)) {
+      /* o evento usa checklist por caminhão, mas ESTE ainda não tem o seu:
+         não empresta o checklist dos outros — mostra só o que já foi contado */
+      lista = lista.filter(function (p) { return !!mS[p.id]; });
     }
     return lista.map(function (p) {
       var iS = mS[p.id], iR = mR[p.id];
@@ -4471,7 +4480,9 @@ function TelaEvento(eventoId) {
             '</tr>';
         }).join('') +
         '</tbody></table></div>' +
-        '<div class="cartao__corpo"><p class="mut peq">Os totais de saída e retorno somam <b>todos os carregamentos</b> do evento.</p>' +
+        '<div class="cartao__corpo"><p class="mut peq">Consolidado do evento: os checklists dos caminhões ' +
+          'aparecem <b>juntos só aqui e no relatório completo</b>. Cada carregamento continua cobrando ' +
+          'apenas o seu próprio checklist na conferência.</p>' +
         (ehCoord
           ? (ev.status === 'Finalizado' || ev.status === 'Com divergência'
               ? ''
@@ -4535,20 +4546,26 @@ function TelaEvento(eventoId) {
         var planoCg = (p.planos || []).filter(function (pl) { return pl.carregamento_id === cg.id; });
         var planoQtd = 0;
         planoCg.forEach(function (pl) { planoQtd += U.num(pl.quantidade); });
+        var eventoUsaPlano = (p.planos || []).length > 0;
+        var semChecklistProprio = !planoCg.length && eventoUsaPlano;
         var descS = cS
           ? cS.status + ' · ' + App.nomeUsuario(cS.conferente_id) + (cS.foto_base64 ? ' · 📷 foto ok' : '')
-          : 'Ainda não iniciada (' + contS + '/' + (planoCg.length || totalProd) + ' produtos' +
-            (planoCg.length ? ' · carga planejada: ' + U.fmt(planoQtd) + ' itens' : '') + ')';
+          : semChecklistProprio
+            ? '⚠ Sem checklist próprio — anexe o checklist deste caminhão'
+            : 'Ainda não iniciada (' + contS + '/' + (planoCg.length || totalProd) + ' produtos' +
+              (planoCg.length ? ' · checklist do caminhão: ' + U.fmt(planoQtd) + ' itens' : '') + ')';
 
         h += '<div class="carga">' +
           '<div class="carga__topo"><span class="carga__tit">🚚 SAÍDA — CARREG. ' + cg.numero +
             (cg.nome ? ' · ' + U.esc(cg.nome) : '') + '</span>' +
-            (planoCg.length ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📋 planejado</span>' : '') +
+            (planoCg.length
+              ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📋 checklist próprio</span>'
+              : '') +
             selo(cg.status) + '</div>' +
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (ehCoord && !saidaFinal && !eventoFechado
-              ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Carga planejada' : 'PLANEJAR CARGA') + '</button>'
+              ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Checklist do caminhão' : 'DEFINIR CHECKLIST') + '</button>'
               : '') +
             (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
@@ -4736,17 +4753,17 @@ function TelaEvento(eventoId) {
 
         var m = U.modal({
           titulo: '📎 ' + lidos.length + ' itens lidos (' + U.fmt(totalLido) + ' unid.)',
-          html: '<p class="mut peq" style="margin-bottom:12px">Para onde vai este checklist?</p>' +
+          html: '<div class="aviso aviso--azul" style="margin-bottom:12px"><span class="aviso__ico">🚚</span><div>' +
+              '<b>Todo checklist pertence a um carregamento.</b>' +
+              'Ele não se mistura com os outros: a conferência deste caminhão cobra ' +
+              '<b>só estes itens</b>. Os checklists só aparecem juntos no relatório completo do evento.' +
+            '</div></div>' +
+            '<p class="mut peq" style="margin-bottom:12px">Em qual carregamento entra?</p>' +
             '<div class="etapas">' +
               '<button class="etapa" data-destino="caminhao">' +
                 '<span class="etapa__n">🚚</span>' +
-                '<span class="etapa__c"><span class="etapa__t">Checklist de um CARREGAMENTO</span>' +
-                '<span class="etapa__d">Novo caminhão dentro do evento, com checklist próprio — a conferência dele cobra SÓ estes itens. O total do evento não é somado.</span></span>' +
-                '<span class="etapa__seta">›</span></button>' +
-              '<button class="etapa" data-destino="evento">' +
-                '<span class="etapa__n">📋</span>' +
-                '<span class="etapa__c"><span class="etapa__t">Somar ao checklist do evento</span>' +
-                '<span class="etapa__d">Produto repetido soma a quantidade; produto novo entra no total</span></span>' +
+                '<span class="etapa__c"><span class="etapa__t">Escolher o caminhão</span>' +
+                '<span class="etapa__d">Um carregamento aberto ou um novo</span></span>' +
                 '<span class="etapa__seta">›</span></button>' +
             '</div>',
           pe: '<button class="btn btn--branco" data-x>Cancelar</button>',
@@ -4781,13 +4798,6 @@ function TelaEvento(eventoId) {
           op.addEventListener('click', function () {
             var destino = op.dataset.destino;
             m.fechar();
-
-            if (destino === 'evento') {
-              somar(false).then(function () {
-                oferecerCadastroEstoque(lidos, function () { App.recarregar(); });
-              }).catch(App.falhou);
-              return;
-            }
 
             /* escolher o carregamento: um aberto OU criar novo com caminhão */
             var m2 = U.modal({
