@@ -1781,11 +1781,12 @@ const Calculo = {
 
     /* plano de carga deste caminhão: se existir, o "previsto" da SAÍDA
        vira a quantidade planejada, e itens fora do plano ficam de fora */
-    var plano = {};
+    var plano = {}, prioridade = {};
     var temPlano = false;
     (planos || []).forEach(function (pl) {
       if (pl.carregamento_id === carregamentoId) {
         plano[pl.produto_id] = U.num(pl.quantidade);
+        if (pl.prioridade) prioridade[pl.produto_id] = true;
         temPlano = true;
       }
     });
@@ -1846,6 +1847,7 @@ const Calculo = {
         } : null,
         tercSaida: iS ? U.num(iS.qtd_terceirizada) || 0 : 0,
         tercRetorno: iR ? U.num(iR.qtd_terceirizada) || 0 : 0,
+        prioridade: !!prioridade[p.id],
         composicao: iS ? (iS.composicao || null) : null,
         detalhes: { saida: det(iS), retorno: det(iR) }
       };
@@ -4780,7 +4782,8 @@ function TelaEvento(eventoId) {
           var m = U.modal({
             titulo: '✏️ Acrescentar itens ao Carreg. ' + num,
             html: '<p class="mut peq" style="margin-bottom:10px">Escreva o material e a quantidade. ' +
-                'Vai <b>somar ao checklist deste carregamento</b> — os outros não mudam.</p>' +
+                'Vai <b>somar ao checklist deste carregamento</b> — os outros não mudam. ' +
+                'Marque a ⭐ se for <b>prioridade de carregamento</b>.</p>' +
               '<div id="dg-linhas"></div>' +
               '<button class="btn btn--branco btn--bloco btn--peq" id="dg-add" style="border-style:dashed">➕ Adicionar outro item</button>' +
               '<datalist id="dg-nomes">' +
@@ -5059,9 +5062,12 @@ function TelaEvento(eventoId) {
     U.$$('.js-plano-cg', tela).forEach(function (b) {
       b.addEventListener('click', function () {
         var cgId = b.dataset.cg;
-        var planoAtual = {};
+        var planoAtual = {}, prioAtual = {};
         (p.planos || []).forEach(function (pl) {
-          if (pl.carregamento_id === cgId) planoAtual[pl.produto_id] = U.num(pl.quantidade);
+          if (pl.carregamento_id === cgId) {
+            planoAtual[pl.produto_id] = U.num(pl.quantidade);
+            if (pl.prioridade) prioAtual[pl.produto_id] = true;
+          }
         });
         var temPlanoAtual = Object.keys(planoAtual).length > 0;
 
@@ -5075,8 +5081,11 @@ function TelaEvento(eventoId) {
 
         var m = U.modal({
           titulo: '📋 Carga do caminhão',
-          html: '<p class="mut peq" style="margin-bottom:10px">Coloque a quantidade de cada item do checklist que vai ' +
+          html: '<p class="mut peq" style="margin-bottom:10px">Coloque a quantidade de cada item que vai ' +
               '<b>neste caminhão</b>. Em branco ou 0 = não vai. A conferência de saída dele vai cobrar exatamente isso.</p>' +
+            '<div class="aviso aviso--amarelo" style="margin-bottom:10px"><span class="aviso__ico">⭐</span><div>' +
+              '<b>Prioridade de carregamento:</b>marque a estrelinha nos itens que precisam ' +
+              'entrar no caminhão primeiro. Eles aparecem no topo da conferência para o conferente.</div></div>' +
             '<div class="btn-linha" style="margin-bottom:10px">' +
               '<button class="btn btn--branco btn--peq" id="pl-tudo">Preencher com o que falta</button>' +
               '<button class="btn btn--branco btn--peq" id="pl-limpar">Limpar tudo</button>' +
@@ -5087,7 +5096,12 @@ function TelaEvento(eventoId) {
                 var outros = planejadoOutros[pr.id] || 0;
                 var resta = Math.max(0, prev - outros);
                 var valor = planoAtual[pr.id] !== undefined ? planoAtual[pr.id] : '';
+                var prio = !!prioAtual[pr.id];
                 return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:7px 0">' +
+                  '<label style="flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer">' +
+                    '<input type="checkbox" class="js-pl-prio" data-id="' + pr.id + '"' + (prio ? ' checked' : '') + ' style="width:20px;height:20px">' +
+                    '<span class="peq mut" style="font-size:10px">⭐</span>' +
+                  '</label>' +
                   '<span style="flex:1">' + U.esc(pr.nome) + tagTerc(pr) +
                     '<span class="peq mut" style="display:block">Previsto: ' + U.fmt(prev) + ' ' + U.esc(pr.unidade || 'UN') +
                       (outros ? ' · em outros caminhões: ' + U.fmt(outros) : '') + '</span></span>' +
@@ -5124,7 +5138,13 @@ function TelaEvento(eventoId) {
           var linhasPlano = [];
           m.querySelectorAll('.js-pl-qtd').forEach(function (cx) {
             var q = U.num(cx.value);
-            if (q > 0) linhasPlano.push({ carregamento_id: cgId, produto_id: cx.dataset.id, quantidade: q });
+            if (q > 0) {
+              var marca = m.querySelector('.js-pl-prio[data-id="' + cx.dataset.id + '"]');
+              linhasPlano.push({
+                carregamento_id: cgId, produto_id: cx.dataset.id, quantidade: q,
+                prioridade: !!(marca && marca.checked)
+              });
+            }
           });
           if (!linhasPlano.length) {
             return U.aviso('Coloque a quantidade de pelo menos um item (ou use TIRAR O PLANO).', 'erro', 5000);
@@ -6415,7 +6435,7 @@ function TelaConferencia(arg) {
       var id = l.produto.id;
       var base = Calculo.base(l, tipo);
       return '<div class="prod" data-id="' + id + '" data-nome="' + U.esc(l.nome.toLowerCase()) + '">' +
-        '<p class="prod__nome">' + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
+        '<p class="prod__nome">' + (l.prioridade ? '⭐ ' : '') + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
         (cega
           ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + '). ' +
             'Separe o que voltou <b>em bom estado</b> do que voltou <b>danificado</b>.</p>' +
@@ -6439,8 +6459,8 @@ function TelaConferencia(arg) {
       '</div>';
     }
 
-    h += '<button class="btn btn--branco btn--bloco" id="btn-add-terc" style="border-style:dashed">' +
-      '➕ ADICIONAR MATERIAL TERCEIRIZADO <span class="terc-tag">🔗 não mexe no estoque</span></button>';
+    h += '<button class="btn btn--branco btn--bloco" id="btn-add-item" style="border-style:dashed">' +
+      '➕ ACRESCENTAR MATERIAL A ESTA CONFERÊNCIA</button>';
 
     if (!navigator.onLine) {
       h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📴</span><div>' +
@@ -6806,15 +6826,18 @@ function TelaConferencia(arg) {
     var btnFotoRem = U.$('#btn-foto-remover', tela);
     if (btnFotoRem) btnFotoRem.addEventListener('click', function () { foto = null; guardarRascunho(); desenhar(); });
 
-    var addTerc = U.$('#btn-add-terc', tela);
-    if (addTerc) addTerc.addEventListener('click', function () {
+    var addItem = U.$('#btn-add-item', tela);
+    if (addItem) addItem.addEventListener('click', function () {
+      var nomesConhecidos = pacote.produtos.map(function (pr) { return pr.nome; });
       var m = U.modal({
-        titulo: '🔗 Material terceirizado',
-        html: '<p class="mut peq" style="margin-bottom:12px">Material alugado ou de fornecedor que chegou para este evento. ' +
-            'Ele entra na conferência (saída, retorno, foto, danificado) e nos relatórios, ' +
-            'mas <b>não mexe no estoque do galpão</b>.</p>' +
+        titulo: '➕ Acrescentar material',
+        html: '<p class="mut peq" style="margin-bottom:12px">Material que está indo (ou voltando) e não estava no checklist deste caminhão. ' +
+            'Ele entra na conferência e nos relatórios com a sua observação.</p>' +
           '<label class="campo"><span class="campo__rot">Nome do material</span>' +
-            '<input class="entrada" id="terc-nome" placeholder="Ex.: Piso alugado 50x50"></label>' +
+            '<input class="entrada" id="terc-nome" list="add-nomes" placeholder="Ex.: Placa 2x1"></label>' +
+          '<datalist id="add-nomes">' +
+            nomesConhecidos.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('') +
+          '</datalist>' +
           '<div class="dupla">' +
             '<label class="campo"><span class="campo__rot">Unidade</span>' +
               '<select class="entrada" id="terc-unidade">' +
@@ -6822,12 +6845,17 @@ function TelaConferencia(arg) {
                   return '<option value="' + u + '"' + (u === 'UN' ? ' selected' : '') + '>' + u + '</option>';
                 }).join('') +
               '</select></label>' +
-            (cega ? '' :
-            '<label class="campo"><span class="campo__rot">Quantidade combinada</span>' +
-              '<input class="entrada" id="terc-qtd" type="number" inputmode="numeric" min="0" placeholder="Ex.: 50"></label>') +
-          '</div>',
+            '<label class="campo"><span class="campo__rot">Quantidade</span>' +
+              '<input class="entrada" id="terc-qtd" type="number" inputmode="numeric" min="0" placeholder="Ex.: 12"></label>' +
+          '</div>' +
+          '<label class="campo"><span class="campo__rot">📝 Observação <span class="peq mut">(obrigatória — por que está acrescentando?)</span></span>' +
+            '<textarea class="entrada" id="add-obs" rows="2" style="resize:vertical" ' +
+              'placeholder="Ex.: cliente pediu na hora; sobrou espaço no caminhão; veio do galpão para completar"></textarea></label>' +
+          '<label style="display:flex;gap:10px;align-items:center;margin-top:8px;cursor:pointer">' +
+            '<input type="checkbox" id="add-terc" style="width:20px;height:20px">' +
+            '<span>🔗 É material terceirizado <span class="peq mut">(não mexe no estoque do galpão)</span></span></label>',
         pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
-            '<button class="btn btn--laranja" data-ok>ADICIONAR</button>',
+            '<button class="btn btn--laranja" data-ok>ACRESCENTAR</button>',
         travado: true
       });
       m.querySelector('[data-x]').addEventListener('click', m.fechar);
@@ -6836,26 +6864,52 @@ function TelaConferencia(arg) {
         var unidade = (m.querySelector('#terc-unidade') || {}).value || 'UN';
         var qtdCampo = m.querySelector('#terc-qtd');
         var prevista = qtdCampo ? U.num(qtdCampo.value) : 0;
+        var obsNovo = m.querySelector('#add-obs').value.trim();
+        var ehTerceirizado = m.querySelector('#add-terc').checked;
         if (nome.length < 2) return U.aviso('Dê um nome para o material.', 'erro');
-        if (!cega && !(prevista > 0)) return U.aviso('Informe a quantidade combinada com o fornecedor.', 'erro');
+        if (obsNovo.length < 3) return U.aviso('📝 Escreva a observação: por que este material está sendo acrescentado?', 'erro', 6000);
         var jaExiste = linhas.some(function (l) { return l.nome.trim().toUpperCase() === nome.toUpperCase(); });
-        if (jaExiste) return U.aviso('Já existe um produto com esse nome neste evento.', 'erro', 5000);
+        if (jaExiste) return U.aviso('Este produto já está na sua lista de conferência.', 'erro', 5000);
 
         var b = m.querySelector('[data-ok]');
-        b.disabled = true; b.textContent = 'Adicionando...';
-        Banco.criarProduto(eventoId, { nome: nome, quantidade_prevista: prevista, unidade: unidade })
+        b.disabled = true; b.textContent = 'Acrescentando...';
+        Banco.criarProduto(eventoId, {
+          nome: nome, quantidade_prevista: prevista, unidade: unidade, terceirizado: ehTerceirizado
+        })
           .then(function (novo) {
-            m.fechar();
-            /* entra na tela na hora, sem perder o que já foi contado */
             pacote.produtos.push(novo);
-            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos);
-            contagem[novo.id] = '';
-            embalagem[novo.id] = { por: '', qtd: '', soltas: '', obs: '' };
-            dano[novo.id] = { qtd: '', desc: '', foto: null };
-            U.aviso('✓ ' + nome + ' adicionado à conferência (não mexe no estoque).', 'ok', 5000);
-            desenhar();
-            var cx = U.$('.prod[data-id="' + novo.id + '"]', tela);
-            if (cx) cx.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            /* se este carregamento tem checklist próprio, o item entra nele —
+               senão o card nem apareceria na conferência */
+            var entra = temPlanoProprio
+              ? Banco.salvarPlano(carregamentoId,
+                  (pacote.planos || []).filter(function (pl) { return pl.carregamento_id === carregamentoId; })
+                    .map(function (pl) {
+                      return { carregamento_id: carregamentoId, produto_id: pl.produto_id, quantidade: pl.quantidade, prioridade: !!pl.prioridade };
+                    })
+                    .concat([{ carregamento_id: carregamentoId, produto_id: novo.id, quantidade: prevista || 0, prioridade: false }])
+                ).then(function () {
+                  pacote.planos = (pacote.planos || []).concat([
+                    { carregamento_id: carregamentoId, produto_id: novo.id, quantidade: prevista || 0, prioridade: false }
+                  ]);
+                })
+              : Promise.resolve();
+
+            return entra.then(function () {
+              m.fechar();
+              linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos);
+              contagem[novo.id] = prevista > 0 ? String(prevista) : '';
+              embalagem[novo.id] = { por: '', qtd: '', soltas: '', obs: obsNovo };   /* observação do item */
+              dano[novo.id] = { qtd: '', desc: '', foto: null };
+              if (ehTerceirizado) terc[novo.id] = prevista > 0 ? String(prevista) : '';
+              /* registra também na observação geral, para ninguém perder o motivo */
+              obsGeral = (obsGeral ? obsGeral + '\n' : '') +
+                '➕ ' + nome + (prevista > 0 ? ' (' + U.fmt(prevista) + ' ' + unidade + ')' : '') + ': ' + obsNovo;
+              guardarRascunho();
+              U.aviso('✓ ' + nome + ' acrescentado à conferência com a sua observação.', 'ok', 6000);
+              desenhar();
+              var cx = U.$('.prod[data-id="' + novo.id + '"]', tela);
+              if (cx) cx.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
           })
           .catch(function (e) {
             b.disabled = false; b.textContent = 'ADICIONAR';
