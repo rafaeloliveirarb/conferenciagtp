@@ -4601,7 +4601,8 @@ function TelaEvento(eventoId) {
           '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (ehCoord && !saidaFinal && !eventoFechado
-              ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Checklist do caminhão' : 'DEFINIR CHECKLIST') + '</button>'
+              ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Checklist do caminhão' : 'DEFINIR CHECKLIST') + '</button>' +
+                '<button class="btn btn--branco btn--peq js-mais-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">📎 + Checklist</button>'
               : '') +
             (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
@@ -4762,6 +4763,77 @@ function TelaEvento(eventoId) {
       });
     }
 
+    /* 📎 acrescentar OUTRO checklist a um carregamento já criado:
+       soma ao checklist dele, sem tocar nos outros carregamentos */
+    U.$$('.js-mais-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cgId = b.dataset.cg;
+        var num = b.dataset.num;
+        var campo = document.createElement('input');
+        campo.type = 'file';
+        campo.accept = '.pdf,.xml,.xlsx,.xls,.txt,.csv';
+        campo.multiple = true;
+        campo.addEventListener('change', function () {
+          if (!campo.files || !campo.files.length) return;
+          var espera = U.modal({ titulo: 'Lendo o checklist', html: U.carregando('Isso leva alguns segundos...'), travado: true });
+
+          Checklist.lerVarios(campo.files).then(function (res) {
+            espera.fechar();
+            if (res.falhas.length) U.aviso('⚠ ' + res.falhas.join(' · '), 'erro', 8000);
+            var lidos = (res.produtos || []).filter(function (x) { return x.nome && U.num(x.quantidade_prevista) > 0; });
+            if (!lidos.length) return U.aviso('Não encontrei itens com quantidade no arquivo.', 'erro', 6000);
+
+            var total = 0;
+            lidos.forEach(function (x) { total += U.num(x.quantidade_prevista); });
+
+            var m = U.modal({
+              titulo: '📎 Acrescentar ao Carreg. ' + num,
+              html: '<p>Li <b>' + lidos.length + ' itens</b> (' + U.fmt(total) + ' unidades).</p>' +
+                '<p class="mut peq" style="margin-top:8px">Eles serão <b>somados ao checklist deste carregamento</b>: ' +
+                  'item repetido soma a quantidade, item novo entra. Os outros carregamentos não são afetados.</p>' +
+                '<div style="max-height:34vh;overflow:auto;margin-top:10px;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
+                  lidos.map(function (x) {
+                    return '<div class="peq" style="padding:4px 0;border-bottom:1px solid var(--linha)">' +
+                      U.fmt(x.quantidade_prevista) + '× ' + U.esc(x.nome) + '</div>';
+                  }).join('') +
+                '</div>',
+              pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                  '<button class="btn btn--verde" data-ok>ACRESCENTAR</button>',
+              travado: true
+            });
+            m.querySelector('[data-x]').addEventListener('click', m.fechar);
+            m.querySelector('[data-ok]').addEventListener('click', function () {
+              var bt = m.querySelector('[data-ok]');
+              bt.disabled = true; bt.textContent = 'Salvando...';
+              /* cria no evento só os produtos que ainda não existem (sem somar totais) */
+              Banco.acrescentarProdutos(eventoId, lidos, true).then(function (r) {
+                var plano = {};
+                (p.planos || []).forEach(function (pl) {
+                  if (pl.carregamento_id === cgId) plano[pl.produto_id] = U.num(pl.quantidade);
+                });
+                lidos.forEach(function (x) {
+                  var prod = r.porChave[Estoque.chave(x.nome)];
+                  if (prod && prod.id) plano[prod.id] = (plano[prod.id] || 0) + U.num(x.quantidade_prevista);
+                });
+                var linhasPlano = Object.keys(plano).map(function (pid) {
+                  return { carregamento_id: cgId, produto_id: pid, quantidade: plano[pid] };
+                });
+                return Banco.salvarPlano(cgId, linhasPlano).then(function () {
+                  m.fechar();
+                  U.aviso('✓ Checklist do Carreg. ' + num + ' atualizado: agora com ' + linhasPlano.length + ' itens.', 'ok', 6000);
+                  oferecerCadastroEstoque(lidos, function () { App.recarregar(); });
+                });
+              }).catch(function (e) {
+                bt.disabled = false; bt.textContent = 'ACRESCENTAR';
+                App.falhou(e);
+              });
+            });
+          }).catch(function (e) { espera.fechar(); App.falhou(e); });
+        });
+        campo.click();
+      });
+    });
+
     /* 📎 anexar MAIS checklist ao evento já criado — somando ao que existe,
        e com a opção de jogar os itens direto na carga de um caminhão */
     var btnMais = U.$('#btn-anexar-mais', tela);
@@ -4817,8 +4889,11 @@ function TelaEvento(eventoId) {
         }
 
         function planejarNoCarregamento(cgId, porChave) {
-          /* checklist NOVO do caminhão: o plano vira exatamente o arquivo lido */
+          /* soma ao checklist que o carregamento já tiver (não apaga o anterior) */
           var planoNovo = {};
+          (p.planos || []).forEach(function (pl) {
+            if (pl.carregamento_id === cgId) planoNovo[pl.produto_id] = U.num(pl.quantidade);
+          });
           lidos.forEach(function (x) {
             var prod = porChave[Estoque.chave(x.nome)];
             if (!prod || !prod.id) return;
