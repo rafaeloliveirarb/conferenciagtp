@@ -993,6 +993,42 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* Passa uma quantidade de um item do checklist de UM carregamento para
+     outro (o material não coube no caminhão e vai no próximo). */
+  moverItemPlano: function (origemCg, destinoCg, produtoId, qtd) {
+    var self = this;
+    return self.cliente.from('itens_carregamento').select('*')
+      .in('carregamento_id', [origemCg, destinoCg]).eq('produto_id', produtoId)
+      .then(function (r) {
+        if (r.error) Banco._erro(r.error);
+        var linhas = r.data || [];
+        var naOrigem = linhas.filter(function (l) { return l.carregamento_id === origemCg; })[0];
+        var noDestino = linhas.filter(function (l) { return l.carregamento_id === destinoCg; })[0];
+        var mover = Math.min(U.num(qtd), naOrigem ? U.num(naOrigem.quantidade) : U.num(qtd));
+        if (!(mover > 0)) return false;
+
+        var passos = [];
+        /* tira da origem (se zerar, some do checklist dela) */
+        if (naOrigem) {
+          var resta = U.num(naOrigem.quantidade) - mover;
+          passos.push(resta > 0
+            ? self.cliente.from('itens_carregamento').update({ quantidade: resta }).eq('id', naOrigem.id)
+            : self.cliente.from('itens_carregamento').delete().eq('id', naOrigem.id));
+        }
+        /* soma no destino */
+        passos.push(noDestino
+          ? self.cliente.from('itens_carregamento')
+              .update({ quantidade: U.num(noDestino.quantidade) + mover }).eq('id', noDestino.id)
+          : self.cliente.from('itens_carregamento')
+              .insert({ carregamento_id: destinoCg, produto_id: produtoId, quantidade: mover }));
+
+        return Promise.all(passos).then(function (rr) {
+          rr.forEach(function (x) { if (x && x.error) Banco._erro(x.error); });
+          return mover;
+        });
+      });
+  },
+
   /* ---------- plano de carga: o que vai em cada caminhão ---------- */
   listarPlanos: function (eventoId) {
     return this.cliente.from('itens_carregamento').select('*, carregamentos!inner(evento_id)')
@@ -5655,6 +5691,7 @@ function TelaConferencia(arg) {
      produto_id -> { qtd: quantas foram compostas, itens: [{nome, quantidade}] } */
   var composicao = {};
   var obsGeral = '';   /* observação geral da conferência (fim da tela) */
+  var temPlanoProprio = false;   /* este carregamento tem checklist próprio? */
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
@@ -5727,6 +5764,7 @@ function TelaConferencia(arg) {
       if (comp && comp.qtd) composicao[l.produto.id] = comp;
     });
     if (conferencia && conferencia.observacao) obsGeral = conferencia.observacao;
+    temPlanoProprio = (pacote.planos || []).some(function (pl) { return pl.carregamento_id === carregamentoId; });
 
     /* Rascunho guardado no aparelho (modo offline): mais novo que o servidor? */
     var ras = Rascunho.ler(carregamentoId, tipo);
@@ -6229,6 +6267,7 @@ function TelaConferencia(arg) {
         '</div>' +
         (cega ? blocoDano(l) : blocoComposicao(l)) +
         blocoTerc(l) +
+        (cega ? '' : blocoNaoCoube(l)) +
         blocoObs(l) +
         '<p class="prod__res"></p>' +
         blocoEmbalagem(l, base) +
@@ -6294,6 +6333,80 @@ function TelaConferencia(arg) {
     });
     U.$$('.js-zero', tela).forEach(function (el) {
       el.addEventListener('click', function () { definir(el.dataset.id, 0); });
+    });
+
+    /* 🚚 material que não coube: passa para outro carregamento */
+    U.$$('.js-passar', tela).forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.dataset.id;
+        var linhaAlvo = linhas.filter(function (l) { return l.produto.id === id; })[0];
+        if (!linhaAlvo) return;
+
+        /* carregamentos de saída ainda abertos, tirando este */
+        var destinos = (pacote.carregamentos || []).filter(function (c) {
+          if (c.id === carregamentoId || c.sentido === 'retorno') return false;
+          var cS = Calculo.confDe(pacote.conferencias, c.id, 'saida');
+          return !(cS && (cS.status === 'Finalizado' || cS.status === 'Com divergência'));
+        });
+
+        var m = U.modal({
+          titulo: '🚚 Passar para outro carregamento',
+          html: '<p><b>' + U.esc(linhaAlvo.nome) + '</b></p>' +
+            '<p class="mut peq" style="margin:6px 0 12px">Não coube neste caminhão? Diga quantas peças ' +
+              '<b>ficaram para o próximo</b>. Elas saem do checklist deste carregamento e entram no do outro — ' +
+              'a sua conferência aqui não fica com falta por causa delas.</p>' +
+            '<label class="campo"><span class="campo__rot">Quantas ficaram de fora?</span>' +
+              '<input class="entrada" id="pa-qtd" type="number" inputmode="numeric" min="1" placeholder="Ex.: 50"></label>' +
+            '<p class="campo__rot" style="margin:10px 0 6px">Para qual carregamento?</p>' +
+            '<div class="etapas" id="pa-destinos">' +
+              destinos.map(function (c) {
+                return '<button class="etapa js-pa-cg" data-cg="' + c.id + '">' +
+                  '<span class="etapa__n">🚛</span>' +
+                  '<span class="etapa__c"><span class="etapa__t">CARREG. ' + c.numero +
+                    (c.nome ? ' · ' + U.esc(c.nome) : '') + '</span>' +
+                  '<span class="etapa__d">' + U.esc(nomeCaminhao(pacote.caminhoes, c.caminhao_id)) + '</span></span>' +
+                  '<span class="etapa__seta">›</span></button>';
+              }).join('') +
+              '<button class="etapa" id="pa-novo">' +
+                '<span class="etapa__n">➕</span>' +
+                '<span class="etapa__c"><span class="etapa__t">Novo carregamento</span>' +
+                '<span class="etapa__d">O coordenador escolhe o caminhão depois</span></span>' +
+                '<span class="etapa__seta">›</span></button>' +
+            '</div>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+        function passar(destinoId, rotulo) {
+          var qtd = U.num(m.querySelector('#pa-qtd').value);
+          if (!(qtd > 0)) return U.aviso('Informe quantas peças ficaram de fora.', 'erro', 4000);
+          m.fechar();
+          Banco.moverItemPlano(carregamentoId, destinoId, id, qtd).then(function (movido) {
+            if (!movido) return U.aviso('Não havia essa quantidade no checklist deste caminhão.', 'erro', 6000);
+            U.aviso('🚚 ' + U.fmt(movido) + ' × ' + linhaAlvo.nome + ' passou para ' + rotulo + '.', 'ok', 6000);
+            recarregarDados();
+          }).catch(App.falhou);
+        }
+
+        m.querySelectorAll('.js-pa-cg').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var alvo = destinos.filter(function (c) { return c.id === b.dataset.cg; })[0];
+            passar(b.dataset.cg, 'o Carreg. ' + (alvo ? alvo.numero : '') + (alvo && alvo.nome ? ' (' + alvo.nome + ')' : ''));
+          });
+        });
+        m.querySelector('#pa-novo').addEventListener('click', function () {
+          var qtd = U.num(m.querySelector('#pa-qtd').value);
+          if (!(qtd > 0)) return U.aviso('Informe quantas peças ficaram de fora.', 'erro', 4000);
+          var numero = (pacote.carregamentos || []).reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+          Banco.criarCarregamento({
+            evento_id: pacote.evento.id, numero: numero, caminhao_id: null,
+            sentido: 'saida', status: 'Saída pendente', nome: 'SOBRA DO CARREG. ' + carregamento.numero
+          }).then(function (novo) {
+            passar(novo.id, 'o novo Carreg. ' + novo.numero);
+          }).catch(App.falhou);
+        });
+      });
     });
 
     /* 🧩 compor peça com outras */
@@ -6644,6 +6757,15 @@ function TelaConferencia(arg) {
         '</div>' +
         '<div class="emb__total js-emb-total" data-id="' + id + '"></div>' +
       '</div>' +
+    '</div>';
+  }
+
+  /* Material que não coube no caminhão: passa para outro carregamento */
+  function blocoNaoCoube(l) {
+    if (!temPlanoProprio) return '';   /* só faz sentido com checklist do caminhão */
+    return '<div class="terc" data-sobra="' + l.produto.id + '" style="border-color:#F3C99A;background:#FFF8F0">' +
+      '<div class="terc__linha"><span class="terc__rot" style="color:var(--laranja)">🚚 Não coube neste caminhão?</span>' +
+      '<button class="btn btn--branco btn--peq js-passar" data-id="' + l.produto.id + '">PASSAR ADIANTE</button></div>' +
     '</div>';
   }
 
