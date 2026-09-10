@@ -4245,10 +4245,8 @@ function TelaMeusEventos() {
           ': ' + U.esc(App.nomeUsuario(c.conferente_id));
       }).join('<br>');
 
-      var acao = !temLista
-        ? '<button class="btn btn--laranja btn--bloco js-anexar" data-id="' + ev.id + '">📎 ANEXAR CHECKLIST</button>'
-        : '<button class="btn btn--laranja btn--bloco js-abrir" data-id="' + ev.id + '">' +
-          (jaComecou ? 'CONTINUAR CONFERÊNCIA' : 'INICIAR CONFERÊNCIA') + '</button>';
+      var acao = '<button class="btn btn--laranja btn--bloco js-abrir" data-id="' + ev.id + '">' +
+          (jaComecou ? 'CONTINUAR CONFERÊNCIA' : temLista ? 'INICIAR CONFERÊNCIA' : 'ABRIR EVENTO') + '</button>';
 
       return '<div class="evento">' +
         '<div class="evento__topo">' +
@@ -4448,13 +4446,12 @@ function TelaEvento(eventoId) {
 
     /* --- checklist --- */
     if (!p.produtos.length) {
-      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📋</span><div>' +
-        '<b>Este evento ainda não tem checklist.</b>' +
+      h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
+        '<b>O checklist entra pelo carregamento.</b>' +
         (ehCoord
-          ? 'Anexe o arquivo (PDF, XML ou foto) ou digite os produtos. O conferente também pode fazer isso.'
-          : 'Anexe o arquivo que você recebeu ou digite os produtos para poder conferir.') +
-        '</div></div>' +
-        '<button class="btn btn--laranja btn--bloco btn--gg js-checklist">ANEXAR CHECKLIST</button>';
+          ? 'Logo abaixo, escolha o caminhão, dê um nome ao carregamento (PISO, OCTANORM, TRELIÇA...) e anexe o checklist dele. Cada caminhão tem o seu.'
+          : 'Assim que o coordenador escolher o caminhão e anexar o checklist, o carregamento aparece aqui para você conferir.') +
+        '</div></div>';
     } else {
       h += '<div class="cartao"><div class="cartao__topo"><h3>Produtos do checklist</h3>' +
         '<span class="mut peq">' + p.produtos.length + ' itens</span></div>' +
