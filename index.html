@@ -4618,14 +4618,7 @@ function TelaEvento(eventoId) {
 
     /* --- checklist --- */
     var eventoPorCaminhao = (p.planos || []).length > 0;
-    if (eventoPorCaminhao) {
-      /* BLINDADO: cada checklist pertence ao seu carregamento e aparece lá.
-         Aqui não existe tabela misturando — a junção é só no relatório completo. */
-      h += '<div class="aviso aviso--azul"><span class="aviso__ico">🔒</span><div>' +
-        '<b>Checklist por carregamento.</b>Cada caminhão mostra o SEU checklist no card, logo abaixo. ' +
-        'Nada se mistura — os checklists só se juntam no <b>📑 relatório completo</b>.' +
-        '</div></div>';
-    } else if (!p.produtos.length) {
+    if (!p.produtos.length) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
         '<b>O checklist entra pelo carregamento.</b>' +
         (ehCoord
@@ -4644,8 +4637,15 @@ function TelaEvento(eventoId) {
         if (sg) subPorChave[Estoque.chave(i.nome)] = sg;
       });
 
-      h += '<div class="cartao"><div class="cartao__topo"><h3>Produtos do checklist</h3>' +
+      h += '<div class="cartao"><div class="cartao__topo"><h3>' +
+          (eventoPorCaminhao ? '📋 Checklist total do evento' : 'Produtos do checklist') + '</h3>' +
         '<span class="mut peq">' + p.produtos.length + ' itens</span></div>' +
+        (eventoPorCaminhao
+          ? '<div class="aviso aviso--azul" style="margin:12px 14px 0"><span class="aviso__ico">🔒</span><div>' +
+            '<b>Soma dos checklists de todos os carregamentos</b> — só para consulta. ' +
+            'Cada caminhão continua cobrando <b>apenas o seu</b> checklist (veja nos cards abaixo).' +
+            '</div></div>'
+          : '') +
         '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
           '<th>Produto</th><th style="width:60px">Un.</th><th class="num">Previsto</th>' +
           (temSaida ? '<th class="num">Saída (total)</th><th class="num">Diferença</th>' : '') +
@@ -4679,9 +4679,12 @@ function TelaEvento(eventoId) {
         (ehCoord
           ? (ev.status === 'Finalizado' || ev.status === 'Com divergência'
               ? ''
-              : '<button class="btn btn--laranja btn--bloco" id="btn-anexar-mais" style="margin-top:8px">📎 ANEXAR MAIS CHECKLIST</button>' +
-                '<input type="file" id="campo-anexar-mais" accept=".pdf,.xml,.xlsx,.xls,.txt,.csv" multiple hidden>' +
-                '<button class="btn btn--branco btn--bloco js-checklist" style="margin-top:8px">Editar checklist</button>' +
+              : (eventoPorCaminhao
+                  ? '<p class="mut peq" style="margin-top:10px">Para mexer no checklist, use os botões ' +
+                    '<b>📋 / 📎 / ✏️</b> no card do carregamento — cada caminhão edita só o seu.</p>'
+                  : '<button class="btn btn--laranja btn--bloco" id="btn-anexar-mais" style="margin-top:8px">📎 ANEXAR MAIS CHECKLIST</button>' +
+                    '<input type="file" id="campo-anexar-mais" accept=".pdf,.xml,.xlsx,.xls,.txt,.csv" multiple hidden>' +
+                    '<button class="btn btn--branco btn--bloco js-checklist" style="margin-top:8px">Editar checklist</button>') +
                 '<button class="btn btn--branco btn--bloco" id="btn-excluir-checklist" ' +
                   'style="margin-top:8px;color:var(--vermelho);border-color:var(--vermelho)">🗑️ EXCLUIR CHECKLIST</button>')
           : '<p class="mut peq" style="margin-top:8px">O checklist é o que o coordenador lançou. ' +
