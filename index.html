@@ -1364,13 +1364,20 @@ const Checklist = {
         break;
       }
     }
-    /* guarda o texto das observações (sem rodapé do navegador e sem "Nenhuma") */
+    /* Só o que é observação DE VERDADE entra: fora rodapé do navegador,
+       contadores de página, "Nenhuma", título do arquivo e sobras soltas. */
     cruas.slice(fim).forEach(function (l) {
-      if (/^(observa[çc][õo]es?|obs[.:]|carga total|peso total|volume total|total geral)/i.test(l)) return;
-      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]/.test(l)) return;
+      if (/^(observa[çc][õo]es?|obs[.:]|carga total|peso total|volume total|total geral)$/i.test(l)) return;
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]/.test(l)) return;          /* "10/09/2026, 09:03 ..." */
+      if (/about:blank/i.test(l)) return;                                 /* "about:blank 1/1" */
       if (/^(file:|https?:)/i.test(l)) return;
-      if (/^p[áa]gina\s+\d+/i.test(l) || /^\d+\s*\/\s*\d+$/.test(l)) return;
-      if (/:\s*nenhuma\.?$/i.test(l)) return;
+      if (/\b\d+\s*\/\s*\d+\s*$/.test(l) && l.length < 30) return;  /* "... 1/1" */
+      if (/^p[áa]gina\s+\d+/i.test(l)) return;
+      if (/nenhuma(\s+observa[çc][ãa]o)?\.?$/i.test(l)) return;          /* "Nenhuma" / "Projeto 1: Nenhuma" */
+      if (/\s\|\s/.test(l)) return;                                     /* "Piso Importado | Plenart" */
+      if (/^[A-ZÀ-Ý]{2,8}$/.test(l)) return;                              /* palavra solta de rodapé ("FAÇE") */
+      if (l.length < 4) return;
+      if (observacoes.indexOf(l) >= 0) return;                            /* repetida */
       observacoes.push(l);
     });
     cruas = cruas.slice(0, fim);
@@ -4663,9 +4670,16 @@ function TelaEvento(eventoId) {
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
           '</div>' +
-          ((cg.observacoes || '').trim()
+          ((cg.observacoes || '').trim() || (ehCoord && !eventoFechado)
             ? '<div class="aviso aviso--amarelo" style="margin:10px 14px 0"><span class="aviso__ico">📝</span><div>' +
-              '<b>Observações do coordenador:</b>' + U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div></div>'
+              ((cg.observacoes || '').trim()
+                ? '<b>Observações do coordenador:</b>' + U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>')
+                : '<span class="mut">Sem observações para este caminhão.</span>') +
+              (ehCoord && !eventoFechado
+                ? '<div class="btn-linha" style="margin-top:8px">' +
+                  '<button class="btn btn--branco btn--peq js-obs-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">✏️ Editar observações</button></div>'
+                : '') +
+            '</div></div>'
             : '') +
           '<div class="carga__corpo">' +
             '<button class="etapa js-conf" data-cg="' + cg.id + '" data-tipo="saida">' +
@@ -4821,6 +4835,42 @@ function TelaEvento(eventoId) {
         App.recarregar();
       });
     }
+
+    /* ✏️ editar as observações do coordenador de um carregamento */
+    U.$$('.js-obs-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cgId = b.dataset.cg;
+        var cgAlvo = p.carregamentos.filter(function (c) { return c.id === cgId; })[0];
+        if (!cgAlvo) return;
+        var m = U.modal({
+          titulo: '📝 Observações — Carreg. ' + b.dataset.num,
+          html: '<p class="mut peq" style="margin-bottom:8px">O conferente vê este recado no card do carregamento ' +
+              'e no topo da conferência; ele também sai no PDF. Apague tudo para remover.</p>' +
+            '<textarea class="entrada" id="obs-cg-texto" rows="5" style="resize:vertical" ' +
+              'placeholder="Ex.: ENVIAR: 2 pés de 1m, 4 pés de 70...">' +
+              U.esc((cgAlvo.observacoes || '').trim()) + '</textarea>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+              '<button class="btn btn--verde" data-ok>SALVAR</button>',
+          travado: true
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          var texto = m.querySelector('#obs-cg-texto').value.trim();
+          var bt = m.querySelector('[data-ok]');
+          bt.disabled = true; bt.textContent = 'Salvando...';
+          Banco.atualizarCarregamento(cgId, { observacoes: texto || null })
+            .then(function () {
+              m.fechar();
+              U.aviso(texto ? '📝 Observações salvas.' : '📝 Observações removidas.', 'ok', 4000);
+              App.recarregar();
+            })
+            .catch(function (e) {
+              bt.disabled = false; bt.textContent = 'SALVAR';
+              App.falhou(e);
+            });
+        });
+      });
+    });
 
     /* ✏️ acrescentar material DIGITANDO no checklist de um carregamento */
     U.$$('.js-digitar-cg', tela).forEach(function (b) {
@@ -5318,12 +5368,18 @@ function TelaEvento(eventoId) {
         m.querySelector('#ncg-info').textContent = arquivosSel
           ? '✓ ' + arquivosSel.length + ' arquivo(s) escolhido(s)' : '';
         m.querySelector('[data-ok]').disabled = !arquivosSel;
-        /* espia as observações do arquivo e já preenche o campo */
+        /* espia as observações do arquivo e preenche o campo —
+           SUBSTITUI o preenchimento automático anterior (não duplica);
+           o que o coordenador digitou à mão fica preservado */
         if (arquivosSel) Checklist.lerVarios(arquivosSel).then(function (res) {
-          if (res.observacoes) {
-            var cx = m.querySelector('#ncg-obs');
-            cx.value = (cx.value ? cx.value + '\n' : '') + res.observacoes;
+          var cx = m.querySelector('#ncg-obs');
+          var manual = cx.value;
+          if (cx.dataset.auto && manual.indexOf(cx.dataset.auto) >= 0) {
+            manual = manual.replace(cx.dataset.auto, '').trim();
           }
+          var auto = (res.observacoes || '').trim();
+          cx.dataset.auto = auto;
+          cx.value = manual ? (auto ? manual + '\n' + auto : manual) : auto;
         }).catch(function () { });
       });
 
