@@ -1400,6 +1400,16 @@ const Checklist = {
         /* títulos e cabeçalhos de tabela não entram na costura de nomes */
         if (/^(check\s?list|checklist|pedido( de)?( equipamentos| consolidado)?$|pedido consolidado|romaneio|rela[çc][ãa]o|lista(gem)?( de)?)/i.test(l)) return false;
         if (/^pedido de equipamentos/i.test(l)) return false;
+        if (/^quantifica[çc][ãa]o\b/i.test(l)) return false;                 /* "QUANTIFICAÇÃO DE MATERIAL" */
+        /* preâmbulo do documento: "CLIENTE: X", "LOCAL - Y", "CARRO -", "DATA MONTAGEM -",
+           "RESP. CARREGAMENTO -", "OS", "SALDO E RET..." — dados do cabeçalho, não material */
+        if (/^(cliente|local|carro|data|resp\w*|evento|os|o\.s\.?|n[fº°]|nota|saldo|montador|equipe|hor[áa]rio)\b\s*[:\-–]?/i.test(l) &&
+            !/\d\s*(un|p[çc]|cx|kg)\b/i.test(l)) {
+          /* só cai fora se for linha de rótulo (curta ou terminando em -/:) */
+          if (l.length <= 60 && (/[:\-–]/.test(l) || l.split(' ').length <= 6)) return false;
+        }
+        if (/^[A-ZÀ-Ý]{1,3}$/.test(l)) return false;                          /* sigla solta: "OS" */
+        if (/precisam ser iguais|conferir na volta/i.test(l)) return false;
         if (/\s[·|]\s/.test(l)) return false;                 /* subtítulo: "Piso Importado · Grupo Tendas Plenart" */
         if (/grupo tendas|plenart/i.test(l)) return false;
         if (/^item\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
@@ -1438,6 +1448,45 @@ const Checklist = {
       cruas[t + 1] = cruas[t + 2];
       cruas[t + 2] = num;
     }
+
+    /* ---------- TABELA EM COLUNAS SEPARADAS ----------
+       Alguns PDFs soltam a coluna inteira de NOMES e depois a coluna inteira
+       de QUANTIDADES ("TRELIÇA 4M / TRELIÇA 3M / ... / QUANT. / 10 / 64 / ...").
+       Quando um bloco de nomes é seguido por um bloco de números do MESMO
+       tamanho, casa um com o outro na ordem. Tamanhos diferentes = não casa
+       (melhor faltar item do que inventar quantidade errada). */
+    function linhaSoNumero(l) {
+      return /^\d[\d.,]*\s*(un|und|unid|p[çc]s?|cx|par|kit|jg|m|mts|kg|kgs)?\.?\s*$/i.test(l);
+    }
+    function linhaNome(l) {
+      return /[A-Za-zÀ-ÿ]{2}/.test(l) && !linhaSoNumero(l);
+    }
+    (function casarColunas() {
+      var saida = [];
+      var i2 = 0;
+      while (i2 < cruas.length) {
+        if (!linhaNome(cruas[i2]) || linhaSoNumero(cruas[i2])) { saida.push(cruas[i2]); i2++; continue; }
+        /* bloco de nomes */
+        var nomes = [];
+        var j = i2;
+        while (j < cruas.length && linhaNome(cruas[j])) { nomes.push(cruas[j]); j++; }
+        /* bloco de números logo depois */
+        var nums = [];
+        var k = j;
+        while (k < cruas.length && linhaSoNumero(cruas[k])) { nums.push(cruas[k]); k++; }
+        if (nomes.length >= 3 && nums.length === nomes.length) {
+          for (var q = 0; q < nomes.length; q++) saida.push(nomes[q] + ' ' + nums[q]);
+          i2 = k;
+        } else if (nomes.length >= 3 && nums.length >= 3 && nums.length !== nomes.length) {
+          /* colunas desencontradas: descarta o bloco em vez de casar errado */
+          i2 = k;
+        } else {
+          for (var q2 = 0; q2 < nomes.length; q2++) saida.push(nomes[q2]);
+          i2 = j;
+        }
+      }
+      cruas = saida;
+    })();
 
     /* A linha da tabela está inteira quando termina em coluna numérica
        ("... 869.00 1.738 1,304") ou é do tipo "5 x Cadeira". */
