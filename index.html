@@ -1346,7 +1346,16 @@ const Checklist = {
      ("Emenda de" / "montante 22"). Antes de ler, essas linhas
      são costuradas de volta. */
   deTexto: function (texto) {
-    var cruas = String(texto || '').split(/\r?\n/)
+    /* Rótulos como "Quantidade de", "Qtd. de", "QUANT." e "Peso total" nunca
+       fazem parte do nome de um produto. Se aparecem no meio de uma linha, é
+       porque o PDF embaralhou itens — quebra a linha ali para separá-los. */
+    var textoLimpo = String(texto || '')
+      .replace(/(quantidade\s+d[eoa]s?\b)/gi, '\n$1')
+      .replace(/((?:qtd|qtde|quant)[.:]?\s+d[eoa]s?\b)/gi, '\n$1')
+      .replace(/(peso\s+total\b)/gi, '\n$1')
+      .replace(/(\bQUANT[.:])/g, '\n$1');
+
+    var cruas = String(textoLimpo).split(/\r?\n/)
       .map(function (l) {
         return l.replace(/\s+/g, ' ')
                 .replace(/(\s[—–-]+)+$/, '')   /* colunas vazias no fim: "2 — —" */
@@ -1359,10 +1368,13 @@ const Checklist = {
     var fim = cruas.length;
     var observacoes = [];
     for (var c = 0; c < cruas.length; c++) {
-      if (/^(observa[çc][õo]es?|obs[.:]|carga total|peso total|volume total|total geral)/i.test(cruas[c])) {
-        fim = c;
-        break;
-      }
+      var lc = cruas[c];
+      /* OBSERVAÇÕES sempre encerra a lista; linha de TOTAL só encerra quando
+         traz um número junto ("CARGA TOTAL ESTIMADA 6.337 kg") — "PESO TOTAL (kg)"
+         sem número é cabeçalho de coluna, não fim de lista. */
+      var ehObs = /^(observa[çc][õo]es?\b|obs[.:])/i.test(lc);
+      var ehTotalComNumero = /^(carga total|peso total|volume total|total geral)/i.test(lc) && /\d/.test(lc);
+      if (ehObs || ehTotalComNumero) { fim = c; break; }
     }
     /* Só o que é observação DE VERDADE entra: fora rodapé do navegador,
        contadores de página, "Nenhuma", título do arquivo e sobras soltas. */
@@ -1374,7 +1386,9 @@ const Checklist = {
       if (/\b\d+\s*\/\s*\d+\s*$/.test(l) && l.length < 30) return;  /* "... 1/1" */
       if (/^p[áa]gina\s+\d+/i.test(l)) return;
       if (/nenhuma(\s+observa[çc][ãa]o)?\.?$/i.test(l)) return;          /* "Nenhuma" / "Projeto 1: Nenhuma" */
-      if (/\s\|\s/.test(l)) return;                                     /* "Piso Importado | Plenart" */
+      if (/\s[|·]\s/.test(l)) return;                                   /* "Piso Importado | Plenart" */
+      if (/campos em branco|edit[áa]veis|salvar como|leitor de pdf/i.test(l)) return;
+      if (/^[^:]{2,30}:$/.test(l)) return;                               /* rótulo vazio: "Projeto 1:" */
       if (/^[A-ZÀ-Ý]{2,8}$/.test(l)) return;                              /* palavra solta de rodapé ("FAÇE") */
       if (l.length < 4) return;
       if (observacoes.indexOf(l) >= 0) return;                            /* repetida */
@@ -1384,14 +1398,20 @@ const Checklist = {
 
     cruas = cruas.filter(function (l) {
         /* títulos e cabeçalhos de tabela não entram na costura de nomes */
-        if (/^(check\s?list|checklist|pedido consolidado|romaneio|lista de material)/i.test(l)) return false;
+        if (/^(check\s?list|checklist|pedido( de)?( equipamentos| consolidado)?$|pedido consolidado|romaneio|rela[çc][ãa]o|lista(gem)?( de)?)/i.test(l)) return false;
+        if (/^pedido de equipamentos/i.test(l)) return false;
+        if (/\s[·|]\s/.test(l)) return false;                 /* subtítulo: "Piso Importado · Grupo Tendas Plenart" */
+        if (/grupo tendas|plenart/i.test(l)) return false;
         if (/^item\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
         if (/^(produto|material|descri\w+)\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
         if (/^(carga total|peso total|volume total|observa\w*)\b/i.test(l)) return false;
-        /* pedaços soltos do cabeçalho quando a tabela quebra em várias linhas:
-           "QTD", "PESO (KG)", "VOLUME", "(M³)", "CONFERÊNCIA", "ITEM" */
+        /* Cabeçalho de tabela, inteiro ou em pedaços: se a linha é feita SÓ de
+           palavras de cabeçalho ("ESTRUTURAS PESO (kg) QUANT. PESO TOTAL (kg)",
+           "DESCRIÇÃO VALOR", "QTD", "(M³)"...), cai fora. */
         var semPontuacao = l.replace(/[()\[\]:.\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (/^(item|itens|qtd|qtde|quant[a-zà-ÿ]*|peso|volume|confer[a-zà-ÿ]*|un|unid[a-zà-ÿ]*|medida|obs|descri[a-zà-ÿ]*)(\s+(kg|m3|m³|un|kgs))?$/i.test(semPontuacao)) return false;
+        var CABECALHO = /^(item|itens|qtd|qtde|quant|quantidade|peso|pesos|volume|volumes|total|totais|geral|confer[êe]ncia|un|und|unid|unidade|unidades|medida|medidas|obs|observa[çc][ãa]o|descri[çc][ãa]o|valor|valores|estrutura|estruturas|material|materiais|produto|produtos|kg|kgs|m3|m³|codigo|c[óo]digo|equipamento|equipamentos|ret|retirada|retorno|montagem|desmontagem|devolu[çc][ãa]o|sa[íi]da|data|assinatura|respons[áa]vel|hor[áa]rio)\.?$/i;
+        var palavras = semPontuacao.split(' ').filter(function (w) { return w.length > 0; });
+        if (palavras.length && palavras.every(function (w) { return CABECALHO.test(w); })) return false;
         if (/^\(?\s*(kg|m³|m3|un)\s*\)?$/i.test(l)) return false;
         /* cabeçalho/rodapé impresso pelo navegador: "09/09/2026, 11:37 Piso Elevado | Plenart"
            e "file:///..." ou "página 1/1" */
@@ -1406,6 +1426,19 @@ const Checklist = {
     /* Em PDF o nome quebra em 2 ou 3 linhas ("SUPORTE DE FERRO PISO ELEVADO" /
        "REGULÁVEL 100A170H" / "466.00 186,4 0,14"). Tenta ler a linha sozinha;
        não dando, costura com a seguinte e, por fim, com as duas seguintes. */
+    /* Valor CENTRALIZADO na célula de duas linhas: o número sai ENTRE as
+       duas metades do nome ("Quantidade de Pés (Pé" / "51" / "de 1,35)").
+       Quando a linha seguinte é só número e a próxima começa em minúscula
+       (continuação do nome), troca a ordem: nome inteiro primeiro, número depois. */
+    for (var t = 0; t + 2 < cruas.length; t++) {
+      if (/\d\s*$/.test(cruas[t])) continue;                 /* nome já fechado */
+      if (!Checklist.soQuantidade(cruas[t + 1])) continue;     /* meio não é número puro */
+      if (!/^[a-zà-ÿ(]/.test(cruas[t + 2])) continue;          /* fim não é continuação */
+      var num = cruas[t + 1];
+      cruas[t + 1] = cruas[t + 2];
+      cruas[t + 2] = num;
+    }
+
     /* A linha da tabela está inteira quando termina em coluna numérica
        ("... 869.00 1.738 1,304") ou é do tipo "5 x Cadeira". */
     function completa(t) {
@@ -1426,8 +1459,11 @@ const Checklist = {
       /* costura enquanto a linha não fecha em número (nome quebrado no PDF) */
       var junto = linha;
       while (!completa(junto) && consumidas < 2 && i + consumidas + 1 < cruas.length) {
+        var proximaCrua = cruas[i + consumidas + 1];
+        /* a próxima linha começa um item novo ("Quantidade de...")? não gruda */
+        if (/^(quantidade|qtd|qtde|quant)[.:]?\s+d[eoa]s?\b/i.test(proximaCrua)) break;
         consumidas++;
-        junto += ' ' + cruas[i + consumidas];
+        junto += ' ' + proximaCrua;
       }
 
       var lido = Checklist.lerLinha(junto);
@@ -1613,7 +1649,7 @@ const Checklist = {
     var pedacos = [];
     (conteudo.items || []).forEach(function (item) {
       if (!item.str || !item.str.trim()) return;
-      pedacos.push({ y: item.transform[5], x: item.transform[4], txt: item.str });
+      pedacos.push({ y: item.transform[5], x: item.transform[4], w: item.width || 0, txt: item.str });
     });
     if (!pedacos.length) return '';
 
@@ -1627,10 +1663,38 @@ const Checklist = {
     }
     grupos.push(atual);
 
-    return grupos.map(function (g) {
-      return g.sort(function (a, b) { return a.x - b.x; })
-        .map(function (p) { return p.txt; }).join(' ').replace(/\s+/g, ' ').trim();
+    /* Dentro do mesmo Y, só continua na MESMA linha quem está À DIREITA
+       do pedaço anterior. Dois textos que começam na mesma coluna são
+       linhas DIFERENTES da tabela que caíram na mesma altura — sem isso,
+       o fim do nome de um item gruda no começo do nome do próximo
+       ("de 1,35)" + "Quantidade de Cavilha"). */
+    var linhasSaida = [];
+    grupos.forEach(function (g) {
+      g.sort(function (a, b) { return a.x - b.x || b.y - a.y; });
+      var linha = [g[0]];
+      var fimX = g[0].x + Checklist._larguraTexto(g[0]);
+      for (var k = 1; k < g.length; k++) {
+        var pd = g[k];
+        if (pd.x >= fimX - 2) {          /* segue à direita: mesma linha */
+          linha.push(pd);
+          fimX = Math.max(fimX, pd.x + Checklist._larguraTexto(pd));
+        } else {                          /* voltou para a esquerda: outra linha */
+          linhasSaida.push(linha);
+          linha = [pd];
+          fimX = pd.x + Checklist._larguraTexto(pd);
+        }
+      }
+      linhasSaida.push(linha);
+    });
+
+    return linhasSaida.map(function (g) {
+      return g.map(function (p) { return p.txt; }).join(' ').replace(/\s+/g, ' ').trim();
     }).join('\n');
+  },
+
+  /* estimativa da largura do pedaço (o pdf.js informa; senão, chuta pelo texto) */
+  _larguraTexto: function (p) {
+    return p.w || p.txt.length * 5;
   },
 
   /* ---------- Sugestões tiradas do próprio arquivo ---------- */
@@ -2111,7 +2175,8 @@ const App = {
         Banco.listarConferencias(eventoId),
         Banco.listarCarregamentos(eventoId),
         Banco.listarCaminhoes(),
-        Banco.listarPlanos(eventoId).catch(function () { return []; })
+        Banco.listarPlanos(eventoId).catch(function () { return []; }),
+        Banco.listarEstoque().catch(function () { return []; })
       ]);
     }).then(function (r) {
       pacote.produtos = r[0];
@@ -2119,6 +2184,7 @@ const App = {
       pacote.carregamentos = r[2];
       pacote.caminhoes = r[3];
       pacote.planos = r[4];
+      pacote.estoque = r[5];
       var ids = pacote.conferencias.map(function (c) { return c.id; });
       return Banco.itensDeVarias(ids);
     }).then(function (itens) {
@@ -4551,7 +4617,15 @@ function TelaEvento(eventoId) {
       '</div></div>';
 
     /* --- checklist --- */
-    if (!p.produtos.length) {
+    var eventoPorCaminhao = (p.planos || []).length > 0;
+    if (eventoPorCaminhao) {
+      /* BLINDADO: cada checklist pertence ao seu carregamento e aparece lá.
+         Aqui não existe tabela misturando — a junção é só no relatório completo. */
+      h += '<div class="aviso aviso--azul"><span class="aviso__ico">🔒</span><div>' +
+        '<b>Checklist por carregamento.</b>Cada caminhão mostra o SEU checklist no card, logo abaixo. ' +
+        'Nada se mistura — os checklists só se juntam no <b>📑 relatório completo</b>.' +
+        '</div></div>';
+    } else if (!p.produtos.length) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
         '<b>O checklist entra pelo carregamento.</b>' +
         (ehCoord
@@ -4559,6 +4633,17 @@ function TelaEvento(eventoId) {
           : 'Assim que o coordenador escolher o caminhão e anexar o checklist, o carregamento aparece aqui para você conferir.') +
         '</div></div>';
     } else {
+      /* família (e kit) de cada produto, pelo cadastro do estoque */
+      var famPorChave = {};
+      var subPorChave = {};
+      var subDeEvento = Estoque.subgrupoValido(p.estoque || []);
+      (p.estoque || []).forEach(function (i) {
+        var fams = Estoque.familiasDe(i);
+        if (fams.length) famPorChave[Estoque.chave(i.nome)] = fams;
+        var sg = subDeEvento(i);
+        if (sg) subPorChave[Estoque.chave(i.nome)] = sg;
+      });
+
       h += '<div class="cartao"><div class="cartao__topo"><h3>Produtos do checklist</h3>' +
         '<span class="mut peq">' + p.produtos.length + ' itens</span></div>' +
         '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
@@ -4567,7 +4652,18 @@ function TelaEvento(eventoId) {
           (temRetorno ? '<th class="num">Retorno (total)</th><th class="num">Diferença</th>' : '') +
         '</tr></thead><tbody>' +
         linhas.map(function (l) {
-          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) + '</td>' +
+          var ch = Estoque.chave(l.nome);
+          var famsL = famPorChave[ch] || [];
+          var subL = subPorChave[ch] || '';
+          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
+            (famsL.length || subL
+              ? '<br>' +
+                famsL.map(function (f) {
+                  return '<span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(f) + '</span> ';
+                }).join('') +
+                (subL ? '<span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' + U.esc(subL) + '</span>' : '')
+              : '') +
+            '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(l.prevista) + '</td>' +
             (temSaida ? '<td class="num">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>' +
@@ -4670,6 +4766,23 @@ function TelaEvento(eventoId) {
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
           '</div>' +
+          (planoCg.length
+            ? '<div style="margin:10px 14px 0;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
+              '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
+                '📋 Checklist deste caminhão · ' + planoCg.length + ' itens · ' + U.fmt(planoQtd) + ' unid.</div>' +
+              '<div style="max-height:230px;overflow:auto;padding:2px 12px">' +
+                planoCg.slice().sort(function (a, b) {
+                  return (b.prioridade ? 1 : 0) - (a.prioridade ? 1 : 0);
+                }).map(function (pl) {
+                  var prod = p.produtos.filter(function (x) { return x.id === pl.produto_id; })[0];
+                  if (!prod) return '';
+                  return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;' +
+                    'padding:5px 0;border-bottom:1px solid var(--linha)">' +
+                    '<span>' + (pl.prioridade ? '⭐ ' : '') + U.esc(prod.nome) + '</span>' +
+                    '<b style="flex:none">' + U.fmt(pl.quantidade) + ' ' + U.esc(prod.unidade || 'UN') + '</b></div>';
+                }).join('') +
+              '</div></div>'
+            : '') +
           ((cg.observacoes || '').trim() || (ehCoord && !eventoFechado)
             ? '<div class="aviso aviso--amarelo" style="margin:10px 14px 0"><span class="aviso__ico">📝</span><div>' +
               ((cg.observacoes || '').trim()
