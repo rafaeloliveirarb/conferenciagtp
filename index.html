@@ -1352,8 +1352,30 @@ const Checklist = {
                 .replace(/(\s[—–-]+)+$/, '')   /* colunas vazias no fim: "2 — —" */
                 .trim();
       })
-      .filter(function (l) {
-        if (!l.length) return false;
+      .filter(function (l) { return l.length > 0; });
+
+    /* O checklist ACABA quando começam as observações ou os totais:
+       tudo dali para baixo é texto solto, rodapé ou recado — não é material. */
+    var fim = cruas.length;
+    var observacoes = [];
+    for (var c = 0; c < cruas.length; c++) {
+      if (/^(observa[çc][õo]es?|obs[.:]|carga total|peso total|volume total|total geral)/i.test(cruas[c])) {
+        fim = c;
+        break;
+      }
+    }
+    /* guarda o texto das observações (sem rodapé do navegador e sem "Nenhuma") */
+    cruas.slice(fim).forEach(function (l) {
+      if (/^(observa[çc][õo]es?|obs[.:]|carga total|peso total|volume total|total geral)/i.test(l)) return;
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]/.test(l)) return;
+      if (/^(file:|https?:)/i.test(l)) return;
+      if (/^p[áa]gina\s+\d+/i.test(l) || /^\d+\s*\/\s*\d+$/.test(l)) return;
+      if (/:\s*nenhuma\.?$/i.test(l)) return;
+      observacoes.push(l);
+    });
+    cruas = cruas.slice(0, fim);
+
+    cruas = cruas.filter(function (l) {
         /* títulos e cabeçalhos de tabela não entram na costura de nomes */
         if (/^(check\s?list|checklist|pedido consolidado|romaneio|lista de material)/i.test(l)) return false;
         if (/^item\b/i.test(l) && /(qtd|qtde|quant|peso|volume|confer)/i.test(l)) return false;
@@ -1413,7 +1435,32 @@ const Checklist = {
       }
     }
 
-    return Checklist.juntarIguais(achados);
+    /* "Quantidade de Grades" é só "Grades"; "Qtd. de Trancas" é "Trancas" */
+    achados.forEach(function (a) {
+      a.nome = a.nome
+        .replace(/^quantidade\s+(de\s+|do\s+|da\s+)?/i, '')
+        .replace(/^(qtd|qtde|quant)[.:]?\s+(de\s+|do\s+|da\s+)?/i, '')
+        .trim();
+    });
+
+    /* mesmo material repetido no arquivo vira UMA linha (quantidades somadas) —
+       nada de item puxado 2 vezes */
+    var porNome = {};
+    var unicos = [];
+    achados.forEach(function (a) {
+      var ch = a.nome.trim().toUpperCase().replace(/\s+/g, ' ');
+      if (porNome[ch]) {
+        porNome[ch].quantidade_prevista += a.quantidade_prevista;
+      } else {
+        porNome[ch] = a;
+        unicos.push(a);
+      }
+    });
+    achados = unicos;
+    /* observações do checklist viajam junto (propriedade extra do array) */
+    var resultado = Checklist.juntarIguais(achados);
+    resultado.observacoes = observacoes.join('\n');
+    return resultado;
   },
 
   /* Soma quantidades de produtos com o mesmo nome e a mesma unidade. */
@@ -1431,7 +1478,12 @@ const Checklist = {
         if (r.erro) { juntos.falhas.push(r.arquivo + ': ' + r.erro); return; }
         juntos.lidos++;
         var res = r.res || {};
-        if (res.produtos && res.produtos.length) juntos.produtos = juntos.produtos.concat(res.produtos);
+        if (res.produtos && res.produtos.length) {
+          if (res.produtos.observacoes) {
+            juntos.observacoes = (juntos.observacoes ? juntos.observacoes + '\n' : '') + res.produtos.observacoes;
+          }
+          juntos.produtos = juntos.produtos.concat(res.produtos);
+        }
         if (!juntos.sugestao && res.sugestao && (res.sugestao.evento || res.sugestao.cliente)) juntos.sugestao = res.sugestao;
         if (!juntos.imagem && res.imagem) juntos.imagem = res.imagem;
         if (res.recado && !res.produtos) juntos.falhas.push(r.arquivo + ': ' + res.recado);
@@ -4611,6 +4663,10 @@ function TelaEvento(eventoId) {
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
           '</div>' +
+          ((cg.observacoes || '').trim()
+            ? '<div class="aviso aviso--amarelo" style="margin:10px 14px 0"><span class="aviso__ico">📝</span><div>' +
+              '<b>Observações do coordenador:</b>' + U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div></div>'
+            : '') +
           '<div class="carga__corpo">' +
             '<button class="etapa js-conf" data-cg="' + cg.id + '" data-tipo="saida">' +
               '<span class="etapa__n">🚚</span>' +
@@ -4862,6 +4918,7 @@ function TelaEvento(eventoId) {
       b.addEventListener('click', function () {
         var cgId = b.dataset.cg;
         var num = b.dataset.num;
+        var cgAtual = p.carregamentos.filter(function (c) { return c.id === cgId; })[0];
         var campo = document.createElement('input');
         campo.type = 'file';
         campo.accept = '.pdf,.xml,.xlsx,.xls,.txt,.csv';
@@ -4898,8 +4955,16 @@ function TelaEvento(eventoId) {
             m.querySelector('[data-ok]').addEventListener('click', function () {
               var bt = m.querySelector('[data-ok]');
               bt.disabled = true; bt.textContent = 'Salvando...';
+              /* observações do arquivo somam nas do carregamento */
+              var obsPasso = res.observacoes
+                ? Banco.atualizarCarregamento(cgId, {
+                    observacoes: ((cgAtual && cgAtual.observacoes) ? cgAtual.observacoes + '\n' : '') + res.observacoes
+                  }).catch(function () { })
+                : Promise.resolve();
               /* cria no evento só os produtos que ainda não existem (sem somar totais) */
-              Banco.acrescentarProdutos(eventoId, lidos, true).then(function (r) {
+              obsPasso.then(function () {
+                return Banco.acrescentarProdutos(eventoId, lidos, true);
+              }).then(function (r) {
                 var plano = {};
                 (p.planos || []).forEach(function (pl) {
                   if (pl.carregamento_id === cgId) plano[pl.produto_id] = U.num(pl.quantidade);
@@ -5079,19 +5144,32 @@ function TelaEvento(eventoId) {
           }
         });
 
+        /* itens que aparecem no modal: com checklist por caminhão, SÓ os deste
+           carregamento — item de outro caminhão não pode ser puxado para cá.
+           (Evento antigo, sem nenhum plano: mostra o checklist geral.) */
+        var eventoTemPlanos = (p.planos || []).length > 0;
+        var produtosModal = eventoTemPlanos
+          ? p.produtos.filter(function (pr) { return planoAtual[pr.id] !== undefined; })
+          : p.produtos;
+
         var m = U.modal({
-          titulo: '📋 Carga do caminhão',
+          titulo: '📋 Checklist deste caminhão',
           html: '<p class="mut peq" style="margin-bottom:10px">Coloque a quantidade de cada item que vai ' +
               '<b>neste caminhão</b>. Em branco ou 0 = não vai. A conferência de saída dele vai cobrar exatamente isso.</p>' +
             '<div class="aviso aviso--amarelo" style="margin-bottom:10px"><span class="aviso__ico">⭐</span><div>' +
               '<b>Prioridade de carregamento:</b>marque a estrelinha nos itens que precisam ' +
               'entrar no caminhão primeiro. Eles aparecem no topo da conferência para o conferente.</div></div>' +
+            (eventoTemPlanos ? '' :
             '<div class="btn-linha" style="margin-bottom:10px">' +
               '<button class="btn btn--branco btn--peq" id="pl-tudo">Preencher com o que falta</button>' +
               '<button class="btn btn--branco btn--peq" id="pl-limpar">Limpar tudo</button>' +
-            '</div>' +
+            '</div>') +
+            (eventoTemPlanos
+              ? '<p class="mut peq" style="margin-bottom:8px">Aqui aparecem <b>só os itens deste carregamento</b>. ' +
+                'Para acrescentar material use 📎 + Checklist ou ✏️ + Digitar item.</p>'
+              : '') +
             '<div style="max-height:48vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
-              p.produtos.map(function (pr) {
+              produtosModal.map(function (pr) {
                 var prev = U.num(pr.quantidade_prevista);
                 var outros = planejadoOutros[pr.id] || 0;
                 var resta = Math.max(0, prev - outros);
@@ -5117,13 +5195,15 @@ function TelaEvento(eventoId) {
           travado: true
         });
         m.querySelector('[data-x]').addEventListener('click', m.fechar);
-        m.querySelector('#pl-tudo').addEventListener('click', function () {
+        var btnTudo = m.querySelector('#pl-tudo');
+        if (btnTudo) btnTudo.addEventListener('click', function () {
           m.querySelectorAll('.js-pl-qtd').forEach(function (cx) {
             var r = U.num(cx.dataset.resta);
             cx.value = r > 0 ? r : '';
           });
         });
-        m.querySelector('#pl-limpar').addEventListener('click', function () {
+        var btnLimpar = m.querySelector('#pl-limpar');
+        if (btnLimpar) btnLimpar.addEventListener('click', function () {
           m.querySelectorAll('.js-pl-qtd').forEach(function (cx) { cx.value = ''; });
         });
         var remover = m.querySelector('[data-remover]');
@@ -5221,7 +5301,11 @@ function TelaEvento(eventoId) {
             'eles só se juntam no relatório do evento.</p>' +
           '<input type="file" id="ncg-arq" accept=".pdf,.xml,.xlsx,.xls,.txt,.csv" multiple hidden>' +
           '<button class="btn btn--branco btn--bloco" id="ncg-escolher">📎 ESCOLHER ARQUIVO(S)</button>' +
-          '<p class="peq mut" id="ncg-info" style="margin-top:6px"></p>',
+          '<p class="peq mut" id="ncg-info" style="margin-top:6px"></p>' +
+          '<label class="campo" style="margin-top:10px"><span class="campo__rot">📝 Observações do coordenador ' +
+            '<span class="peq mut">(o conferente vê na conferência — o que vier no arquivo entra sozinho aqui)</span></span>' +
+            '<textarea class="entrada" id="ncg-obs" rows="3" style="resize:vertical" ' +
+              'placeholder="Ex.: ENVIAR: 2 pés de 1m, 4 pés de 70..."></textarea></label>',
         pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
             '<button class="btn btn--branco" data-sem>SEM CHECKLIST AGORA</button>' +
             '<button class="btn btn--verde" data-ok disabled>CRIAR CARREGAMENTO</button>',
@@ -5234,13 +5318,22 @@ function TelaEvento(eventoId) {
         m.querySelector('#ncg-info').textContent = arquivosSel
           ? '✓ ' + arquivosSel.length + ' arquivo(s) escolhido(s)' : '';
         m.querySelector('[data-ok]').disabled = !arquivosSel;
+        /* espia as observações do arquivo e já preenche o campo */
+        if (arquivosSel) Checklist.lerVarios(arquivosSel).then(function (res) {
+          if (res.observacoes) {
+            var cx = m.querySelector('#ncg-obs');
+            cx.value = (cx.value ? cx.value + '\n' : '') + res.observacoes;
+          }
+        }).catch(function () { });
       });
 
       function criarCg(nomeCg) {
         var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+        var obsCg = (m.querySelector('#ncg-obs').value || '').trim();
         return Banco.criarCarregamento({
           evento_id: eventoId, numero: numero, caminhao_id: camId,
-          sentido: 'saida', status: 'Saída pendente', nome: nomeCg || null
+          sentido: 'saida', status: 'Saída pendente', nome: nomeCg || null,
+          observacoes: obsCg || null
         });
       }
 
@@ -6466,6 +6559,13 @@ function TelaConferencia(arg) {
       h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📴</span><div>' +
         '<b>Sem internet agora.</b>Pode continuar contando: tudo fica guardado neste aparelho ' +
         'e você envia quando a conexão voltar.</div></div>';
+    }
+
+    /* recado do coordenador para este caminhão */
+    if (carregamento && carregamento.observacoes) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📝</span><div>' +
+        '<b>Observações do coordenador:</b>' +
+        U.esc(carregamento.observacoes).replace(/\n/g, '<br>') + '</div></div>';
     }
 
     h += '<div class="cartao"><div class="cartao__topo"><h3>📝 Observações gerais</h3></div>' +
@@ -7769,6 +7869,19 @@ const Relatorio = {
       var y = Relatorio._cabecalho(doc, pacote, 'RELATÓRIO DE CONFERÊNCIA', dados);
       y = Relatorio._tabela(doc, dados, y);
       y = Relatorio._resumo(doc, dados, y);
+
+      /* observações do coordenador para este caminhão */
+      if (dados.carregamento && dados.carregamento.observacoes) {
+        if (y > 268) { doc.addPage(); y = 14; }
+        doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
+        doc.text('OBSERVAÇÕES DO COORDENADOR', 12, y); y += 4;
+        doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
+        doc.splitTextToSize(dados.carregamento.observacoes, 186).forEach(function (t) {
+          if (y > 288) { doc.addPage(); y = 14; }
+          doc.text(t, 12, y); y += 3.6;
+        });
+        y += 2;
+      }
 
       /* observação geral do conferente */
       if (dados.conferencia && dados.conferencia.observacao) {
