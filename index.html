@@ -1951,7 +1951,7 @@ const Calculo = {
   /* o evento trabalha com checklist por caminhão? */
   _eventoComPlanos: function (planos) { return !!(planos && planos.length); },
 
-  montarCarregamento: function (produtos, conferencias, itens, carregamentoId, planos) {
+  montarCarregamento: function (produtos, conferencias, itens, carregamentoId, planos, sentidoCg) {
     var planosDoEvento = Calculo._eventoComPlanos;
     var cS = Calculo.confDe(conferencias, carregamentoId, 'saida');
     var cR = Calculo.confDe(conferencias, carregamentoId, 'retorno');
@@ -1993,9 +1993,10 @@ const Calculo = {
          caminhão (mais o que já tiver contagem lançada). Os checklists dos
          carregamentos nunca se misturam — só se juntam no relatório. */
       lista = lista.filter(function (p) { return plano[p.id] !== undefined || mS[p.id]; });
-    } else if (!temPlano && !cR && planosDoEvento(planos)) {
-      /* o evento usa checklist por caminhão, mas ESTE ainda não tem o seu:
-         não empresta o checklist dos outros — mostra só o que já foi contado */
+    } else if (!temPlano && !cR && sentidoCg !== 'retorno' && planosDoEvento(planos)) {
+      /* SAÍDA sem checklist próprio num evento por caminhão: não empresta o
+         checklist dos outros — mostra só o que já foi contado. O RETORNO é
+         diferente: conta às cegas qualquer item do evento que chegar. */
       lista = lista.filter(function (p) { return !!mS[p.id]; });
     }
     return lista.map(function (p) {
@@ -2034,7 +2035,7 @@ const Calculo = {
   /* Totais do evento: soma a saída e o retorno de TODOS os carregamentos. */
   montarEvento: function (produtos, carregamentos, conferencias, itens, planos) {
     var porCarga = (carregamentos || []).map(function (cg) {
-      return Calculo.montarCarregamento(produtos, conferencias, itens, cg.id, planos);
+      return Calculo.montarCarregamento(produtos, conferencias, itens, cg.id, planos, cg.sentido);
     });
 
     /* CRUZAMENTO POR ID DO PRODUTO — nunca por posição na lista.
@@ -4790,7 +4791,7 @@ function TelaEvento(eventoId) {
 
       saidas.forEach(function (cg) {
         var cS = Calculo.confDe(p.conferencias, cg.id, 'saida');
-        var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos);
+        var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido);
         var contS = linhasCg.filter(function (l) { return l.saida !== null; }).length;
         var saidaFinal = !!cS && (cS.status === 'Finalizado' || cS.status === 'Com divergência');
         var planoCg = (p.planos || []).filter(function (pl) { return pl.carregamento_id === cg.id; });
@@ -4897,7 +4898,7 @@ function TelaEvento(eventoId) {
 
       retornos.forEach(function (cg) {
         var cR = Calculo.confDe(p.conferencias, cg.id, 'retorno');
-        var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos);
+        var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido);
         var contR = linhasCg.filter(function (l) { return l.retorno !== null; }).length;
         var retornoFinal = !!cR && (cR.status === 'Finalizado' || cR.status === 'Com divergência');
         var descR = cR
@@ -6364,7 +6365,8 @@ function TelaConferencia(arg) {
     if (!carregamento) throw new Error('Carregamento não encontrado. Volte e abra o evento de novo.');
     App.topo(info.rotulo.toUpperCase(), 'Carregamento ' + carregamento.numero + (p.evento ? ' · ' + p.evento.nome : ''));
 
-    linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, carregamentoId, p.planos);
+    linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, carregamentoId, p.planos,
+      (p.carregamentos.filter(function (c) { return c.id === carregamentoId; })[0] || {}).sentido);
     conferencia = Calculo.confDe(p.conferencias, carregamentoId, tipo);
     foto = conferencia ? (conferencia.foto_base64 || null) : null;
 
@@ -7158,7 +7160,7 @@ function TelaConferencia(arg) {
             });
 
             composicao[id] = { qtd: qtdComp, itens: itens };
-            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos);
+            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos, carregamento && carregamento.sentido);
 
             m.fechar();
             guardarRascunho();
@@ -7358,7 +7360,7 @@ function TelaConferencia(arg) {
 
             return entra.then(function () {
               m.fechar();
-              linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos);
+              linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos, carregamento && carregamento.sentido);
               contagem[novo.id] = prevista > 0 ? String(prevista) : '';
               embalagem[novo.id] = { por: '', qtd: '', soltas: '', obs: obsNovo };   /* observação do item */
               dano[novo.id] = { qtd: '', desc: '', foto: null };
@@ -8381,7 +8383,7 @@ const Relatorio = {
     if (!cg) return null;
     var c = Calculo.confDe(pacote.conferencias, cg.id, tipo);
     if (!c) return null;
-    var linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, cg.id, pacote.planos);
+    var linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, cg.id, pacote.planos, cg.sentido);
     return {
       tipo: tipo,
       carregamento: cg,
