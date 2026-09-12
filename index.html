@@ -5157,20 +5157,88 @@ function TelaEvento(eventoId) {
             var m = U.modal({
               titulo: '📎 Acrescentar ao Carreg. ' + num,
               html: '<p>Li <b>' + lidos.length + ' itens</b> (' + U.fmt(total) + ' unidades).</p>' +
-                '<p class="mut peq" style="margin-top:8px">Eles serão <b>somados ao checklist deste carregamento</b>: ' +
-                  'item repetido soma a quantidade, item novo entra. Os outros carregamentos não são afetados.</p>' +
-                '<div style="max-height:34vh;overflow:auto;margin-top:10px;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
-                  lidos.map(function (x) {
-                    return '<div class="peq" style="padding:4px 0;border-bottom:1px solid var(--linha)">' +
-                      U.fmt(x.quantidade_prevista) + '× ' + U.esc(x.nome) + '</div>';
+                '<p class="mut peq" style="margin-top:8px">Confira antes de somar: dá para <b>corrigir o nome</b>, ' +
+                  '<b>mudar a quantidade</b>, tirar no <b>✕</b> e <b>➕ acrescentar</b> o que faltou. ' +
+                  'Item repetido soma a quantidade, item novo entra. Os outros carregamentos não são afetados.</p>' +
+                '<div style="max-height:38vh;overflow:auto;margin-top:10px;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
+                  '<div id="ml-lidos">' +
+                  lidos.map(function (x, ix) {
+                    return '<div class="js-ml-linha" data-un="' + U.esc(x.unidade || 'UN') + '" ' +
+                      'style="display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--linha);padding:6px 0">' +
+                      '<span style="flex:1;min-width:0">' +
+                        '<input class="entrada ml-nome" value="' + U.esc(x.nome) + '" ' +
+                          'style="width:100%;min-height:44px;padding:8px 10px">' +
+                        '<span class="peq mut" style="display:block;margin-top:2px">' + U.esc(x.unidade || 'UN') + '</span></span>' +
+                      '<input type="number" class="entrada ml-qtd" inputmode="numeric" min="0" ' +
+                        'value="' + U.esc(String(x.quantidade_prevista)) + '" ' +
+                        'style="width:82px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+                      '<button class="btn btn--branco btn--peq ml-x" style="flex:none;color:var(--vermelho)" title="Tirar">✕</button>' +
+                    '</div>';
                   }).join('') +
-                '</div>',
+                  '</div>' +
+                  '<div id="ml-novos"></div>' +
+                  '<button class="btn btn--branco btn--bloco btn--peq" id="ml-add" ' +
+                    'style="border-style:dashed;margin-top:8px">➕ ACRESCENTAR PRODUTO</button>' +
+                '</div>' +
+                '<datalist id="ml-nomes"></datalist>',
               pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
                   '<button class="btn btn--verde" data-ok>ACRESCENTAR</button>',
               travado: true
             });
             m.querySelector('[data-x]').addEventListener('click', m.fechar);
+
+            /* ✕ tirar linha lida */
+            m.querySelectorAll('.ml-x').forEach(function (bx) {
+              bx.addEventListener('click', function () { bx.closest('.js-ml-linha').remove(); });
+            });
+
+            /* sugestões de nome (evento + estoque) */
+            Banco.listarEstoque().then(function (cad) {
+              var nomes = p.produtos.map(function (x) { return x.nome; });
+              (cad || []).forEach(function (i) { if (nomes.indexOf(i.nome) < 0) nomes.push(i.nome); });
+              m.querySelector('#ml-nomes').innerHTML =
+                nomes.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('');
+            }).catch(function () { });
+
+            /* ➕ linha nova digitada na hora */
+            m.querySelector('#ml-add').addEventListener('click', function () {
+              var d = document.createElement('div');
+              d.className = 'js-ml-nova';
+              d.style.cssText = 'display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--linha);padding:6px 0';
+              d.innerHTML =
+                '<input class="entrada ml-novo-nome" list="ml-nomes" placeholder="Produto (ex.: Placa 2x1)" ' +
+                  'style="flex:1;min-height:44px;padding:8px 10px">' +
+                '<select class="entrada ml-novo-un" style="width:70px;min-height:44px;padding:8px;flex:none">' +
+                  ['UN', 'PÇ', 'CX', 'PAR', 'KIT', 'M', 'KG'].map(function (u) { return '<option>' + u + '</option>'; }).join('') +
+                '</select>' +
+                '<input type="number" class="entrada ml-novo-qtd" inputmode="numeric" min="1" placeholder="Qtd" ' +
+                  'style="width:82px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+                '<button class="btn btn--branco btn--peq ml-novo-x" style="flex:none;color:var(--vermelho)">✕</button>';
+              d.querySelector('.ml-novo-x').addEventListener('click', function () { d.remove(); });
+              m.querySelector('#ml-novos').appendChild(d);
+              d.querySelector('.ml-novo-nome').focus();
+            });
+
             m.querySelector('[data-ok]').addEventListener('click', function () {
+              /* o que vale é o que está na tela: lidas editadas + novas digitadas */
+              var finais = [];
+              m.querySelectorAll('.js-ml-linha').forEach(function (d) {
+                var nome = d.querySelector('.ml-nome').value.trim().replace(/\s+/g, ' ');
+                var qtd = U.num(d.querySelector('.ml-qtd').value);
+                if (nome.length >= 2 && qtd > 0) {
+                  finais.push({ nome: nome, quantidade_prevista: qtd, unidade: d.dataset.un || 'UN' });
+                }
+              });
+              m.querySelectorAll('.js-ml-nova').forEach(function (d) {
+                var nome = d.querySelector('.ml-novo-nome').value.trim().replace(/\s+/g, ' ');
+                var qtd = U.num(d.querySelector('.ml-novo-qtd').value);
+                if (nome.length >= 2 && qtd > 0) {
+                  finais.push({ nome: nome, quantidade_prevista: qtd, unidade: d.querySelector('.ml-novo-un').value });
+                }
+              });
+              if (!finais.length) return U.aviso('Deixe pelo menos um item com nome e quantidade.', 'erro', 5000);
+              lidos = finais;
+
               var bt = m.querySelector('[data-ok]');
               bt.disabled = true; bt.textContent = 'Salvando...';
               /* observações do arquivo somam nas do carregamento */
