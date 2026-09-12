@@ -5038,21 +5038,42 @@ function TelaEvento(eventoId) {
       }
 
       /* --- carregamentos de RETORNO (vários caminhões, às cegas) --- */
-      h += '<h2 class="secao__tit" style="margin-top:26px">Retornos <span class="n">' + retornos.length + '</span></h2>';
+      /* Só aparecem retornos JÁ INICIADOS. O caminho normal agora é o botão
+         verde ↩️ REGISTRAR RETORNO, que escolhe o caminhão e já abre a contagem —
+         cards de "retorno pendente" vazios só poluíam a tela. */
+      var retornosIniciados = retornos.filter(function (cg) {
+        return !!Calculo.confDe(p.conferencias, cg.id, 'retorno');
+      });
+      var retornosVazios = retornos.filter(function (cg) {
+        return !Calculo.confDe(p.conferencias, cg.id, 'retorno');
+      });
+
+      h += '<h2 class="secao__tit" style="margin-top:26px">Retornos <span class="n">' + retornosIniciados.length + '</span></h2>';
+
+      if (ehCoord && retornosVazios.length && !eventoFechado) {
+        h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">🧹</span><div>' +
+          '<b>' + retornosVazios.length + ' retorno(s) criado(s) e nunca iniciado(s).</b>' +
+          'Não fazem falta — o REGISTRAR RETORNO cria e abre na hora. Pode excluir: ' +
+          retornosVazios.map(function (cg) {
+            return '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" ' +
+              'style="color:var(--vermelho);border-color:var(--vermelho);margin:4px 4px 0 0">🗑️ Carreg. ' + cg.numero + '</button>';
+          }).join('') +
+        '</div></div>';
+      }
 
       if (!algumaSaidaFinal && !eventoFechado) {
         h += '<div class="aviso aviso--azul"><span class="aviso__ico">↩️</span><div>' +
           '<b>O retorno abre depois da primeira saída finalizada.</b>' +
           'Quando a mercadoria voltar, toque em REGISTRAR RETORNO e escolha o caminhão que chegou. ' +
           'Pode registrar vários retornos, um para cada caminhão.</div></div>';
-      } else if (!retornos.length && !eventoFechado) {
+      } else if (!retornosIniciados.length && !eventoFechado) {
         h += '<div class="aviso aviso--azul"><span class="aviso__ico">↩️</span><div>' +
           '<b>Nenhum retorno registrado ainda.</b>' +
-          'O retorno pode chegar em vários caminhões: registre um retorno para cada caminhão que chegar. ' +
-          'A contagem é às cegas e não precisa voltar tudo de uma vez.</div></div>';
+          'Quando um caminhão chegar, toque no botão verde <b>↩️ REGISTRAR RETORNO</b> lá em cima: ' +
+          'você escolhe o caminhão e a contagem já abre. Um retorno para cada caminhão.</div></div>';
       }
 
-      retornos.forEach(function (cg) {
+      retornosIniciados.forEach(function (cg) {
         var cR = Calculo.confDe(p.conferencias, cg.id, 'retorno');
         var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido);
         var contR = linhasCg.filter(function (l) { return l.retorno !== null; }).length;
