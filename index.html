@@ -786,6 +786,11 @@ const Banco = {
     }).select().then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
   },
 
+  atualizarProduto: function (id, campos) {
+    return this.cliente.from('produtos').update(campos).eq('id', id).select()
+      .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
+  },
+
   /* Exclui o checklist inteiro do evento. As contagens lançadas
      nesses produtos também são apagadas (cascata do banco). */
   apagarProdutos: function (eventoId) {
@@ -4823,14 +4828,12 @@ function TelaEvento(eventoId) {
               '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
                 '📋 Checklist deste caminhão · ' + planoCg.length + ' itens · ' + U.fmt(planoQtd) + ' unid.</div>' +
               '<div style="max-height:230px;overflow:auto;padding:2px 12px">' +
-                planoCg.slice().sort(function (a, b) {
-                  return (b.prioridade ? 1 : 0) - (a.prioridade ? 1 : 0);
-                }).map(function (pl) {
+                planoCg.map(function (pl) {
                   var prod = p.produtos.filter(function (x) { return x.id === pl.produto_id; })[0];
                   if (!prod) return '';
                   return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;' +
                     'padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                    '<span>' + (pl.prioridade ? '⭐ ' : '') + U.esc(prod.nome) + '</span>' +
+                    '<span>' + U.esc(prod.nome) + '</span>' +
                     '<b style="flex:none">' + U.fmt(pl.quantidade) + ' ' + U.esc(prod.unidade || 'UN') + '</b></div>';
                 }).join('') +
               '</div></div>'
@@ -5054,7 +5057,7 @@ function TelaEvento(eventoId) {
             titulo: '✏️ Acrescentar itens ao Carreg. ' + num,
             html: '<p class="mut peq" style="margin-bottom:10px">Escreva o material e a quantidade. ' +
                 'Vai <b>somar ao checklist deste carregamento</b> — os outros não mudam. ' +
-                'Marque a ⭐ se for <b>prioridade de carregamento</b>.</p>' +
+                '</p>' +
               '<div id="dg-linhas"></div>' +
               '<button class="btn btn--branco btn--bloco btn--peq" id="dg-add" style="border-style:dashed">➕ Adicionar outro item</button>' +
               '<datalist id="dg-nomes">' +
@@ -5342,12 +5345,9 @@ function TelaEvento(eventoId) {
     U.$$('.js-plano-cg', tela).forEach(function (b) {
       b.addEventListener('click', function () {
         var cgId = b.dataset.cg;
-        var planoAtual = {}, prioAtual = {};
+        var planoAtual = {};
         (p.planos || []).forEach(function (pl) {
-          if (pl.carregamento_id === cgId) {
-            planoAtual[pl.produto_id] = U.num(pl.quantidade);
-            if (pl.prioridade) prioAtual[pl.produto_id] = true;
-          }
+          if (pl.carregamento_id === cgId) planoAtual[pl.produto_id] = U.num(pl.quantidade);
         });
         var temPlanoAtual = Object.keys(planoAtual).length > 0;
 
@@ -5369,11 +5369,9 @@ function TelaEvento(eventoId) {
 
         var m = U.modal({
           titulo: '📋 Checklist deste caminhão',
-          html: '<p class="mut peq" style="margin-bottom:10px">Coloque a quantidade de cada item que vai ' +
-              '<b>neste caminhão</b>. Em branco ou 0 = não vai. A conferência de saída dele vai cobrar exatamente isso.</p>' +
-            '<div class="aviso aviso--amarelo" style="margin-bottom:10px"><span class="aviso__ico">⭐</span><div>' +
-              '<b>Prioridade de carregamento:</b>marque a estrelinha nos itens que precisam ' +
-              'entrar no caminhão primeiro. Eles aparecem no topo da conferência para o conferente.</div></div>' +
+          html: '<p class="mut peq" style="margin-bottom:10px">Edite o <b>nome</b> e a <b>quantidade</b>, ' +
+              'tire itens no <b>✕</b> ou use <b>➕ ACRESCENTAR PRODUTO</b>. ' +
+              'Quantidade em branco ou 0 também tira o item. A conferência de saída vai cobrar exatamente isso.</p>' +
             (eventoTemPlanos ? '' :
             '<div class="btn-linha" style="margin-bottom:10px">' +
               '<button class="btn btn--branco btn--peq" id="pl-tudo">Preencher com o que falta</button>' +
@@ -5383,33 +5381,71 @@ function TelaEvento(eventoId) {
               ? '<p class="mut peq" style="margin-bottom:8px">Aqui aparecem <b>só os itens deste carregamento</b>. ' +
                 'Para acrescentar material use 📎 + Checklist ou ✏️ + Digitar item.</p>'
               : '') +
-            '<div style="max-height:48vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
+            '<div style="max-height:44vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:8px 12px">' +
+              '<div id="pl-linhas">' +
               produtosModal.map(function (pr) {
                 var prev = U.num(pr.quantidade_prevista);
                 var outros = planejadoOutros[pr.id] || 0;
                 var resta = Math.max(0, prev - outros);
                 var valor = planoAtual[pr.id] !== undefined ? planoAtual[pr.id] : '';
-                var prio = !!prioAtual[pr.id];
-                return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:7px 0">' +
-                  '<label style="flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer">' +
-                    '<input type="checkbox" class="js-pl-prio" data-id="' + pr.id + '"' + (prio ? ' checked' : '') + ' style="width:20px;height:20px">' +
-                    '<span class="peq mut" style="font-size:10px">⭐</span>' +
-                  '</label>' +
-                  '<span style="flex:1">' + U.esc(pr.nome) + tagTerc(pr) +
-                    '<span class="peq mut" style="display:block">Previsto: ' + U.fmt(prev) + ' ' + U.esc(pr.unidade || 'UN') +
+                return '<div class="js-pl-linha" style="display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--linha);padding:7px 0">' +
+                  '<span style="flex:1;min-width:0">' +
+                    '<input class="entrada js-pl-nome" data-id="' + pr.id + '" value="' + U.esc(pr.nome) + '" ' +
+                      'style="width:100%;min-height:44px;padding:8px 10px">' +
+                    '<span class="peq mut" style="display:block;margin-top:2px">' + U.esc(pr.unidade || 'UN') +
                       (outros ? ' · em outros caminhões: ' + U.fmt(outros) : '') + '</span></span>' +
                   '<input type="number" class="entrada js-pl-qtd" data-id="' + pr.id + '" data-resta="' + resta + '" ' +
                     'inputmode="numeric" min="0" value="' + (valor === '' ? '' : U.esc(String(valor))) + '" placeholder="0" ' +
-                    'style="width:88px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+                    'style="width:82px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+                  '<button class="btn btn--branco btn--peq js-pl-x" data-id="' + pr.id + '" ' +
+                    'style="flex:none;color:var(--vermelho)" title="Tirar do caminhão">✕</button>' +
                 '</div>';
               }).join('') +
-            '</div>',
+              '</div>' +
+              '<div id="pl-novos"></div>' +
+              '<button class="btn btn--branco btn--bloco btn--peq" id="pl-add" ' +
+                'style="border-style:dashed;margin-top:8px">➕ ACRESCENTAR PRODUTO</button>' +
+            '</div>' +
+            '<datalist id="pl-nomes"></datalist>',
           pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
               (temPlanoAtual ? '<button class="btn btn--branco" data-remover style="color:var(--vermelho)">TIRAR O PLANO</button>' : '') +
               '<button class="btn btn--verde" data-ok>SALVAR CARGA</button>',
           travado: true
         });
         m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        /* ✕ tirar item do caminhão (some da lista; ao salvar, sai do checklist) */
+        m.querySelectorAll('.js-pl-x').forEach(function (bx) {
+          bx.addEventListener('click', function () {
+            bx.closest('.js-pl-linha').remove();
+          });
+        });
+
+        /* ➕ acrescentar produto novo direto no checklist deste caminhão */
+        var listaNomes = m.querySelector('#pl-nomes');
+        Banco.listarEstoque().then(function (cad) {
+          var nomes = p.produtos.map(function (x) { return x.nome; });
+          (cad || []).forEach(function (i) { if (nomes.indexOf(i.nome) < 0) nomes.push(i.nome); });
+          listaNomes.innerHTML = nomes.map(function (n) { return '<option value="' + U.esc(n) + '">'; }).join('');
+        }).catch(function () { });
+
+        m.querySelector('#pl-add').addEventListener('click', function () {
+          var d = document.createElement('div');
+          d.className = 'js-pl-nova';
+          d.style.cssText = 'display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--linha);padding:7px 0';
+          d.innerHTML =
+            '<input class="entrada pl-novo-nome" list="pl-nomes" placeholder="Produto novo (ex.: Placa 2x1)" ' +
+              'style="flex:1;min-height:44px;padding:8px 10px">' +
+            '<select class="entrada pl-novo-un" style="width:70px;min-height:44px;padding:8px;flex:none">' +
+              ['UN', 'PÇ', 'CX', 'PAR', 'KIT', 'M', 'KG'].map(function (u) { return '<option>' + u + '</option>'; }).join('') +
+            '</select>' +
+            '<input type="number" class="entrada pl-novo-qtd" inputmode="numeric" min="1" placeholder="Qtd" ' +
+              'style="width:82px;min-height:44px;padding:8px;text-align:center;flex:none">' +
+            '<button class="btn btn--branco btn--peq pl-novo-x" style="flex:none;color:var(--vermelho)">✕</button>';
+          d.querySelector('.pl-novo-x').addEventListener('click', function () { d.remove(); });
+          m.querySelector('#pl-novos').appendChild(d);
+          d.querySelector('.pl-novo-nome').focus();
+        });
+
         var btnTudo = m.querySelector('#pl-tudo');
         if (btnTudo) btnTudo.addEventListener('click', function () {
           m.querySelectorAll('.js-pl-qtd').forEach(function (cx) {
@@ -5431,25 +5467,62 @@ function TelaEvento(eventoId) {
         });
         m.querySelector('[data-ok]').addEventListener('click', function () {
           var linhasPlano = [];
-          m.querySelectorAll('.js-pl-qtd').forEach(function (cx) {
+          var renomeios = [];
+          m.querySelectorAll('#pl-linhas .js-pl-qtd').forEach(function (cx) {
             var q = U.num(cx.value);
             if (q > 0) {
-              var marca = m.querySelector('.js-pl-prio[data-id="' + cx.dataset.id + '"]');
-              linhasPlano.push({
-                carregamento_id: cgId, produto_id: cx.dataset.id, quantidade: q,
-                prioridade: !!(marca && marca.checked)
-              });
+              linhasPlano.push({ carregamento_id: cgId, produto_id: cx.dataset.id, quantidade: q });
+            }
+            var campoNome = m.querySelector('.js-pl-nome[data-id="' + cx.dataset.id + '"]');
+            if (campoNome) {
+              var novoNome = campoNome.value.trim().replace(/\s+/g, ' ');
+              var prodAtual = p.produtos.filter(function (x) { return x.id === cx.dataset.id; })[0];
+              if (novoNome.length >= 2 && prodAtual && novoNome !== prodAtual.nome) {
+                renomeios.push({ id: cx.dataset.id, nome: novoNome });
+              }
             }
           });
-          if (!linhasPlano.length) {
+          /* produtos NOVOS acrescentados na hora */
+          var novosItens = [];
+          m.querySelectorAll('.js-pl-nova').forEach(function (d) {
+            var nome = d.querySelector('.pl-novo-nome').value.trim().replace(/\s+/g, ' ');
+            var qtd = U.num(d.querySelector('.pl-novo-qtd').value);
+            if (nome.length >= 2 && qtd > 0) {
+              novosItens.push({ nome: nome, quantidade_prevista: qtd, unidade: d.querySelector('.pl-novo-un').value });
+            }
+          });
+          if (!linhasPlano.length && !novosItens.length) {
             return U.aviso('Coloque a quantidade de pelo menos um item (ou use TIRAR O PLANO).', 'erro', 5000);
           }
           var bt = m.querySelector('[data-ok]');
           bt.disabled = true; bt.textContent = 'Salvando...';
-          Banco.salvarPlano(cgId, linhasPlano).then(function () {
+          Promise.all(renomeios.map(function (rn) {
+            return Banco.atualizarProduto(rn.id, { nome: rn.nome });
+          })).then(function () {
+            /* cria no evento os produtos novos (sem mexer nos outros checklists) */
+            return novosItens.length ? Banco.acrescentarProdutos(eventoId, novosItens, true) : null;
+          }).then(function (r) {
+            if (r) {
+              novosItens.forEach(function (x) {
+                var prod = r.porChave[Estoque.chave(x.nome)];
+                if (prod && prod.id) {
+                  var jaNoPlano = linhasPlano.filter(function (lp) { return lp.produto_id === prod.id; })[0];
+                  if (jaNoPlano) jaNoPlano.quantidade += U.num(x.quantidade_prevista);
+                  else linhasPlano.push({ carregamento_id: cgId, produto_id: prod.id, quantidade: U.num(x.quantidade_prevista) });
+                }
+              });
+            }
+            return Banco.salvarPlano(cgId, linhasPlano);
+          }).then(function () {
             m.fechar();
-            U.aviso('✓ Carga planejada: ' + linhasPlano.length + ' itens neste caminhão.', 'ok', 5000);
-            App.recarregar();
+            U.aviso('✓ Checklist do caminhão salvo: ' + linhasPlano.length + ' itens' +
+              (novosItens.length ? ' · ' + novosItens.length + ' novo(s)' : '') +
+              (renomeios.length ? ' · ' + renomeios.length + ' nome(s) corrigido(s)' : '') + '.', 'ok', 5000);
+            if (novosItens.length) {
+              oferecerCadastroEstoque(novosItens, function () { App.recarregar(); });
+            } else {
+              App.recarregar();
+            }
           }).catch(function (e) {
             bt.disabled = false; bt.textContent = 'SALVAR CARGA';
             App.falhou(e);
@@ -6749,7 +6822,7 @@ function TelaConferencia(arg) {
       var id = l.produto.id;
       var base = Calculo.base(l, tipo);
       return '<div class="prod" data-id="' + id + '" data-nome="' + U.esc(l.nome.toLowerCase()) + '">' +
-        '<p class="prod__nome">' + (l.prioridade ? '⭐ ' : '') + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
+        '<p class="prod__nome">' + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
         (cega
           ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + '). ' +
             'Separe o que voltou <b>em bom estado</b> do que voltou <b>danificado</b>.</p>' +
