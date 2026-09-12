@@ -2717,6 +2717,43 @@ function TelaPainel() {
   tela.innerHTML = U.carregando('Buscando dados no Supabase...');
 
   App.carregarBase().then(function () {
+    return Promise.all([
+      Banco.listarCarregamentos().catch(function () { return []; }),
+      Banco.listarCaminhoes().catch(function () { return []; }),
+      Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id')
+        .then(function (r) { return r.error ? [] : (r.data || []); })
+        .catch(function () { return []; })
+    ]);
+  }).then(function (extra) {
+    var todosCarregamentos = extra[0];
+    var todosCaminhoes = extra[1];
+    var todosItensConf = extra[2];
+
+    /* itens já conferidos (saída) por evento: produto distinto conta 1 */
+    var confPorId = {};
+    App.conferencias.forEach(function (c) { confPorId[c.id] = c; });
+    var conferidoPorEvento = {};
+    todosItensConf.forEach(function (i) {
+      var c = confPorId[i.conferencia_id];
+      if (!c || c.tipo !== 'saida') return;
+      var b = conferidoPorEvento[c.evento_id] || (conferidoPorEvento[c.evento_id] = {});
+      b[i.produto_id] = true;
+    });
+    function itensConferidos(evId) {
+      return Object.keys(conferidoPorEvento[evId] || {}).length;
+    }
+    function caminhoesDoEvento(evId) {
+      var nomes = [];
+      todosCarregamentos.forEach(function (cg) {
+        if (cg.evento_id !== evId || cg.sentido === 'retorno' || !cg.caminhao_id) return;
+        var cam = todosCaminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+        if (!cam) return;
+        var rot = (cam.nome || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        if (nomes.indexOf(rot) < 0) nomes.push(rot);
+      });
+      return nomes;
+    }
+
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
     var finalizadas = App.conferencias.filter(function (c) { return c.status === 'Finalizado' || c.status === 'Com divergência'; }).length;
     var divergencias = App.conferencias.filter(function (c) { return c.status === 'Com divergência'; }).length;
@@ -2817,30 +2854,42 @@ function TelaPainel() {
     function cartaoEvento(ev) {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
       var parado = diasParado(ev, confs);
-      return '<div class="evento">' +
-        '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
+      var totalItens = App.qtdChecklist(ev.id) || 0;
+      var feitos = Math.min(itensConferidos(ev.id), totalItens || Infinity);
+      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
+      if (fechado) pct = 100;
+      var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
+      var caminhoes = caminhoesDoEvento(ev.id);
+      var st = statusVivo(ev);
+
+      return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
+        '<div style="display:flex;gap:14px;align-items:flex-start">' +
+          '<div style="flex:none;width:62px;height:62px;border-radius:50%;background:' + corPct + ';' +
+            'display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:16px">' +
+            pct + '%</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<p class="evento__nome" style="margin:0">' + U.esc(ev.nome) + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
+              (ev.conferente_id ? ' · 👤 ' + U.esc(App.nomeUsuario(ev.conferente_id)) : '') +
+              (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens' +
+              (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
+            '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">👆 Toque para abrir e conferir os itens</p>' +
+          '</div>' +
+          '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
+            '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
+              'padding:4px 10px;border-radius:999px">' + pct + '%</span>' +
+            selo(st) +
+            '<button class="btn btn--branco btn--peq js-del-ev" data-id="' + ev.id + '" data-nome="' + U.esc(ev.nome) + '" ' +
+              'style="color:var(--vermelho);border-color:var(--vermelho)">🗑️</button>' +
+          '</div>' +
         '</div>' +
         (parado >= 3
-          ? '<div class="aviso aviso--amarelo" style="margin:10px 0 4px"><span class="aviso__ico">⏳</span><div>' +
+          ? '<div class="aviso aviso--amarelo" style="margin:10px 0 0"><span class="aviso__ico">⏳</span><div>' +
             '<b>Sem movimento há ' + parado + ' dias.</b>' +
             'Vale conferir se falta registrar algum retorno ou encerrar o evento.</div></div>'
           : '') +
-        '<dl class="evento__dl">' +
-          '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
-          '<dt>Local</dt><dd>' + U.esc(ev.local || '—') + '</dd>' +
-          '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
-          '<dt>Conferente</dt><dd>' + (ev.conferente_id
-            ? U.esc(App.nomeUsuario(ev.conferente_id))
-            : '<span style="color:var(--laranja)">Em aberto — qualquer conferente pode assumir</span>') + '</dd>' +
-          '<dt>Checklist</dt><dd>' + (App.temChecklist(ev.id)
-            ? U.fmt(App.qtdChecklist(ev.id)) + ' produtos'
-            : '<span style="color:var(--laranja);font-weight:700">ainda não anexado</span>') + '</dd>' +
-          '<dt>Conferências</dt><dd>' + (confs.length ? confs.map(function (c) {
-            return U.esc(Calculo.TIPOS[c.tipo] ? Calculo.TIPOS[c.tipo].curto : c.tipo) + ' (' + U.esc(c.status) + ')';
-          }).join(' · ') : 'nenhuma ainda') + '</dd>' +
-        '</dl>' +
-        '<button class="btn btn--bloco js-abrir" data-id="' + ev.id + '">ABRIR</button>' +
       '</div>';
     }
 
@@ -2862,7 +2911,24 @@ function TelaPainel() {
           : lista.map(cartaoEvento).join('');
       }
       U.$$('.js-abrir', caixa).forEach(function (b) {
-        b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
+        b.addEventListener('click', function (e) {
+          if (e.target.closest('.js-del-ev')) return;
+          App.abrir(TelaEvento, b.dataset.id);
+        });
+      });
+      U.$$('.js-del-ev', caixa).forEach(function (b) {
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          pedirSenhaCoordenador('Excluir evento',
+            'Excluir "' + b.dataset.nome + '"? Apaga o checklist, os carregamentos e as conferências. Não dá para desfazer.')
+            .then(function (ok) {
+              if (!ok) return;
+              Banco.apagarEvento(b.dataset.id).then(function () {
+                U.aviso('🗑️ Evento excluído.', 'ok');
+                App.recarregar();
+              }).catch(App.falhou);
+            });
+        });
       });
     }
 
@@ -4673,7 +4739,22 @@ function TelaEvento(eventoId) {
 
     /* --- checklist --- */
     var eventoPorCaminhao = (p.planos || []).length > 0;
-    if (!p.produtos.length) {
+    /* conferente na fase de retorno: números da saída ficam ocultos (às cegas) */
+    var _saidasCega = p.carregamentos.filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
+    var faseRetornoCega = !ehCoord &&
+      _saidasCega.length > 0 &&
+      _saidasCega.every(function (cg) {
+        var c = Calculo.confDe(p.conferencias, cg.id, 'saida');
+        return !!c && (c.status === 'Finalizado' || c.status === 'Com divergência');
+      }) &&
+      !(ev.status === 'Finalizado' || ev.status === 'Com divergência');
+
+    if (faseRetornoCega) {
+      h += '<div class="aviso aviso--azul"><span class="aviso__ico">🙈</span><div>' +
+        '<b>Checklist guardado para o retorno às cegas.</b>' +
+        'Conte o que chegou em cada caminhão sem olhar o que saiu — a comparação completa ' +
+        'aparece quando o evento for encerrado.</div></div>';
+    } else if (!p.produtos.length) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
         '<b>O checklist entra pelo carregamento.</b>' +
         (ehCoord
@@ -4752,16 +4833,31 @@ function TelaEvento(eventoId) {
        por aqui que o checklist de cada caminhão entra --- */
     {
       /* --- barra de retorno do EVENTO --- */
+      var barraFechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
+      var barraTemSaidaFinal = p.carregamentos.some(function (cg) {
+        if (cg.sentido === 'retorno') return false;
+        var c = Calculo.confDe(p.conferencias, cg.id, 'saida');
+        return !!c && (c.status === 'Finalizado' || c.status === 'Com divergência');
+      });
       var tot = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
       if (tot.enviado > 0) {
         h += '<div class="cartao"><div class="cartao__corpo">' +
           '<h3 style="font-size:17px;color:var(--azul);margin-bottom:8px">↩️ Retorno do evento</h3>' +
           '<div class="progresso"><div class="progresso__fill" style="width:' + tot.pct + '%"></div></div>' +
-          '<div class="progresso__rot"><span>Voltaram <b>' + U.fmt(tot.retornado) + '</b> de <b>' + U.fmt(tot.enviado) + '</b> itens enviados</span>' +
+          '<div class="progresso__rot"><span><b>' + U.fmt(tot.retornado) + '</b> de <b>' + U.fmt(tot.enviado) + '</b> peças voltaram</span>' +
           '<span>' + tot.pct + '%</span></div>' +
           (tot.falta > 0
-            ? '<p class="peq" style="color:var(--laranja);font-weight:700;margin-top:6px">Faltam voltar ' + U.fmt(tot.falta) + ' itens. O retorno pode chegar em vários caminhões.</p>'
+            ? '<p class="peq" style="color:var(--laranja);font-weight:700;margin-top:6px">O retorno pode chegar em vários caminhões: registre um retorno para cada caminhão que chegar. A contagem é às cegas e dá baixa parcial ou total.</p>'
             : (tot.retornado > 0 ? '<p class="peq" style="color:var(--verde);font-weight:700;margin-top:6px">🟢 Tudo que saiu já voltou.</p>' : '')) +
+          ((barraTemSaidaFinal && !barraFechado)
+            ? '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center">' +
+              (tot.falta > 0
+                ? '<button class="btn btn--verde" id="btn-reg-retorno" style="flex:1;min-width:220px">↩️ REGISTRAR RETORNO</button>'
+                : '') +
+              '<button class="btn btn--branco btn--peq" id="btn-ver-itens">📋 Ver itens</button>' +
+              '<button class="btn btn--branco btn--peq" id="btn-ir-retornos">🕘 Retornos deste evento</button>' +
+            '</div>'
+            : '') +
         '</div></div>';
       }
 
@@ -4780,16 +4876,32 @@ function TelaEvento(eventoId) {
         return !!c && (c.status === 'Finalizado' || c.status === 'Com divergência');
       });
 
-      /* --- carregamentos de SAÍDA --- */
-      h += '<h2 class="secao__tit">Carregamentos de saída <span class="n">' + saidas.length + '</span></h2>';
+      /* Todas as saídas fechadas = fase de retorno. Para o CONFERENTE, os
+         carregamentos de saída somem da tela: o retorno é às cegas — ele
+         escolhe o caminhão e conta o que chegou, sem ver o que saiu. */
+      var todasSaidasFinal = saidas.length > 0 && saidas.every(function (cg) {
+        var c = Calculo.confDe(p.conferencias, cg.id, 'saida');
+        return !!c && (c.status === 'Finalizado' || c.status === 'Com divergência');
+      });
+      var esconderSaidas = !ehCoord && todasSaidasFinal && !eventoFechado;
 
-      if (!saidas.length) {
+      /* --- carregamentos de SAÍDA --- */
+      if (esconderSaidas) {
+        h += '<div class="aviso aviso--azul"><span class="aviso__ico">🙈</span><div>' +
+          '<b>Saídas finalizadas (' + saidas.length + ' caminhão(ões)).</b>' +
+          'O que saiu fica guardado para o retorno ser <b>às cegas</b>: registre o retorno de cada caminhão ' +
+          'contando o que chegou — a comparação aparece quando o evento é encerrado.</div></div>';
+      } else {
+        h += '<h2 class="secao__tit">Carregamentos de saída <span class="n">' + saidas.length + '</span></h2>';
+      }
+
+      if (!saidas.length && !esconderSaidas) {
         h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
           '<b>Nenhum carregamento de saída ainda.</b>' +
           'Toque em NOVO CARREGAMENTO, escolha o caminhão e comece a conferência de saída.</div></div>';
       }
 
-      saidas.forEach(function (cg) {
+      if (!esconderSaidas) saidas.forEach(function (cg) {
         var cS = Calculo.confDe(p.conferencias, cg.id, 'saida');
         var linhasCg = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido);
         var contS = linhasCg.filter(function (l) { return l.saida !== null; }).length;
@@ -4927,10 +5039,7 @@ function TelaEvento(eventoId) {
       });
 
       var totEv = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
-      if (algumaSaidaFinal && !eventoFechado && totEv.falta > 0) {
-        h += '<button class="btn btn--verde btn--bloco btn--gg" id="btn-novo-retorno" style="margin-top:4px">' +
-          '↩️ REGISTRAR RETORNO (escolher caminhão) <span class="peq" style="font-weight:600">· faltam voltar ' + U.fmt(totEv.falta) + '</span></button>';
-      } else if (algumaSaidaFinal && !eventoFechado) {
+      if (algumaSaidaFinal && !eventoFechado && totEv.falta <= 0) {
         h += '<div class="aviso aviso--verde" style="margin-top:4px"><span class="aviso__ico">✓</span><div>' +
           '<b>Tudo retornou!</b>O material enviado já voltou por completo — o coordenador pode encerrar o evento.</div></div>';
       }
@@ -5753,12 +5862,51 @@ function TelaEvento(eventoId) {
       });
     }
 
-    var novoRetorno = U.$('#btn-novo-retorno', tela);
-    if (novoRetorno) novoRetorno.addEventListener('click', function () {
+    /* ↩️ REGISTRAR RETORNO: escolhe o caminhão e JÁ CAI na contagem */
+    var regRetorno = U.$('#btn-reg-retorno', tela);
+    if (regRetorno) regRetorno.addEventListener('click', function () {
       escolherCaminhao('Qual caminhão chegou com o retorno?').then(function (camId) {
         if (!camId) return;
-        criarCarga('retorno', camId).catch(App.falhou);
+        var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+        Banco.criarCarregamento({
+          evento_id: eventoId, numero: numero, caminhao_id: camId,
+          sentido: 'retorno', status: 'Retorno pendente'
+        }).then(function (novo) {
+          App.abrir(TelaConferencia, { eventoId: eventoId, carregamentoId: novo.id, tipo: 'retorno' });
+        }).catch(App.falhou);
       });
+    });
+
+    /* 📋 Ver itens: só nomes e o que já voltou (às cegas continua valendo) */
+    var verItens = U.$('#btn-ver-itens', tela);
+    if (verItens) verItens.addEventListener('click', function () {
+      var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+      var m = U.modal({
+        titulo: '📋 Itens do evento',
+        html: '<p class="mut peq" style="margin-bottom:8px">' +
+            (ehCoord ? 'Previsto e retorno de cada item.' : 'O que já voltou de cada item — o previsto fica guardado até o encerramento.') + '</p>' +
+          '<div style="max-height:52vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:4px 12px">' +
+          linhasEv.map(function (l) {
+            return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+              '<span>' + U.esc(l.nome) + '</span>' +
+              '<b style="flex:none">' +
+                (ehCoord
+                  ? U.fmt(l.retorno === null ? 0 : l.retorno) + ' / ' + U.fmt(l.prevista)
+                  : (l.retorno === null ? '—' : '↩️ ' + U.fmt(l.retorno))) +
+              '</b></div>';
+          }).join('') +
+          '</div>',
+        pe: '<button class="btn btn--branco" data-x>Fechar</button>',
+        travado: false
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+    });
+
+    /* 🕘 rolar até a lista de retornos */
+    var irRetornos = U.$('#btn-ir-retornos', tela);
+    if (irRetornos) irRetornos.addEventListener('click', function () {
+      var alvo = U.$$('.secao__tit', tela).filter(function (e) { return /Retornos/.test(e.textContent); })[0];
+      if (alvo) alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     /* nota fiscal: anexar (coordenador), abrir e remover */
