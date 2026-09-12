@@ -4508,8 +4508,41 @@ function TelaMeusEventos() {
   var tela = U.$('#tela');
   tela.innerHTML = U.carregando('Buscando os eventos...');
 
-  Promise.all([App.carregarBase(), Banco.listarCarregamentos()]).then(function (rr) {
+  Promise.all([
+    App.carregarBase(),
+    Banco.listarCarregamentos(),
+    Banco.listarCaminhoes().catch(function () { return []; }),
+    Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id')
+      .then(function (r) { return r.error ? [] : (r.data || []); })
+      .catch(function () { return []; })
+  ]).then(function (rr) {
     var todosCarregamentos = rr[1] || [];
+    var todosCaminhoes = rr[2] || [];
+    var todosItensConf = rr[3] || [];
+
+    var confPorId = {};
+    App.conferencias.forEach(function (c) { confPorId[c.id] = c; });
+    var conferidoPorEvento = {};
+    todosItensConf.forEach(function (i) {
+      var c = confPorId[i.conferencia_id];
+      if (!c || c.tipo !== 'saida') return;
+      var b = conferidoPorEvento[c.evento_id] || (conferidoPorEvento[c.evento_id] = {});
+      b[i.produto_id] = true;
+    });
+    function itensConferidos(evId) {
+      return Object.keys(conferidoPorEvento[evId] || {}).length;
+    }
+    function caminhoesDoEvento(evId) {
+      var nomes = [];
+      todosCarregamentos.forEach(function (cg) {
+        if (cg.evento_id !== evId || cg.sentido === 'retorno' || !cg.caminhao_id) return;
+        var cam = todosCaminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+        if (!cam) return;
+        var rot = (cam.nome || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        if (nomes.indexOf(rot) < 0) nomes.push(rot);
+      });
+      return nomes;
+    }
     var meus = App.eventos.filter(function (e) { return e.conferente_id === Sessao.atual.id; });
     var outros = App.eventos.filter(function (e) { return e.conferente_id !== Sessao.atual.id; });
 
@@ -4529,38 +4562,49 @@ function TelaMeusEventos() {
 
     function cartao(ev) {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
-      var temLista = App.temChecklist(ev.id);
       var jaComecou = confs.length > 0;
+      var totalItens = App.qtdChecklist(ev.id) || 0;
+      var feitos = Math.min(itensConferidos(ev.id), totalItens || Infinity);
+      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
+      if (fechado) pct = 100;
+      var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
+      var caminhoes = caminhoesDoEvento(ev.id);
+      var fase = faseDoEvento(ev);
 
       /* quem já fez cada etapa — pode ser gente diferente em cada uma */
       var quemFez = confs.map(function (c) {
         return U.esc(Calculo.TIPOS[c.tipo] ? Calculo.TIPOS[c.tipo].curto : c.tipo) +
           ': ' + U.esc(App.nomeUsuario(c.conferente_id));
-      }).join('<br>');
+      }).join(' · ');
 
-      var acao = '<button class="btn btn--laranja btn--bloco js-abrir" data-id="' + ev.id + '">' +
-          (jaComecou ? 'CONTINUAR CONFERÊNCIA' : temLista ? 'INICIAR CONFERÊNCIA' : 'ABRIR EVENTO') + '</button>';
+      var dica = fechado
+        ? '🏁 Evento encerrado — toque para ver os relatórios'
+        : fase === 'retorno'
+          ? '👆 Toque para registrar o retorno do caminhão que chegou'
+          : jaComecou ? '👆 Toque para continuar a conferência' : '👆 Toque para conferir e marcar os itens';
 
-      return '<div class="evento">' +
-        '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
+      return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
+        '<div style="display:flex;gap:14px;align-items:flex-start">' +
+          '<div style="flex:none;width:62px;height:62px;border-radius:50%;background:' + corPct + ';' +
+            'display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:16px">' +
+            pct + '%</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<p class="evento__nome" style="margin:0">' + U.esc(ev.nome) + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
+              (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') +
+              (ev.local ? ' · ' + U.esc(ev.local) : '') + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens' +
+              (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
+            (quemFez ? '<p class="peq mut" style="margin:3px 0 0">✔️ ' + quemFez + '</p>' : '') +
+            '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">' + dica + '</p>' +
+          '</div>' +
+          '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
+            '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
+              'padding:4px 10px;border-radius:999px">' + pct + '%</span>' +
+            selo(statusVivo(ev)) +
+          '</div>' +
         '</div>' +
-        '<dl class="evento__dl">' +
-          '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
-          '<dt>Local</dt><dd>' + U.esc(ev.local || '—') + '</dd>' +
-          '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
-          '<dt>Designado</dt><dd>' + (ev.conferente_id
-            ? U.esc(App.nomeUsuario(ev.conferente_id))
-            : '<span style="color:var(--txt-3)">ninguém — livre para conferir</span>') + '</dd>' +
-          '<dt>Checklist</dt><dd>' + (temLista
-            ? U.fmt(App.qtdChecklist(ev.id)) + ' produtos'
-            : '<span style="color:var(--laranja);font-weight:700">ainda não anexado</span>') + '</dd>' +
-          (quemFez ? '<dt>Conferido por</dt><dd>' + quemFez + '</dd>' : '') +
-        '</dl>' +
-        (temLista
-          ? '<button class="btn btn--branco btn--bloco js-ver" data-id="' + ev.id + '" style="margin-bottom:10px">Ver o evento</button>'
-          : '') +
-        acao +
       '</div>';
     }
 
