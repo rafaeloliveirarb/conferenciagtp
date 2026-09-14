@@ -2372,7 +2372,7 @@ function porMes(eventos, montarCartao) {
   }).join('');
 }
 
-function statusVivo(ev, pct) {
+function statusVivo(ev, pct, fase) {
   if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return ev.status;
   var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
   if (!confs.length) return 'Aguardando conferência';
@@ -2380,6 +2380,8 @@ function statusVivo(ev, pct) {
   var saidaComecou = confs.some(function (c) { return c.tipo === 'saida'; });
   var retComecou = confs.some(function (c) { return c.tipo === 'retorno'; });
   if (!saidaFin) return saidaComecou ? 'Saída em andamento' : 'Aguardando conferência';
+  /* alguma saída finalizou, mas AINDA HÁ CAMINHÃO POR SAIR: continua na saída */
+  if (fase === 'saida') return 'Saída em andamento';
   if (typeof pct === 'number') {
     if (pct >= 100) return 'Retorno 100% — pode encerrar';
     if (retComecou || pct > 0) return 'Retorno ' + pct + '%';
@@ -2892,12 +2894,13 @@ function TelaPainel() {
     var ativos = App.eventos.filter(function (ev) {
       return ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
     });
-    /* EM ANDAMENTO = o conferente FINALIZOU alguma conferência de saída
-       (mercadoria na rua). Antes disso, o evento fica em "Eventos". */
+    /* EM ANDAMENTO = TODAS as saídas do evento já foram finalizadas
+       (fase de retorno). Enquanto houver caminhão por sair, fica em "Eventos". */
     function saidaFinalizada(ev) {
-      return App.conferencias.some(function (c) {
-        return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em;
-      });
+      return faseProgresso(ev.id) === 'retorno' &&
+        App.conferencias.some(function (c) {
+          return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em;
+        });
     }
     var aguardando = ativos.filter(function (ev) { return !saidaFinalizada(ev); });
     var andamento = ativos.filter(saidaFinalizada);
@@ -2972,7 +2975,7 @@ function TelaPainel() {
       if (fechado) { pct = 100; feitos = totalItens; }
       var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
       var caminhoes = caminhoesDoEvento(ev.id);
-      var st = statusVivo(ev);
+      var st = statusVivo(ev, undefined, fechado ? undefined : fase);
 
       return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
         '<div style="display:flex;gap:14px;align-items:flex-start">' +
@@ -4755,7 +4758,7 @@ function TelaMeusEventos() {
           '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
             '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
               'padding:4px 10px;border-radius:999px">' + pct + '%</span>' +
-            selo(statusVivo(ev)) +
+            selo(statusVivo(ev, undefined, fechado ? undefined : fase)) +
           '</div>' +
         '</div>' +
       '</div>';
@@ -8735,16 +8738,26 @@ function TelaPendencias() {
 
       var linhas = Calculo.montarEvento(produtos, cgPorEvento[ev.id] || [], confs,
         itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
-      var faltando = linhas.filter(function (l) {
-        var saiu = (l.saida === null ? 0 : l.saida) + (l.composta || 0);
-        var voltou = l.retorno === null ? 0 : l.retorno;
-        return saiu - voltou > 0;
-      }).map(function (l) {
-        var saiu = (l.saida === null ? 0 : l.saida) + (l.composta || 0);
-        var voltou = l.retorno === null ? 0 : l.retorno;
-        return { nome: l.nome, unidade: l.unidade, saiu: saiu, voltou: voltou, falta: saiu - voltou,
-          terc: !!(l.produto && l.produto.terceirizado) };
+
+      /* SOMA POR NOME antes de calcular a falta: se o mesmo material existir
+         duplicado no evento (dois cadastros — a saída contou num, o retorno no
+         outro), as linhas se completam e a pendência falsa desaparece. */
+      var porNome = {};
+      linhas.forEach(function (l) {
+        var ch = Estoque.chave(l.nome);
+        var b = porNome[ch] || (porNome[ch] = {
+          nome: l.nome, unidade: l.unidade, saiu: 0, voltou: 0,
+          terc: !!(l.produto && l.produto.terceirizado)
+        });
+        b.saiu += (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+        b.voltou += l.retorno === null ? 0 : l.retorno;
+        if (l.produto && l.produto.terceirizado) b.terc = true;
       });
+      var faltando = Object.keys(porNome).map(function (ch) {
+        var b = porNome[ch];
+        b.falta = b.saiu - b.voltou;
+        return b;
+      }).filter(function (b) { return b.falta > 0; });
       if (!faltando.length) return;
 
       var totalFalta = 0;
