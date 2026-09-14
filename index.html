@@ -2042,14 +2042,21 @@ const Calculo = {
        Com plano de carga cada caminhão lista produtos diferentes, então
        posição não bate e a saída de um item cairia em outro. */
     var porProduto = {};
+    var usadaEmComposicao = {};   /* chave do nome da peça usada -> true */
     porCarga.forEach(function (ls) {
       ls.forEach(function (l) {
         var pid = l.produto && l.produto.id;
         if (!pid) return;
-        var acc = porProduto[pid] || (porProduto[pid] = { saida: null, retorno: null, danificado: 0 });
+        var acc = porProduto[pid] || (porProduto[pid] = { saida: null, retorno: null, danificado: 0, composta: 0 });
         if (l.saida !== null) acc.saida = (acc.saida || 0) + l.saida;
         if (l.retorno !== null) acc.retorno = (acc.retorno || 0) + l.retorno;
         if (l.dano) acc.danificado += l.dano.qtd;
+        if (l.composicao && U.num(l.composicao.qtd) > 0) {
+          acc.composta += U.num(l.composicao.qtd);
+          (l.composicao.itens || []).forEach(function (x) {
+            if (x && x.nome) usadaEmComposicao[String(x.nome).trim().toUpperCase()] = true;
+          });
+        }
       });
     });
 
@@ -2064,15 +2071,20 @@ const Calculo = {
       var prevista = previstoPlano[p.id] !== undefined
         ? previstoPlano[p.id]
         : U.num(p.quantidade_prevista);
-      var acc = porProduto[p.id] || { saida: null, retorno: null, danificado: 0 };
+      var acc = porProduto[p.id] || { saida: null, retorno: null, danificado: 0, composta: 0 };
       var saida = acc.saida, retorno = acc.retorno, danificado = acc.danificado;
+      var composta = acc.composta || 0;
+      var pecaDeComposicao = !!usadaEmComposicao[String(p.nome || '').trim().toUpperCase()];
       var enviado = saida === null ? 0 : saida;
       var baseRet = saida === null ? prevista : enviado;
       return {
         produto: p, nome: p.nome, unidade: p.unidade || 'UN',
         prevista: prevista,
         saida: saida, retorno: retorno, enviado: enviado, danificado: danificado,
-        difSaida: saida === null ? null : saida - prevista,
+        composta: composta,
+        pecaDeComposicao: pecaDeComposicao,
+        /* a composição cobre a falta: 12 previstos, 0 inteiros + 12 compostos = OK */
+        difSaida: saida === null ? null : (saida + composta) - prevista,
         difRetorno: retorno === null ? null : retorno - baseRet
       };
     });
@@ -2733,14 +2745,31 @@ function TelaPainel() {
     var confPorId = {};
     App.conferencias.forEach(function (c) { confPorId[c.id] = c; });
     var conferidoPorEvento = {};
+    var retornadoPorEvento = {};
     todosItensConf.forEach(function (i) {
       var c = confPorId[i.conferencia_id];
-      if (!c || c.tipo !== 'saida') return;
-      var b = conferidoPorEvento[c.evento_id] || (conferidoPorEvento[c.evento_id] = {});
+      if (!c) return;
+      var alvo = c.tipo === 'retorno' ? retornadoPorEvento : conferidoPorEvento;
+      var b = alvo[c.evento_id] || (alvo[c.evento_id] = {});
       b[i.produto_id] = true;
     });
     function itensConferidos(evId) {
       return Object.keys(conferidoPorEvento[evId] || {}).length;
+    }
+    function itensRetornados(evId) {
+      return Object.keys(retornadoPorEvento[evId] || {}).length;
+    }
+    /* fase do evento pela ótica do progresso: saída aberta = saída;
+       todas as saídas finalizadas = retorno */
+    function faseProgresso(evId) {
+      var cgs = todosCarregamentos.filter(function (c) { return c.evento_id === evId && c.sentido !== 'retorno'; });
+      if (!cgs.length) return 'saida';
+      var pendente = cgs.some(function (cg) {
+        return !App.conferencias.some(function (c) {
+          return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em;
+        });
+      });
+      return pendente ? 'saida' : 'retorno';
     }
     function caminhoesDoEvento(evId) {
       var nomes = [];
@@ -2855,10 +2884,12 @@ function TelaPainel() {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
       var parado = diasParado(ev, confs);
       var totalItens = App.qtdChecklist(ev.id) || 0;
-      var feitos = Math.min(itensConferidos(ev.id), totalItens || Infinity);
-      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      var fase = faseProgresso(ev.id);
       var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
-      if (fechado) pct = 100;
+      /* na fase de retorno o círculo mostra o RETORNO (senão fica 100% sem nada ter voltado) */
+      var feitos = Math.min(fase === 'retorno' ? itensRetornados(ev.id) : itensConferidos(ev.id), totalItens || Infinity);
+      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      if (fechado) { pct = 100; feitos = totalItens; }
       var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
       var caminhoes = caminhoesDoEvento(ev.id);
       var st = statusVivo(ev);
@@ -2873,7 +2904,9 @@ function TelaPainel() {
             '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
               (ev.conferente_id ? ' · 👤 ' + U.esc(App.nomeUsuario(ev.conferente_id)) : '') +
               (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</p>' +
-            '<p class="peq mut" style="margin:3px 0 0">📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens' +
+            '<p class="peq mut" style="margin:3px 0 0">' +
+              (fase === 'retorno' && !fechado ? '↩️ ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens voltaram'
+                : '📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens') +
               (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
             '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">👆 Toque para abrir e conferir os itens</p>' +
           '</div>' +
@@ -4523,14 +4556,31 @@ function TelaMeusEventos() {
     var confPorId = {};
     App.conferencias.forEach(function (c) { confPorId[c.id] = c; });
     var conferidoPorEvento = {};
+    var retornadoPorEvento = {};
     todosItensConf.forEach(function (i) {
       var c = confPorId[i.conferencia_id];
-      if (!c || c.tipo !== 'saida') return;
-      var b = conferidoPorEvento[c.evento_id] || (conferidoPorEvento[c.evento_id] = {});
+      if (!c) return;
+      var alvo = c.tipo === 'retorno' ? retornadoPorEvento : conferidoPorEvento;
+      var b = alvo[c.evento_id] || (alvo[c.evento_id] = {});
       b[i.produto_id] = true;
     });
     function itensConferidos(evId) {
       return Object.keys(conferidoPorEvento[evId] || {}).length;
+    }
+    function itensRetornados(evId) {
+      return Object.keys(retornadoPorEvento[evId] || {}).length;
+    }
+    /* fase do evento pela ótica do progresso: saída aberta = saída;
+       todas as saídas finalizadas = retorno */
+    function faseProgresso(evId) {
+      var cgs = todosCarregamentos.filter(function (c) { return c.evento_id === evId && c.sentido !== 'retorno'; });
+      if (!cgs.length) return 'saida';
+      var pendente = cgs.some(function (cg) {
+        return !App.conferencias.some(function (c) {
+          return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em;
+        });
+      });
+      return pendente ? 'saida' : 'retorno';
     }
     function caminhoesDoEvento(evId) {
       var nomes = [];
@@ -4564,13 +4614,14 @@ function TelaMeusEventos() {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
       var jaComecou = confs.length > 0;
       var totalItens = App.qtdChecklist(ev.id) || 0;
-      var feitos = Math.min(itensConferidos(ev.id), totalItens || Infinity);
-      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      var fase = faseProgresso(ev.id);
       var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
-      if (fechado) pct = 100;
+      /* na fase de retorno o círculo mostra o RETORNO (senão fica 100% sem nada ter voltado) */
+      var feitos = Math.min(fase === 'retorno' ? itensRetornados(ev.id) : itensConferidos(ev.id), totalItens || Infinity);
+      var pct = totalItens > 0 ? Math.round(feitos / totalItens * 100) : 0;
+      if (fechado) { pct = 100; feitos = totalItens; }
       var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
       var caminhoes = caminhoesDoEvento(ev.id);
-      var fase = faseDoEvento(ev);
 
       /* quem já fez cada etapa — pode ser gente diferente em cada uma */
       var quemFez = confs.map(function (c) {
@@ -4594,7 +4645,9 @@ function TelaMeusEventos() {
             '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
               (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') +
               (ev.local ? ' · ' + U.esc(ev.local) : '') + '</p>' +
-            '<p class="peq mut" style="margin:3px 0 0">📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens' +
+            '<p class="peq mut" style="margin:3px 0 0">' +
+              (fase === 'retorno' && !fechado ? '↩️ ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens voltaram'
+                : '📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens') +
               (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
             (quemFez ? '<p class="peq mut" style="margin:3px 0 0">✔️ ' + quemFez + '</p>' : '') +
             '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">' + dica + '</p>' +
@@ -4836,6 +4889,13 @@ function TelaEvento(eventoId) {
           var famsL = famPorChave[ch] || [];
           var subL = subPorChave[ch] || '';
           return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
+            (l.composta > 0
+              ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' +
+                U.fmt(l.composta) + ' por composição</span>'
+              : '') +
+            (l.pecaDeComposicao
+              ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 peça usada em composição</span>'
+              : '') +
             (famsL.length || subL
               ? '<br>' +
                 famsL.map(function (f) {
@@ -4846,8 +4906,11 @@ function TelaEvento(eventoId) {
             '</td>' +
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(l.prevista) + '</td>' +
-            (temSaida ? '<td class="num">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>' +
-              '<td class="num ' + classeDif(l.difSaida) + '">' + textoDif(l.difSaida) + '</td>' : '') +
+            (temSaida ? '<td class="num">' + (l.saida === null ? '—' : U.fmt(l.saida)) +
+              (l.composta > 0 ? ' <span class="peq" style="color:#5B3FA8;font-weight:800">+' + U.fmt(l.composta) + '🧩</span>' : '') + '</td>' +
+              (l.pecaDeComposicao && l.prevista === 0 && (l.difSaida || 0) > 0
+                ? '<td class="num" style="color:#5B3FA8;font-weight:800">🧩</td>'
+                : '<td class="num ' + classeDif(l.difSaida) + '">' + textoDif(l.difSaida) + '</td>') : '') +
             (temRetorno ? '<td class="num">' + (l.retorno === null ? '—' : U.fmt(l.retorno)) + '</td>' +
               '<td class="num ' + classeDif(l.difRetorno) + '">' + textoDif(l.difRetorno) + '</td>' : '') +
             '</tr>';
@@ -6545,6 +6608,12 @@ function TelaConferencia(arg) {
      produto_id -> { qtd: quantas foram compostas, itens: [{nome, quantidade}] } */
   var composicao = {};
   var obsGeral = '';   /* observação geral da conferência (fim da tela) */
+  function nomesEquipe(c) {
+    var lista = (c && c.equipe && c.equipe.length)
+      ? c.equipe.map(function (e) { return e.nome; })
+      : (c ? [App.nomeUsuario(c.conferente_id)] : []);
+    return lista.join(' + ');
+  }
   var temPlanoProprio = false;   /* este carregamento tem checklist próprio? */
   var tercSel = {};     /* produto_id -> 'fornecedorId|chaveMaterial' (de onde sai o terceirizado) */
   var fornecedoresT = [];
@@ -7018,10 +7087,11 @@ function TelaConferencia(arg) {
     if (conferencia && !finalizada()) {
       h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">•</span><div>' +
         '<b>Situação: ' + U.esc(conferencia.status) + '</b>' +
-        'Contado por ' + U.esc(App.nomeUsuario(conferencia.conferente_id)) + ' · ' +
+        'Contado por ' + U.esc(nomesEquipe(conferencia)) + ' · ' +
         U.fmtDataHora(conferencia.updated_at || conferencia.created_at) +
-        (conferencia.conferente_id !== Sessao.atual.id
-          ? '<br><b>Ao salvar, esta conferência passa a constar no seu nome.</b>'
+        (conferencia.conferente_id !== Sessao.atual.id &&
+         !((conferencia.equipe || []).some(function (e) { return e.id === Sessao.atual.id; }))
+          ? '<br><b>Pode continuar daqui: ao salvar, você entra na equipe desta conferência.</b>'
           : '') + '</div></div>';
     }
     if (finalizada() && desbloqueada) {
@@ -7373,12 +7443,36 @@ function TelaConferencia(arg) {
             });
 
             composicao[id] = { qtd: qtdComp, itens: itens };
-            linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos, carregamento && carregamento.sentido);
 
-            m.fechar();
-            guardarRascunho();
-            desenhar();
-            U.aviso('🧩 ' + U.fmt(qtdComp) + ' ' + linhaAlvo.nome + ' composta(s). As peças usadas entraram na contagem.', 'ok', 7000);
+            /* as peças da composição ENTRAM NO CHECKLIST DE SAÍDA deste caminhão,
+               para o previsto delas bater com o que realmente saiu */
+            var passoPlano = Promise.resolve();
+            if (temPlanoProprio) {
+              var planoCgAtual = {};
+              (pacote.planos || []).forEach(function (pl) {
+                if (pl.carregamento_id === carregamentoId) planoCgAtual[pl.produto_id] = U.num(pl.quantidade);
+              });
+              itens.forEach(function (x) {
+                var pr = porChaveProd[Estoque.chave(x.nome)];
+                if (pr) planoCgAtual[pr.id] = (planoCgAtual[pr.id] || 0) + U.num(x.quantidade);
+              });
+              var linhasPlanoNovas = Object.keys(planoCgAtual).map(function (pid) {
+                return { carregamento_id: carregamentoId, produto_id: pid, quantidade: planoCgAtual[pid] };
+              });
+              passoPlano = Banco.salvarPlano(carregamentoId, linhasPlanoNovas).then(function () {
+                pacote.planos = (pacote.planos || []).filter(function (pl) {
+                  return pl.carregamento_id !== carregamentoId;
+                }).concat(linhasPlanoNovas);
+              }).catch(function () { });
+            }
+
+            passoPlano.then(function () {
+              linhas = Calculo.montarCarregamento(pacote.produtos, pacote.conferencias, pacote.itens, carregamentoId, pacote.planos, carregamento && carregamento.sentido);
+              m.fechar();
+              guardarRascunho();
+              desenhar();
+              U.aviso('🧩 ' + U.fmt(qtdComp) + ' ' + linhaAlvo.nome + ' composta(s). As peças usadas entraram na contagem e no checklist de saída.', 'ok', 7000);
+            });
           }).catch(function (e) {
             b.disabled = false; b.textContent = 'CONFIRMAR COMPOSIÇÃO';
             App.falhou(e);
@@ -8096,9 +8190,16 @@ function TelaConferencia(arg) {
     }).then(function (c) {
       return Banco.salvarItens(c.id, itens);
     }).then(function () {
+      /* Mais de um conferente pode trabalhar na MESMA conferência:
+         quem começou continua como titular; quem ajudar entra na equipe. */
+      var equipe = (conferencia && conferencia.equipe) || [];
+      if (!equipe.some(function (e) { return e.id === Sessao.atual.id; })) {
+        equipe = equipe.concat([{ id: Sessao.atual.id, nome: Sessao.atual.nome }]);
+      }
       var campos = {
         status: situacao,
-        conferente_id: Sessao.atual.id,
+        conferente_id: (conferencia && conferencia.conferente_id) || Sessao.atual.id,
+        equipe: equipe,
         foto_base64: foto || null
       };
       campos.observacao = (obsGeral || '').trim() || null;
@@ -8405,9 +8506,43 @@ function TelaConferencia(arg) {
           m.fechar();
           desbloqueada = false;
           if (destino === 'outro') {
-            U.aviso('✓ Carregamento finalizado. Agora crie o PRÓXIMO carregamento para o que faltou.', 'ok', 6000);
-            TelaEvento._abrirNovaSaida = true;   /* a tela do evento já abre escolhendo o caminhão */
-            App.trocar(TelaEvento, eventoId);
+            /* move a SOBRA (o que faltou) do checklist deste caminhão para um
+               carregamento novo — o coordenador só escolhe o caminhão depois */
+            var sobras = faltando.map(function (l) {
+              var t = valorTotal(l.produto.id) || 0;
+              var comp = composicao[l.produto.id];
+              var coberto = t + (comp ? U.num(comp.qtd) : 0);
+              return { produto_id: l.produto.id, nome: l.nome, qtd: Math.max(0, Calculo.base(l, 'saida') - coberto) };
+            }).filter(function (s) { return s.qtd > 0; });
+
+            var passoSobra = Promise.resolve(null);
+            if (temPlanoProprio && sobras.length) {
+              var numero = (pacote.carregamentos || []).reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
+              passoSobra = Banco.criarCarregamento({
+                evento_id: eventoId, numero: numero, caminhao_id: null,
+                sentido: 'saida', status: 'Saída pendente',
+                nome: 'SOBRA DO CARREG. ' + (carregamento ? carregamento.numero : '')
+              }).then(function (novo) {
+                var fila = Promise.resolve();
+                sobras.forEach(function (s) {
+                  fila = fila.then(function () {
+                    return Banco.moverItemPlano(carregamentoId, novo.id, s.produto_id, s.qtd);
+                  });
+                });
+                return fila.then(function () { return novo; });
+              }).catch(function () { return null; });
+            }
+
+            passoSobra.then(function (novo) {
+              if (novo) {
+                U.aviso('✓ Finalizado. A sobra (' + sobras.length + ' item(ns)) já está no checklist do Carreg. ' +
+                  novo.numero + ' — o coordenador escolhe o caminhão.', 'ok', 8000);
+              } else {
+                U.aviso('✓ Carregamento finalizado. Agora crie o PRÓXIMO carregamento para o que faltou.', 'ok', 6000);
+              }
+              TelaEvento._abrirNovaSaida = Sessao.ehCoordenador();   /* coordenador já cai na escolha do caminhão */
+              App.trocar(TelaEvento, eventoId);
+            });
           } else {
             U.aviso('✓ ' + (cega ? 'Retorno finalizado.' : 'Conferência finalizada.') + ' Agora ela está travada.', 'ok', 5000);
             recarregarDados();
@@ -8654,7 +8789,10 @@ const Relatorio = {
       campos.push(['Carregamento', 'Carreg. ' + dados.carregamento.numero +
         (dados.carregamento.nome ? ' (' + dados.carregamento.nome + ')' : '') + ' · ' + dados.caminhao]);
       campos.push(['Conferência', Calculo.TIPOS[dados.tipo].rotulo + (dados.tipo === 'retorno' ? ' (às cegas)' : '')]);
-      campos.push(['Conferente', dados.conferente + ' · ' + dados.conferencia.status]);
+      campos.push(['Conferente' + ((dados.conferencia.equipe || []).length > 1 ? 's' : ''),
+        ((dados.conferencia.equipe && dados.conferencia.equipe.length
+          ? dados.conferencia.equipe.map(function (e) { return e.nome; }).join(' + ')
+          : dados.conferente)) + ' · ' + dados.conferencia.status]);
       campos.push(['Data/hora', U.fmtDataHora(dados.conferencia.finalizada_em || dados.conferencia.updated_at || dados.conferencia.created_at)]);
     } else {
       campos.push(['Conferente', App.nomeUsuario(ev.conferente_id)]);
