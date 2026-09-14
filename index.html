@@ -4950,6 +4950,12 @@ function TelaEvento(eventoId) {
       '</div></div>';
 
     /* --- checklist --- */
+    if (ev.encerrado_com_falta_motivo) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⚠️</span><div>' +
+        '<b>Encerrado com material faltando.</b>Motivo registrado: ' +
+        U.esc(ev.encerrado_com_falta_motivo) + '</div></div>';
+    }
+
     var eventoPorCaminhao = (p.planos || []).length > 0;
     /* conferente na fase de retorno: números da saída ficam ocultos (às cegas) */
     var _saidasCega = p.carregamentos.filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
@@ -6240,6 +6246,8 @@ function TelaEvento(eventoId) {
     var encerrar = U.$('#btn-encerrar', tela);
     if (encerrar) encerrar.addEventListener('click', function () {
       var t = Calculo.totaisEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+
+      var faltaMaterial = t.falta > 0 && !ev.pendencia_resolvida_em;
       var temDiv = linhas.some(function (l) { return (l.difSaida || 0) !== 0 || (l.difRetorno || 0) !== 0; });
       var statusFinal = temDiv ? 'Com divergência' : 'Finalizado';
 
@@ -6249,6 +6257,16 @@ function TelaEvento(eventoId) {
         titulo: '🏁 Encerrar evento',
         html: '<p>Voltaram <b>' + U.fmt(t.retornado) + '</b> de <b>' + U.fmt(t.enviado) + '</b> itens enviados (' + t.pct + '%).' +
             (t.falta > 0 ? ' <b style="color:var(--vermelho)">Ainda faltam ' + U.fmt(t.falta) + ' itens.</b>' : ' ✓ Tudo retornou.') + '</p>' +
+          (faltaMaterial
+            ? '<div class="aviso aviso--amarelo" style="margin:12px 0"><span class="aviso__ico">⚠️</span><div>' +
+              '<b>Tem material faltando (' + U.fmt(t.falta) + ' peças na rua).</b>' +
+              'Dá para encerrar assim mesmo, mas é <b>obrigatório escrever o motivo</b> — ' +
+              'fica registrado no evento e no relatório.' +
+              '<label class="campo" style="margin-top:10px"><span class="campo__rot">📝 Por que está encerrando com falta?</span>' +
+                '<textarea class="entrada" id="enc-motivo" rows="2" style="resize:vertical" ' +
+                  'placeholder="Ex.: cliente vai devolver dia 20; peças cobradas na nota; material perdido na desmontagem"></textarea>' +
+              '</label></div></div>'
+            : '') +
           '<p style="margin-top:8px">O evento será marcado como <b>"' + statusFinal + '"</b> e vira só consulta.</p>' +
           '<div class="aviso aviso--azul" style="margin:12px 0"><span class="aviso__ico">📑</span><div>' +
             '<b>Imprima o relatório completo antes de encerrar.</b>' +
@@ -6275,9 +6293,18 @@ function TelaEvento(eventoId) {
       });
       m.querySelector('[data-ok]').addEventListener('click', function () {
         if (!relAberto) return U.aviso('📑 Imprima o relatório completo antes de encerrar.', 'erro', 5000);
+        var motivoFalta = '';
+        if (faltaMaterial) {
+          motivoFalta = (m.querySelector('#enc-motivo').value || '').trim();
+          if (motivoFalta.length < 5) {
+            return U.aviso('📝 Escreva o motivo de encerrar com material faltando (mínimo 5 letras).', 'erro', 6000);
+          }
+        }
         var b = m.querySelector('[data-ok]');
         b.disabled = true; b.textContent = 'Encerrando...';
-        Banco.atualizarEvento(eventoId, { status: statusFinal, encerrado_por: Sessao.atual.id, encerrado_em: new Date().toISOString() })
+        var camposEnc = { status: statusFinal, encerrado_por: Sessao.atual.id, encerrado_em: new Date().toISOString() };
+        if (motivoFalta) camposEnc.encerrado_com_falta_motivo = motivoFalta;
+        Banco.atualizarEvento(eventoId, camposEnc)
           .then(function () { return App.carregarBase(); })
           .then(function () {
             m.fechar();
@@ -8732,6 +8759,7 @@ function TelaPendencias() {
     App.eventos.forEach(function (ev) {
       var produtos = prodPorEvento[ev.id] || [];
       if (!produtos.length) return;
+      if (ev.pendencia_resolvida_em) return;   /* coordenador já deu baixa */
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
       var temSaidaFinal = confs.some(function (c) { return c.tipo === 'saida' && c.finalizada_em; });
       if (!temSaidaFinal) return;
@@ -8796,6 +8824,10 @@ function TelaPendencias() {
             '<p class="peq mut" style="margin-bottom:8px">' +
               (p.ev.cliente ? 'Cliente: <b>' + U.esc(p.ev.cliente) + '</b> · ' : '') +
               (p.ev.local ? U.esc(p.ev.local) + ' · ' : '') + U.fmtData(p.ev.data) + '</p>' +
+            (p.ev.encerrado_com_falta_motivo
+              ? '<p class="peq" style="margin-bottom:8px;color:var(--laranja)">📝 Motivo do encerramento com falta: <b>' +
+                U.esc(p.ev.encerrado_com_falta_motivo) + '</b></p>'
+              : '') +
             '<div style="border:1px solid var(--linha);border-radius:10px;padding:2px 12px;max-height:260px;overflow:auto">' +
             p.faltando.map(function (f) {
               return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
@@ -8805,7 +8837,17 @@ function TelaPendencias() {
               '</div>';
             }).join('') +
             '</div>' +
-            '<button class="btn btn--branco btn--bloco btn--peq" data-abrir="' + p.ev.id + '" style="margin-top:10px">ABRIR O EVENTO</button>' +
+            '<div class="btn-linha" style="margin-top:10px">' +
+              '<button class="btn btn--branco btn--peq" data-abrir="' + p.ev.id + '" style="flex:1">ABRIR O EVENTO</button>' +
+              (Sessao.ehCoordenador() && (p.ev.status === 'Finalizado' || p.ev.status === 'Com divergência')
+                ? '<button class="btn btn--azul btn--peq js-reabrir-ev" data-id="' + p.ev.id + '" data-nome="' + U.esc(p.ev.nome) + '">' +
+                  '🔓 REABRIR EVENTO</button>'
+                : '') +
+              (Sessao.ehCoordenador()
+                ? '<button class="btn btn--verde btn--peq js-baixa-pend" data-id="' + p.ev.id + '" data-nome="' + U.esc(p.ev.nome) + '">' +
+                  '✔ DAR BAIXA (resolvido)</button>'
+                : '') +
+            '</div>' +
           '</div>' +
         '</div>';
       });
@@ -8814,6 +8856,50 @@ function TelaPendencias() {
     tela.innerHTML = h;
     U.$$('[data-abrir]', tela).forEach(function (b) {
       b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.abrir); });
+    });
+
+    /* 🔓 reabrir evento encerrado com falta: volta para EM ANDAMENTO,
+       para registrar o retorno que ficou faltando */
+    U.$$('.js-reabrir-ev', tela).forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        pedirSenhaCoordenador('Reabrir evento',
+          '"' + b.dataset.nome + '" volta para EM ANDAMENTO, com o retorno liberado para registrar. ' +
+          'As conferências já finalizadas continuam travadas.')
+          .then(function (ok) {
+            if (!ok) return;
+            Banco.atualizarEvento(b.dataset.id, {
+              status: 'Aguardando conferência',
+              encerrado_por: null,
+              encerrado_em: null
+            }).then(function () {
+              U.aviso('🔓 Evento reaberto — registre o retorno que faltou.', 'ok', 6000);
+              App.abrir(TelaEvento, b.dataset.id);
+            }).catch(App.falhou);
+          });
+      });
+    });
+
+    /* ✔ baixa da pendência: o material foi acertado fora do app
+       (voltou sem conferência, foi cobrado, virou venda...) */
+    U.$$('.js-baixa-pend', tela).forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        U.confirmar('Dar baixa nesta pendência?',
+          '"' + b.dataset.nome + '" sai da lista de pendências. Use quando o material já foi ' +
+          'acertado fora do app (voltou sem registrar, foi cobrado do cliente ou virou venda). ' +
+          'Os relatórios do evento continuam como estão.', 'SIM, RESOLVIDO', 'btn--verde')
+          .then(function (ok) {
+            if (!ok) return;
+            Banco.atualizarEvento(b.dataset.id, {
+              pendencia_resolvida_em: new Date().toISOString(),
+              pendencia_resolvida_por: Sessao.atual.nome
+            }).then(function () {
+              U.aviso('✔ Pendência baixada.', 'ok', 4000);
+              App.recarregar();
+            }).catch(App.falhou);
+          });
+      });
     });
   }).catch(App.falhou);
 }
@@ -8962,6 +9048,15 @@ const Relatorio = {
     var fim = Relatorio._fechamento(pacote);
     doc.setFontSize(10); doc.setFont('helvetica', 'bold');
     doc.text('RESUMO FINAL', 12, y); y += 5;
+    if (pacote.evento && pacote.evento.encerrado_com_falta_motivo) {
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
+      doc.splitTextToSize('⚠ Encerrado com material faltando. Motivo: ' +
+        pacote.evento.encerrado_com_falta_motivo, 186).forEach(function (tl) {
+        doc.text(tl, 12, y); y += 3.6;
+      });
+      y += 1;
+      doc.setFont(undefined, 'bold'); doc.setFontSize(9);
+    }
     doc.setFontSize(8.5); doc.setFont('helvetica', 'normal');
     var saidasN = (pacote.carregamentos || []).filter(function (c) { return (c.sentido || 'saida') === 'saida'; }).length;
     var retornosN = (pacote.carregamentos || []).filter(function (c) { return c.sentido === 'retorno'; }).length;
