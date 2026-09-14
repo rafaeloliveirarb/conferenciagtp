@@ -2870,6 +2870,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
+        '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
 
@@ -3104,6 +3105,7 @@ function TelaPainel() {
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
+    U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
     U.$$('.js-terc-devolvido').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -8753,6 +8755,283 @@ function TelaConferencia(arg) {
     });
   }
 }
+/* ============================================================
+   TELA: RELATÓRIOS — visão gerencial: material na rua, carregamentos,
+   perdas e quebras, histórico por evento e giro de peças.
+   Busca, impressão e exportação para Excel (CSV).
+   ============================================================ */
+function TelaRelatorios() {
+  App.topo('RELATÓRIOS', 'Números do galpão em um lugar só');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Juntando os números...');
+
+  Promise.all([
+    App.carregarBase(),
+    Banco.listarCarregamentos(),
+    Banco.listarCaminhoes().catch(function () { return []; }),
+    Banco.cliente.from('produtos').select('*').then(function (r) { return r.error ? [] : (r.data || []); }),
+    Banco.cliente.from('itens_conferencia').select('*').then(function (r) { return r.error ? [] : (r.data || []); }),
+    Banco.cliente.from('itens_carregamento').select('*').then(function (r) { return r.error ? [] : (r.data || []); })
+  ]).then(function (rr) {
+    var todosCgs = rr[1] || [], todosCaminhoes = rr[2] || [];
+    var todosProdutos = rr[3] || [], todosItens = rr[4] || [], todosPlanos = rr[5] || [];
+
+    /* ---------- índices ---------- */
+    var cgPorEvento = {}, prodPorEvento = {}, cgIdEvento = {}, confIdEvento = {};
+    todosCgs.forEach(function (c) { (cgPorEvento[c.evento_id] = cgPorEvento[c.evento_id] || []).push(c); cgIdEvento[c.id] = c.evento_id; });
+    todosProdutos.forEach(function (p) { (prodPorEvento[p.evento_id] = prodPorEvento[p.evento_id] || []).push(p); });
+    App.conferencias.forEach(function (c) { confIdEvento[c.id] = c.evento_id; });
+    var planoPorEvento = {}, itensPorEvento = {};
+    todosPlanos.forEach(function (pl) { var e = cgIdEvento[pl.carregamento_id]; if (e) (planoPorEvento[e] = planoPorEvento[e] || []).push(pl); });
+    todosItens.forEach(function (i) { var e = confIdEvento[i.conferencia_id]; if (e) (itensPorEvento[e] = itensPorEvento[e] || []).push(i); });
+    function nomeCam(id) {
+      var c = todosCaminhoes.filter(function (x) { return x.id === id; })[0];
+      return c ? (c.nome || c.modelo || 'Caminhão') + (c.placa ? ' — ' + c.placa : '') : '—';
+    }
+    function linhasDe(ev) {
+      return Calculo.montarEvento(prodPorEvento[ev.id] || [], cgPorEvento[ev.id] || [],
+        App.conferencias.filter(function (c) { return c.evento_id === ev.id; }),
+        itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
+    }
+    /* soma por nome (produto duplicado não engana) */
+    function porNomeDe(ev) {
+      var mapa = {};
+      linhasDe(ev).forEach(function (l) {
+        var ch = Estoque.chave(l.nome);
+        var b = mapa[ch] || (mapa[ch] = { nome: l.nome, unidade: l.unidade, saiu: 0, voltou: 0, dano: 0 });
+        b.saiu += (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+        b.voltou += l.retorno === null ? 0 : l.retorno;
+        b.dano += l.danificado || 0;
+      });
+      return Object.keys(mapa).map(function (k) { var b = mapa[k]; b.fora = Math.max(0, b.saiu - b.voltou); return b; });
+    }
+
+    var busca = '';
+    function casaBusca(txt) {
+      if (!busca) return true;
+      var alvo = String(txt || '').toLowerCase();
+      return busca.split(/\s+/).every(function (t) { return alvo.indexOf(t) >= 0; });
+    }
+
+    /* ---------- as cinco abas ---------- */
+    var exportLinhas = [];   /* preenchido por cada aba para o Excel/imprimir */
+    var exportTitulo = '';
+
+    function abaMaterial() {
+      exportTitulo = 'Material na rua';
+      exportLinhas = [['Evento', 'Cliente', 'Item', 'Saiu', 'Voltou', 'Fora']];
+      var cards = '', totalFora = 0, eventosFora = 0;
+      App.eventos.forEach(function (ev) {
+        if (ev.pendencia_resolvida_em) return;
+        if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
+        var fora = porNomeDe(ev).filter(function (b) { return b.fora > 0; });
+        if (!fora.length) return;
+        var t = 0; fora.forEach(function (b) { t += b.fora; });
+        totalFora += t; eventosFora++;
+        fora.forEach(function (b) { exportLinhas.push([ev.nome, ev.cliente || '', b.nome, b.saiu, b.voltou, b.fora]); });
+        cards += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer">' +
+          '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
+          U.esc(ev.nome) + ' <span class="peq mut">· saída ' + U.fmtData(ev.data) + '</span></h3>' +
+          '<span class="peq" style="color:var(--laranja);font-weight:800">' + U.fmt(t) + ' fora</span></div>' +
+          '<div class="cartao__corpo" hidden>' +
+            fora.map(function (b) {
+              return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
+                '<span>' + U.esc(b.nome) + '</span><span>voltou ' + U.fmt(b.voltou) + '/' + U.fmt(b.saiu) +
+                ' · <b style="color:var(--laranja)">' + U.fmt(b.fora) + ' fora</b></span></div>';
+            }).join('') + '</div></div>';
+      });
+      return '<div class="dupla" style="margin-bottom:16px">' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalFora) + '</p><p class="mut peq">Peças na rua agora</p></div>' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--azul)">' + eventosFora + '</p><p class="mut peq">Eventos com material fora</p></div>' +
+      '</div>' + (cards || '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada na rua</h3><p>Todo material voltou para o galpão.</p></div>');
+    }
+
+    function abaCarregamentos() {
+      exportTitulo = 'Carregamentos';
+      exportLinhas = [['Evento', 'Carreg.', 'Nome', 'Sentido', 'Caminhão', 'Status', 'Itens no checklist']];
+      var h = '';
+      App.eventos.forEach(function (ev) {
+        var cgs = (cgPorEvento[ev.id] || []).filter(function () { return casaBusca(ev.nome + ' ' + (ev.cliente || '')); });
+        if (!cgs.length) return;
+        h += '<div class="cartao"><div class="cartao__topo"><h3>' + U.esc(ev.nome) + '</h3>' +
+          '<span class="mut peq">' + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo">' +
+          cgs.map(function (cg) {
+            var conf = Calculo.confDe(App.conferencias, cg.id, cg.sentido === 'retorno' ? 'retorno' : 'saida');
+            var qtdItens = todosPlanos.filter(function (pl) { return pl.carregamento_id === cg.id; }).length;
+            exportLinhas.push([ev.nome, cg.numero, cg.nome || '', cg.sentido || 'saida', nomeCam(cg.caminhao_id),
+              conf ? conf.status : 'não iniciada', qtdItens]);
+            return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+              '<span>' + (cg.sentido === 'retorno' ? '↩️' : '🚚') + ' Carreg. ' + cg.numero +
+                (cg.nome ? ' · <b>' + U.esc(cg.nome) + '</b>' : '') + ' · ' + U.esc(nomeCam(cg.caminhao_id)) + '</span>' +
+              '<span>' + (conf ? U.esc(conf.status) : '<span class="mut">não iniciada</span>') +
+                (qtdItens ? ' · ' + qtdItens + ' itens' : '') + '</span></div>';
+          }).join('') + '</div></div>';
+      });
+      return h || '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento</h3></div>';
+    }
+
+    function abaPerdas() {
+      exportTitulo = 'Perdas e quebras';
+      exportLinhas = [['Evento', 'Item', 'Danificado', 'Não voltou (evento encerrado)']];
+      var h = '', total = 0;
+      App.eventos.forEach(function (ev) {
+        if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
+        var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
+        var linhasEv = porNomeDe(ev).filter(function (b) { return b.dano > 0 || (fechado && b.fora > 0 && !ev.pendencia_resolvida_em); });
+        if (!linhasEv.length) return;
+        h += '<div class="cartao"><div class="cartao__topo"><h3>' + U.esc(ev.nome) + '</h3></div><div class="cartao__corpo">' +
+          linhasEv.map(function (b) {
+            total += b.dano + (fechado ? b.fora : 0);
+            exportLinhas.push([ev.nome, b.nome, b.dano, fechado ? b.fora : 0]);
+            return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
+              '<span>' + U.esc(b.nome) + '</span><span>' +
+              (b.dano > 0 ? '<b style="color:var(--vermelho)">🔧 ' + U.fmt(b.dano) + ' danificada(s)</b> ' : '') +
+              (fechado && b.fora > 0 ? '<b style="color:var(--laranja)">✂ ' + U.fmt(b.fora) + ' não voltou</b>' : '') +
+              '</span></div>';
+          }).join('') + '</div></div>';
+      });
+      return '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
+        '<p style="font-size:34px;font-weight:900;color:var(--vermelho)">' + U.fmt(total) + '</p>' +
+        '<p class="mut peq">Peças danificadas ou perdidas</p></div>' +
+        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda registrada</h3></div>');
+    }
+
+    function abaHistorico() {
+      exportTitulo = 'Histórico por evento';
+      exportLinhas = [['Evento', 'Cliente', 'Data', 'Status', 'Enviado', 'Retornado']];
+      var fechados = App.eventos.filter(function (ev) {
+        return (ev.status === 'Finalizado' || ev.status === 'Com divergência') && casaBusca(ev.nome + ' ' + (ev.cliente || ''));
+      });
+      if (!fechados.length) return '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado ainda</h3></div>';
+      return fechados.map(function (ev) {
+        var t = Calculo.totaisEvento(prodPorEvento[ev.id] || [], cgPorEvento[ev.id] || [],
+          App.conferencias.filter(function (c) { return c.evento_id === ev.id; }),
+          itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
+        exportLinhas.push([ev.nome, ev.cliente || '', U.fmtData(ev.data), ev.status, t.enviado, t.retornado]);
+        return '<div class="cartao js-rel-abrir" data-id="' + ev.id + '" style="cursor:pointer"><div class="cartao__topo">' +
+          '<h3>' + U.esc(ev.nome) + ' <span class="peq mut">· ' + U.fmtData(ev.data) + '</span></h3>' +
+          '<span class="peq"><b>' + U.fmt(t.retornado) + '/' + U.fmt(t.enviado) + '</b> voltou · ' + U.esc(ev.status) + ' ›</span>' +
+        '</div></div>';
+      }).join('');
+    }
+
+    function abaGiro() {
+      exportTitulo = 'Giro de peças';
+      exportLinhas = [['Item', 'Saiu no total', 'Eventos em que saiu']];
+      var mapa = {};
+      App.eventos.forEach(function (ev) {
+        porNomeDe(ev).forEach(function (b) {
+          if (!(b.saiu > 0)) return;
+          var m = mapa[Estoque.chave(b.nome)] || (mapa[Estoque.chave(b.nome)] = { nome: b.nome, saiu: 0, eventos: 0 });
+          m.saiu += b.saiu; m.eventos++;
+        });
+      });
+      var lista = Object.keys(mapa).map(function (k) { return mapa[k]; })
+        .filter(function (m) { return casaBusca(m.nome); })
+        .sort(function (a, b) { return b.saiu - a.saiu; }).slice(0, 60);
+      if (!lista.length) return '<div class="vazio"><p class="vazio__ico">🔄</p><h3>Sem movimento ainda</h3></div>';
+      var max = lista[0].saiu || 1;
+      return '<div class="cartao"><div class="cartao__topo"><h3>O que mais roda no galpão</h3>' +
+        '<span class="mut peq">top ' + lista.length + '</span></div><div class="cartao__corpo">' +
+        lista.map(function (m, i) {
+          exportLinhas.push([m.nome, m.saiu, m.eventos]);
+          return '<div style="padding:6px 0;border-bottom:1px solid var(--linha)">' +
+            '<div class="peq" style="display:flex;justify-content:space-between"><span>' + (i + 1) + 'º ' + U.esc(m.nome) + '</span>' +
+            '<b>' + U.fmt(m.saiu) + ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s)</span></b></div>' +
+            '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:4px">' +
+              '<div style="height:6px;border-radius:4px;background:var(--azul);width:' + Math.round(m.saiu / max * 100) + '%"></div></div>' +
+          '</div>';
+        }).join('') + '</div></div>';
+    }
+
+    var ABAS = {
+      material: { rot: '🚧 Material na rua', fn: abaMaterial },
+      cargas: { rot: '🚚 Carregamentos', fn: abaCarregamentos },
+      perdas: { rot: '🔧 Perdas e quebras', fn: abaPerdas },
+      historico: { rot: '🗂️ Histórico por evento', fn: abaHistorico },
+      giro: { rot: '🔄 Giro de peças', fn: abaGiro }
+    };
+    var abaAtiva = 'material';
+
+    function desenhar() {
+      var h = '<div class="abas" style="flex-wrap:wrap">' +
+        Object.keys(ABAS).map(function (k) {
+          return '<button class="aba' + (k === abaAtiva ? ' is-ativa' : '') + '" data-aba="' + k + '">' + ABAS[k].rot + '</button>';
+        }).join('') + '</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0;align-items:center">' +
+          '<input class="entrada" id="rel-busca" placeholder="🔎 Buscar evento..." style="flex:1;min-width:200px;min-height:48px" value="' + U.esc(busca) + '">' +
+          '<button class="btn btn--branco" id="rel-imprimir">🖨️ Imprimir</button>' +
+          '<button class="btn btn--verde" id="rel-excel">📗 Excel</button>' +
+        '</div>' +
+        '<div id="rel-conteudo">' + ABAS[abaAtiva].fn() + '</div>';
+      tela.innerHTML = h;
+
+      U.$$('.aba', tela).forEach(function (b) {
+        b.addEventListener('click', function () { abaAtiva = b.dataset.aba; desenhar(); });
+      });
+      var cb = U.$('#rel-busca', tela);
+      cb.addEventListener('input', function () {
+        busca = cb.value.trim().toLowerCase();
+        U.$('#rel-conteudo', tela).innerHTML = ABAS[abaAtiva].fn();
+        ligarConteudo();
+      });
+      U.$('#rel-imprimir', tela).addEventListener('click', imprimir);
+      U.$('#rel-excel', tela).addEventListener('click', baixarExcel);
+      ligarConteudo();
+    }
+
+    function ligarConteudo() {
+      U.$$('.js-rel-tg', tela).forEach(function (topo) {
+        topo.addEventListener('click', function () {
+          var corpo = topo.parentElement.querySelector('.cartao__corpo');
+          var seta = topo.querySelector('.js-rel-seta');
+          if (!corpo) return;
+          corpo.hidden = !corpo.hidden;
+          if (seta) seta.style.transform = corpo.hidden ? '' : 'rotate(90deg)';
+        });
+      });
+      U.$$('.js-rel-abrir', tela).forEach(function (c) {
+        c.addEventListener('click', function () { App.abrir(TelaEvento, c.dataset.id); });
+      });
+    }
+
+    /* 📗 Excel: CSV com ; (abre direto no Excel brasileiro) */
+    function baixarExcel() {
+      var csv = '\ufeff' + exportLinhas.map(function (l) {
+        return l.map(function (c) { return '"' + String(c === null || c === undefined ? '' : c).replace(/"/g, '""') + '"'; }).join(';');
+      }).join('\r\n');
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'relatorio-' + exportTitulo.toLowerCase().replace(/\s+/g, '-') + '-' + U.hojeISO() + '.csv';
+      a.click();
+      U.aviso('📗 Planilha baixada — abre direto no Excel.', 'ok', 4000);
+    }
+
+    /* 🖨️ Imprimir: PDF simples da aba atual */
+    function imprimir() {
+      if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+        return U.aviso('O gerador de PDF ainda está carregando — tente de novo em instantes.', 'erro', 5000);
+      }
+      var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      doc.setFont(undefined, 'bold'); doc.setFontSize(13);
+      doc.text('GRUPO TENDAS PLENART — ' + exportTitulo.toUpperCase(), 12, 16);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(8);
+      doc.text('Gerado em ' + U.fmtDataHora(new Date().toISOString()), 12, 21);
+      var y = 30;
+      exportLinhas.forEach(function (l, i) {
+        if (y > 285) { doc.addPage(); y = 14; }
+        doc.setFont(undefined, i === 0 ? 'bold' : 'normal');
+        doc.setFontSize(7.5);
+        doc.text(l.map(String).join('  |  ').slice(0, 130), 12, y);
+        y += 4.2;
+      });
+      doc.save('relatorio-' + exportTitulo.toLowerCase().replace(/\s+/g, '-') + '.pdf');
+    }
+
+    desenhar();
+  }).catch(App.falhou);
+}
+
 /* ============================================================
    TELA: PENDÊNCIAS DE RETORNO — o que saiu e ainda não voltou,
    por evento e por item. A lista de cobrança pronta.
