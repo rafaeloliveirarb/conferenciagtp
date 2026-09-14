@@ -8814,13 +8814,15 @@ function TelaPendencias() {
       pendencias.forEach(function (p) {
         var cor = p.dias >= 7 ? 'var(--vermelho)' : p.dias >= 3 ? 'var(--laranja)' : 'var(--azul)';
         h += '<div class="cartao">' +
-          '<div class="cartao__topo" style="cursor:pointer" data-abrir="' + p.ev.id + '">' +
-            '<h3>' + U.esc(p.ev.nome) + (p.ev.status === 'Finalizado' || p.ev.status === 'Com divergência'
+          '<div class="cartao__topo js-pend-toggle" style="cursor:pointer;user-select:none" data-ev="' + p.ev.id + '">' +
+            '<h3><span class="js-pend-seta" data-ev="' + p.ev.id + '" ' +
+              'style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
+              U.esc(p.ev.nome) + (p.ev.status === 'Finalizado' || p.ev.status === 'Com divergência'
               ? ' <span class="terc-tag" style="color:var(--vermelho);border-color:var(--vermelho)">⚠ encerrado com falta</span>' : '') + '</h3>' +
             '<span style="color:' + cor + ';font-weight:800" class="peq">' +
               U.fmt(p.totalFalta) + ' peças · há ' + p.dias + ' dia(s)</span>' +
           '</div>' +
-          '<div class="cartao__corpo">' +
+          '<div class="cartao__corpo js-pend-corpo" data-ev="' + p.ev.id + '" hidden>' +
             '<p class="peq mut" style="margin-bottom:8px">' +
               (p.ev.cliente ? 'Cliente: <b>' + U.esc(p.ev.cliente) + '</b> · ' : '') +
               (p.ev.local ? U.esc(p.ev.local) + ' · ' : '') + U.fmtData(p.ev.data) + '</p>' +
@@ -8854,8 +8856,24 @@ function TelaPendencias() {
     }
 
     tela.innerHTML = h;
+
+    /* ▶ seta que expande e fecha o card do evento */
+    U.$$('.js-pend-toggle', tela).forEach(function (topo) {
+      topo.addEventListener('click', function () {
+        var id = topo.dataset.ev;
+        var corpo = U.$('.js-pend-corpo[data-ev="' + id + '"]', tela);
+        var seta = U.$('.js-pend-seta[data-ev="' + id + '"]', tela);
+        if (!corpo) return;
+        corpo.hidden = !corpo.hidden;
+        if (seta) seta.style.transform = corpo.hidden ? '' : 'rotate(90deg)';
+      });
+    });
+
     U.$$('[data-abrir]', tela).forEach(function (b) {
-      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.abrir); });
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        App.abrir(TelaEvento, b.dataset.abrir);
+      });
     });
 
     /* 🔓 reabrir evento encerrado com falta: volta para EM ANDAMENTO,
