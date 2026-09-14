@@ -4668,23 +4668,35 @@ function TelaMeusEventos() {
     var emSaida = ativos.filter(function (ev) { return faseDoEvento(ev) === 'saida'; });
     var emRetorno = ativos.filter(function (ev) { return faseDoEvento(ev) === 'retorno'; });
 
-    /* cartão do evento finalizado: só consulta, sem botão de conferir */
+    /* cartão do evento finalizado: mesmo visual dos outros, verde 100% */
     function cartaoFinalizado(ev) {
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
+      var totalItens = App.qtdChecklist(ev.id) || 0;
+      var caminhoes = caminhoesDoEvento(ev.id);
       var quemFez = confs.map(function (c) {
         return U.esc(Calculo.TIPOS[c.tipo] ? Calculo.TIPOS[c.tipo].curto : c.tipo) +
           ': ' + U.esc(App.nomeUsuario(c.conferente_id));
-      }).join('<br>');
-      return '<div class="evento">' +
-        '<div class="evento__topo">' +
-          '<p class="evento__nome">' + U.esc(ev.nome) + '</p>' + selo(statusVivo(ev)) +
+      }).join(' · ');
+      return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
+        '<div style="display:flex;gap:14px;align-items:flex-start">' +
+          '<div style="flex:none;width:62px;height:62px;border-radius:50%;background:var(--verde);' +
+            'display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:16px">100%</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<p class="evento__nome" style="margin:0">' + U.esc(ev.nome) + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
+              (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') +
+              (ev.local ? ' · ' + U.esc(ev.local) : '') + '</p>' +
+            '<p class="peq mut" style="margin:3px 0 0">📦 ' + U.fmt(totalItens) + ' itens' +
+              (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
+            (quemFez ? '<p class="peq mut" style="margin:3px 0 0">✔️ ' + quemFez + '</p>' : '') +
+            '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">🏁 Toque para ver o evento e imprimir os relatórios</p>' +
+          '</div>' +
+          '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
+            '<span style="background:var(--verde);color:#fff;font-weight:800;font-size:12px;' +
+              'padding:4px 10px;border-radius:999px">100%</span>' +
+            selo(statusVivo(ev)) +
+          '</div>' +
         '</div>' +
-        '<dl class="evento__dl">' +
-          '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
-          '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
-          (quemFez ? '<dt>Conferido por</dt><dd>' + quemFez + '</dd>' : '') +
-        '</dl>' +
-        '<button class="btn btn--branco btn--bloco js-ver" data-id="' + ev.id + '">Ver o evento</button>' +
       '</div>';
     }
 
