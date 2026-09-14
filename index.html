@@ -2911,6 +2911,10 @@ function TelaPainel() {
       '<button class="aba" data-aba="andamento">Em andamento<span class="n">' + andamento.length + '</span></button>' +
       '<button class="aba" data-aba="terminados">Finalizados<span class="n">' + terminados.length + '</span></button>' +
     '</div>' +
+    '<input class="entrada" id="busca-eventos" placeholder="🔎 Buscar por evento, cliente, conferente, caminhão..." ' +
+      'style="margin:14px 0 10px;min-height:48px">' +
+    '<div class="aviso aviso--azul" id="dica-aba" style="margin-bottom:14px"><span class="aviso__ico">ℹ</span>' +
+      '<div id="dica-aba-texto"></div></div>' +
     '<div id="lista-eventos"></div>';
 
     tela.innerHTML = h;
@@ -3009,9 +3013,36 @@ function TelaPainel() {
       '</div>';
     }
 
+    var buscaTexto = '';
+
+    /* o evento casa com a busca? (nome, cliente, local, conferente, caminhões) */
+    function casaBusca(ev) {
+      if (!buscaTexto) return true;
+      var alvo = [
+        ev.nome, ev.cliente, ev.local,
+        ev.conferente_id ? App.nomeUsuario(ev.conferente_id) : '',
+        caminhoesDoEvento(ev.id).join(' ')
+      ].join(' ').toLowerCase();
+      return buscaTexto.split(/\s+/).every(function (t) { return alvo.indexOf(t) >= 0; });
+    }
+
+    var DICAS_ABA = {
+      ativos: '<b>Eventos na fase de saída.</b>Crie o evento, escolha o caminhão e anexe o checklist de cada carregamento. Toque no card para abrir.',
+      andamento: '<b>Material na rua.</b>Todas as saídas foram finalizadas — agora é registrar o retorno de cada caminhão que chegar.',
+      terminados: '<b>Eventos encerrados, agrupados por mês.</b>Só consulta: toque para ver relatórios, correções e quem conferiu.'
+    };
+
     function desenharLista(aba) {
       var caixa = U.$('#lista-eventos', tela);
-      var lista = aba === 'terminados' ? terminados : aba === 'andamento' ? andamento : aguardando;
+      var dica = U.$('#dica-aba-texto', tela);
+      if (dica) dica.innerHTML = DICAS_ABA[aba] || DICAS_ABA.ativos;
+      var lista = (aba === 'terminados' ? terminados : aba === 'andamento' ? andamento : aguardando)
+        .filter(casaBusca);
+      if (!lista.length && buscaTexto) {
+        caixa.innerHTML = '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3>' +
+          '<p>Nenhum evento desta aba combina com "' + U.esc(buscaTexto) + '".</p></div>';
+        return;
+      }
       if (!lista.length) {
         caixa.innerHTML = aba === 'terminados'
           ? '<div class="vazio"><p class="vazio__ico">🏁</p><h3>Nenhum evento finalizado</h3>' +
@@ -3056,6 +3087,13 @@ function TelaPainel() {
         b.classList.add('is-ativa');
         desenharLista(b.dataset.aba);
       });
+    });
+
+    var campoBusca = U.$('#busca-eventos', tela);
+    if (campoBusca) campoBusca.addEventListener('input', function () {
+      buscaTexto = campoBusca.value.trim().toLowerCase();
+      var abaAtiva = U.$('.aba.is-ativa', tela);
+      desenharLista(abaAtiva ? abaAtiva.dataset.aba : 'ativos');
     });
 
     U.$('#btn-atualizar').addEventListener('click', function () {
