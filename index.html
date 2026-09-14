@@ -4873,29 +4873,74 @@ function TelaMeusEventos() {
     var h = '<div class="btn-linha" style="margin-bottom:14px">' +
       '<button class="btn btn--branco btn--bloco" id="btn-atualizar">🔄 ATUALIZAR</button></div>' +
       '<div class="abas">' +
-        '<button class="aba is-ativa" data-aba="saida">🚚 Saída<span class="n">' + emSaida.length + '</span></button>' +
-        '<button class="aba" data-aba="retorno">↩️ Retorno<span class="n">' + emRetorno.length + '</span></button>' +
-        '<button class="aba" data-aba="terminados">🏁 Finalizados<span class="n">' + terminados.length + '</span></button>' +
+        '<button class="aba is-ativa" data-aba="saida">🚚 Carregamentos pendentes<span class="n">' + emSaida.length + '</span></button>' +
+        '<button class="aba" data-aba="retorno">📍 Produtos em eventos<span class="n">' + emRetorno.length + '</span></button>' +
+        '<button class="aba" data-aba="terminados">🗂️ Histórico<span class="n">' + terminados.length + '</span></button>' +
       '</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 10px">' +
+        '<input class="entrada" id="busca-eventos" placeholder="🔎 Buscar por evento, cliente, caminhão..." ' +
+          'style="flex:1;min-width:220px;min-height:48px">' +
+        '<span id="filtro-datas" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          '<span class="peq mut">📅</span>' +
+          '<input class="entrada" type="date" id="data-de" style="min-height:48px;width:160px">' +
+          '<span class="peq mut">até</span>' +
+          '<input class="entrada" type="date" id="data-ate" style="min-height:48px;width:160px">' +
+        '</span>' +
+      '</div>' +
+      '<div class="aviso aviso--azul" style="margin-bottom:14px"><span class="aviso__ico">ℹ</span>' +
+        '<div id="dica-aba-texto"></div></div>' +
       '<div id="lista-eventos"></div>';
 
     tela.innerHTML = h;
 
+    var buscaTexto = '';
+    function casaBusca(ev) {
+      if (!buscaTexto) return true;
+      var alvo = [ev.nome, ev.cliente, ev.local, caminhoesDoEvento(ev.id).join(' ')].join(' ').toLowerCase();
+      return buscaTexto.split(/\s+/).every(function (t) { return alvo.indexOf(t) >= 0; });
+    }
+    var DICAS_ABA = {
+      saida: '<b>Carregamentos pendentes.</b>Abra o card, confira e conclua a saída — aí o evento passa para "Produtos em eventos".',
+      retorno: '<b>Produtos em eventos (material na rua).</b>Quando o caminhão chegar, toque no card e registre o retorno, às cegas.',
+      terminados: '<b>Eventos encerrados</b> — toque para ver todos os retornos detalhados (carro, conferente, dia, material e fotos). Filtre pelo período nas datas acima.'
+    };
+
     function desenharLista(aba) {
       var caixa = U.$('#lista-eventos', tela);
+      var dica = U.$('#dica-aba-texto', tela);
+      if (dica) dica.innerHTML = DICAS_ABA[aba] || DICAS_ABA.saida;
+      var caixaDatas = U.$('#filtro-datas', tela);
+      if (caixaDatas) caixaDatas.hidden = aba !== 'terminados';
       var hh = '';
       if (aba === 'terminados') {
-        hh = terminados.length
-          ? porMes(terminados, cartaoFinalizado)
-          : '<div class="vazio"><p class="vazio__ico">🏁</p><h3>Nenhum evento finalizado</h3>' +
-            '<p>Quando o coordenador encerrar um evento, ele aparece aqui para consulta.</p></div>';
+        var de = (U.$('#data-de', tela) || {}).value || '';
+        var ate = (U.$('#data-ate', tela) || {}).value || '';
+        var fins = terminados.filter(casaBusca).filter(function (ev) {
+          var d = (ev.data || '').slice(0, 10);
+          if (de && d && d < de) return false;
+          if (ate && d && d > ate) return false;
+          return true;
+        });
+        hh = fins.length
+          ? porMes(fins, cartaoFinalizado)
+          : (buscaTexto || de || ate)
+            ? '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3>' +
+              '<p>Nenhum evento encerrado combina com a busca/período.</p></div>'
+            : '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado ainda.</h3>' +
+              '<p>Quando o coordenador encerrar um evento, ele entra no histórico para consulta.</p></div>';
       } else {
-        var lista = aba === 'retorno' ? emRetorno : emSaida;
+        var lista = (aba === 'retorno' ? emRetorno : emSaida).filter(casaBusca);
+        if (!lista.length && buscaTexto) {
+          caixa.innerHTML = '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3>' +
+            '<p>Nenhum evento desta aba combina com "' + U.esc(buscaTexto) + '".</p></div>';
+          ligarBotoes(caixa);
+          return;
+        }
         if (!lista.length) {
           hh = aba === 'retorno'
-            ? '<div class="vazio"><p class="vazio__ico">↩️</p><h3>Nenhum evento aguardando retorno</h3>' +
-              '<p>Quando a saída de um evento for finalizada, ele passa para cá até a mercadoria voltar.</p></div>'
-            : '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhuma saída pendente</h3>' +
+            ? '<div class="vazio"><p class="vazio__ico">📍</p><h3>Nenhum produto em evento</h3>' +
+              '<p>Quando todas as saídas de um evento forem finalizadas (material na rua), ele passa para cá até voltar.</p></div>'
+            : '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento pendente</h3>' +
               '<p>Assim que o coordenador criar um evento, ele aparece aqui para a conferência de saída.</p>' +
               '<p style="margin-top:10px">Toque em <b>🔄 ATUALIZAR</b> para conferir de novo.</p></div>';
         } else {
@@ -4927,6 +4972,20 @@ function TelaMeusEventos() {
         b.classList.add('is-ativa');
         desenharLista(b.dataset.aba);
       });
+    });
+
+    function abaAtual() {
+      var a = U.$('.aba.is-ativa', tela);
+      return a ? a.dataset.aba : 'saida';
+    }
+    var campoBusca = U.$('#busca-eventos', tela);
+    if (campoBusca) campoBusca.addEventListener('input', function () {
+      buscaTexto = campoBusca.value.trim().toLowerCase();
+      desenharLista(abaAtual());
+    });
+    ['#data-de', '#data-ate'].forEach(function (sel) {
+      var c = U.$(sel, tela);
+      if (c) c.addEventListener('change', function () { desenharLista(abaAtual()); });
     });
 
     function ligarBotoes(caixa) {
