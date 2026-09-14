@@ -1065,6 +1065,60 @@ const Banco = {
       .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
   },
 
+  /* ESTOQUE VIVO: a conferência finalizada mexe no saldo do galpão.
+     Saída desconta, retorno devolve. Re-finalizar (correção) primeiro
+     DESFAZ os movimentos antigos desta conferência e aplica os novos —
+     nunca duplica. Item sem cadastro no estoque é ignorado. */
+  sincronizarEstoqueConferencia: function (conferenciaId, eventoId, tipo, porChaveQtd, usuarioId, rotulo) {
+    var self = this;
+    var sinal = tipo === 'retorno' ? +1 : -1;
+    return Promise.all([
+      self.listarEstoque(),
+      self.cliente.from('movimentos_estoque').select('*').eq('conferencia_id', conferenciaId)
+        .then(function (r) { return r.error ? [] : (r.data || []); })
+    ]).then(function (rr) {
+      var estoque = rr[0] || [];
+      var antigos = rr[1] || [];
+      var porChaveEst = {};
+      estoque.forEach(function (i) { porChaveEst[Estoque.chave(i.nome)] = i; });
+
+      /* desfazer o efeito dos movimentos antigos no saldo */
+      var deltaPorItem = {};
+      antigos.forEach(function (mv) {
+        var s = mv.tipo === 'retorno' ? +1 : -1;
+        deltaPorItem[mv.estoque_id] = (deltaPorItem[mv.estoque_id] || 0) - s * U.num(mv.quantidade);
+      });
+
+      /* aplicar os novos */
+      var novos = [];
+      Object.keys(porChaveQtd || {}).forEach(function (ch) {
+        var qtd = U.num(porChaveQtd[ch]);
+        var item = porChaveEst[ch];
+        if (!item || !(qtd > 0)) return;
+        deltaPorItem[item.id] = (deltaPorItem[item.id] || 0) + sinal * qtd;
+        novos.push({
+          estoque_id: item.id, evento_id: eventoId, conferencia_id: conferenciaId,
+          tipo: tipo === 'retorno' ? 'retorno' : 'saida',
+          quantidade: qtd, usuario_id: usuarioId || null,
+          observacao: rotulo || null
+        });
+      });
+
+      return self.apagarMovimentosConferencia(conferenciaId).then(function () {
+        return novos.length ? self.criarMovimentos(novos) : true;
+      }).then(function () {
+        var passos = Object.keys(deltaPorItem).map(function (id) {
+          var delta = deltaPorItem[id];
+          if (!delta) return Promise.resolve();
+          var item = estoque.filter(function (x) { return x.id === id; })[0];
+          if (!item) return Promise.resolve();
+          return self.atualizarEstoque(id, { quantidade: Math.max(0, U.num(item.quantidade) + delta) });
+        });
+        return Promise.all(passos);
+      });
+    });
+  },
+
   /* ---------- ferramentas (carrinho, escada, martelete...) ---------- */
   listarFerramentas: function () {
     return this.cliente.from('ferramentas').select('*').order('nome')
@@ -2732,7 +2786,7 @@ function TelaPainel() {
     return Promise.all([
       Banco.listarCarregamentos().catch(function () { return []; }),
       Banco.listarCaminhoes().catch(function () { return []; }),
-      Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id')
+      Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_terceirizada')
         .then(function (r) { return r.error ? [] : (r.data || []); })
         .catch(function () { return []; })
     ]);
@@ -2783,6 +2837,18 @@ function TelaPainel() {
       return nomes;
     }
 
+    /* 🔗 terceirizados sem devolução ao fornecedor */
+    var tercPorEvento = {};
+    todosItensConf.forEach(function (i) {
+      var c = confPorId[i.conferencia_id];
+      if (!c || c.tipo !== 'saida') return;
+      var q = U.num(i.qtd_terceirizada);
+      if (q > 0) tercPorEvento[c.evento_id] = (tercPorEvento[c.evento_id] || 0) + q;
+    });
+    var tercPendentes = App.eventos.filter(function (ev) {
+      return tercPorEvento[ev.id] > 0 && !ev.terceiros_devolvidos_em;
+    });
+
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
     var finalizadas = App.conferencias.filter(function (c) { return c.status === 'Finalizado' || c.status === 'Com divergência'; }).length;
     var divergencias = App.conferencias.filter(function (c) { return c.status === 'Com divergência'; }).length;
@@ -2801,10 +2867,24 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
+        '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
 
-      '';
+      (tercPendentes.length
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:18px"><span class="aviso__ico">🔗</span><div>' +
+          '<b>Material terceirizado sem devolução ao fornecedor:</b>' +
+          tercPendentes.map(function (ev) {
+            var dias = Math.max(0, Math.round((Date.now() - new Date(ev.data || ev.created_at).getTime()) / 86400000));
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(ev.nome) + ' — <b>' + U.fmt(tercPorEvento[ev.id]) +
+                ' unid.</b> · há ' + dias + ' dia(s)</span>' +
+              '<button class="btn btn--verde btn--peq js-terc-devolvido" data-id="' + ev.id + '" data-nome="' + U.esc(ev.nome) + '">' +
+                '✔ DEVOLVIDO AO FORNECEDOR</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '');
 
     var terminados = App.eventos.filter(function (ev) {
       return ev.status === 'Finalizado' || ev.status === 'Com divergência';
@@ -2982,6 +3062,26 @@ function TelaPainel() {
     U.$('#btn-novo-evento').addEventListener('click', function () { App.abrir(TelaNovoEvento); });
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
+    U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
+
+    U.$$('.js-terc-devolvido').forEach(function (b) {
+      b.addEventListener('click', function () {
+        U.confirmar('Dar baixa nos terceirizados?',
+          'Confirma que TODO o material terceirizado de "' + b.dataset.nome + '" foi devolvido ao fornecedor? ' +
+          'O aviso some do painel.', 'SIM, DEVOLVIDO', 'btn--verde')
+          .then(function (ok) {
+            if (!ok) return;
+            Banco.atualizarEvento(b.dataset.id, {
+              terceiros_devolvidos_em: new Date().toISOString(),
+              terceiros_devolvidos_por: Sessao.atual.nome
+            }).then(function () {
+              U.aviso('🔗 Terceirizados zerados: devolução registrada.', 'ok', 5000);
+              App.recarregar();
+            }).catch(App.falhou);
+          });
+      });
+    });
+
     U.$('#btn-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
     U.$('#btn-ferramentas').addEventListener('click', function () { App.abrir(TelaFerramentas); });
   }).catch(function (e) {
@@ -8227,6 +8327,23 @@ function TelaConferencia(arg) {
       }
       return Banco.atualizarConferencia(conferencia.id, campos);
     }).then(function (c) {
+      /* ESTOQUE VIVO: só quando finaliza. Terceirizado NÃO mexe no estoque. */
+      if (finalizando) {
+        var porChaveQtd = {};
+        linhas.forEach(function (l) {
+          if (l.produto && l.produto.terceirizado) return;
+          var v = valor(l.produto.id);
+          if (v === null) return;
+          var qtd = v + danoQtd(l.produto.id);   /* o que saiu/voltou de material NOSSO */
+          if (qtd > 0) porChaveQtd[Estoque.chave(l.nome)] = (porChaveQtd[Estoque.chave(l.nome)] || 0) + qtd;
+        });
+        var rotulo = (cega ? 'Retorno' : 'Saída') + ' — ' + U.esc(pacote.evento.nome) +
+          ' · Carreg. ' + (carregamento ? carregamento.numero : '');
+        Banco.sincronizarEstoqueConferencia(c.id, eventoId, tipo, porChaveQtd, Sessao.atual.id, rotulo)
+          .catch(function () { /* estoque é espelho: falha aqui não trava a conferência */ });
+      }
+      return c;
+    }).then(function (c) {
       conferencia = c || conferencia;
 
       /* o carregamento acompanha a sua conferência */
@@ -8568,6 +8685,126 @@ function TelaConferencia(arg) {
     });
   }
 }
+/* ============================================================
+   TELA: PENDÊNCIAS DE RETORNO — o que saiu e ainda não voltou,
+   por evento e por item. A lista de cobrança pronta.
+   ============================================================ */
+function TelaPendencias() {
+  App.topo('PENDÊNCIAS DE RETORNO', 'O que ainda não voltou para o galpão');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Calculando o que falta voltar...');
+
+  Promise.all([
+    App.carregarBase(),
+    Banco.listarCarregamentos(),
+    Banco.cliente.from('produtos').select('*').then(function (r) { return r.error ? [] : (r.data || []); }),
+    Banco.cliente.from('itens_conferencia').select('*').then(function (r) { return r.error ? [] : (r.data || []); }),
+    Banco.cliente.from('itens_carregamento').select('*').then(function (r) { return r.error ? [] : (r.data || []); })
+  ]).then(function (rr) {
+    var todosCgs = rr[1] || [];
+    var todosProdutos = rr[2] || [];
+    var todosItens = rr[3] || [];
+    var todosPlanos = rr[4] || [];
+
+    var cgPorEvento = {}, prodPorEvento = {};
+    todosCgs.forEach(function (c) { (cgPorEvento[c.evento_id] = cgPorEvento[c.evento_id] || []).push(c); });
+    todosProdutos.forEach(function (p) { (prodPorEvento[p.evento_id] = prodPorEvento[p.evento_id] || []).push(p); });
+    var cgIdEvento = {};
+    todosCgs.forEach(function (c) { cgIdEvento[c.id] = c.evento_id; });
+    var planoPorEvento = {};
+    todosPlanos.forEach(function (pl) {
+      var evId = cgIdEvento[pl.carregamento_id];
+      if (evId) (planoPorEvento[evId] = planoPorEvento[evId] || []).push(pl);
+    });
+    var confIdEvento = {};
+    App.conferencias.forEach(function (c) { confIdEvento[c.id] = c.evento_id; });
+    var itensPorEvento = {};
+    todosItens.forEach(function (i) {
+      var evId = confIdEvento[i.conferencia_id];
+      if (evId) (itensPorEvento[evId] = itensPorEvento[evId] || []).push(i);
+    });
+
+    /* um evento tem pendência quando SAIU material e nem tudo voltou */
+    var pendencias = [];
+    App.eventos.forEach(function (ev) {
+      var produtos = prodPorEvento[ev.id] || [];
+      if (!produtos.length) return;
+      var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
+      var temSaidaFinal = confs.some(function (c) { return c.tipo === 'saida' && c.finalizada_em; });
+      if (!temSaidaFinal) return;
+
+      var linhas = Calculo.montarEvento(produtos, cgPorEvento[ev.id] || [], confs,
+        itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
+      var faltando = linhas.filter(function (l) {
+        var saiu = (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+        var voltou = l.retorno === null ? 0 : l.retorno;
+        return saiu - voltou > 0;
+      }).map(function (l) {
+        var saiu = (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+        var voltou = l.retorno === null ? 0 : l.retorno;
+        return { nome: l.nome, unidade: l.unidade, saiu: saiu, voltou: voltou, falta: saiu - voltou,
+          terc: !!(l.produto && l.produto.terceirizado) };
+      });
+      if (!faltando.length) return;
+
+      var totalFalta = 0;
+      faltando.forEach(function (f) { totalFalta += f.falta; });
+      var ultimaSaida = confs.filter(function (c) { return c.tipo === 'saida' && c.finalizada_em; })
+        .map(function (c) { return new Date(c.finalizada_em).getTime(); })
+        .reduce(function (a, b) { return Math.max(a, b); }, 0);
+      var dias = ultimaSaida ? Math.max(0, Math.round((Date.now() - ultimaSaida) / 86400000)) : 0;
+
+      pendencias.push({ ev: ev, faltando: faltando, totalFalta: totalFalta, dias: dias });
+    });
+
+    pendencias.sort(function (a, b) { return b.dias - a.dias || b.totalFalta - a.totalFalta; });
+
+    var h = '';
+    if (!pendencias.length) {
+      h += '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada pendente</h3>' +
+        '<p>Todo material que saiu já voltou para o galpão.</p></div>';
+    } else {
+      var totalGeral = 0;
+      pendencias.forEach(function (p) { totalGeral += p.totalFalta; });
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⏳</span><div>' +
+        '<b>' + pendencias.length + ' evento(s) com material na rua</b> — ' +
+        U.fmt(totalGeral) + ' peças ainda não voltaram. Ordenado do mais antigo para o mais novo.</div></div>';
+
+      pendencias.forEach(function (p) {
+        var cor = p.dias >= 7 ? 'var(--vermelho)' : p.dias >= 3 ? 'var(--laranja)' : 'var(--azul)';
+        h += '<div class="cartao">' +
+          '<div class="cartao__topo" style="cursor:pointer" data-abrir="' + p.ev.id + '">' +
+            '<h3>' + U.esc(p.ev.nome) + (p.ev.status === 'Finalizado' || p.ev.status === 'Com divergência'
+              ? ' <span class="terc-tag" style="color:var(--vermelho);border-color:var(--vermelho)">⚠ encerrado com falta</span>' : '') + '</h3>' +
+            '<span style="color:' + cor + ';font-weight:800" class="peq">' +
+              U.fmt(p.totalFalta) + ' peças · há ' + p.dias + ' dia(s)</span>' +
+          '</div>' +
+          '<div class="cartao__corpo">' +
+            '<p class="peq mut" style="margin-bottom:8px">' +
+              (p.ev.cliente ? 'Cliente: <b>' + U.esc(p.ev.cliente) + '</b> · ' : '') +
+              (p.ev.local ? U.esc(p.ev.local) + ' · ' : '') + U.fmtData(p.ev.data) + '</p>' +
+            '<div style="border:1px solid var(--linha);border-radius:10px;padding:2px 12px;max-height:260px;overflow:auto">' +
+            p.faltando.map(function (f) {
+              return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+                '<span>' + U.esc(f.nome) + (f.terc ? ' <span class="terc-tag">🔗 terceirizado</span>' : '') + '</span>' +
+                '<span style="flex:none">voltou ' + U.fmt(f.voltou) + '/' + U.fmt(f.saiu) +
+                  ' · <b style="color:var(--vermelho)">falta ' + U.fmt(f.falta) + ' ' + U.esc(f.unidade) + '</b></span>' +
+              '</div>';
+            }).join('') +
+            '</div>' +
+            '<button class="btn btn--branco btn--bloco btn--peq" data-abrir="' + p.ev.id + '" style="margin-top:10px">ABRIR O EVENTO</button>' +
+          '</div>' +
+        '</div>';
+      });
+    }
+
+    tela.innerHTML = h;
+    U.$$('[data-abrir]', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.abrir); });
+    });
+  }).catch(App.falhou);
+}
+
 /* ============================================================
    js/pdf.js — relatórios em A4
    Usa jsPDF. Se a biblioteca não tiver carregado (sem internet),
