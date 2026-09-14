@@ -1140,6 +1140,10 @@ const Banco = {
     return this.cliente.from('movimentos_ferramentas').insert(m).select()
       .then(function (r) { if (r.error) Banco._erro(r.error); return (r.data || [])[0]; });
   },
+  apagarMovFerramenta: function (id) {
+    return this.cliente.from('movimentos_ferramentas').delete().eq('id', id)
+      .then(function (r) { if (r.error) Banco._erro(r.error); return true; });
+  },
 
   /* ---------- configurações gerais (chave/valor) ---------- */
   lerConfig: function (chave) {
@@ -4114,127 +4118,6 @@ function TelaFornecedor(fornecedorId) {
    marreta... Quem pega para um evento registra a saída; quando
    volta, registra a volta. Todo mundo vê onde cada uma está.
    ============================================================ */
-/* ============================================================
-   TELA: PEDIDO DE EQUIPAMENTOS — marca o que vai, quantidade e
-   observações; gera o PDF no formato oficial (Equipamento ·
-   Quantidade · Conferência · Ret. Montagem · Ret. Desmontagem),
-   que o anexar-checklist do app já sabe ler de volta.
-   ============================================================ */
-function TelaPedidoEquipamentos(ferramentasCadastradas) {
-  App.topo('PEDIDO DE EQUIPAMENTOS', 'Marque o que vai para o evento');
-  var tela = U.$('#tela');
-
-  var PADRAO = ['Carrinho 2 Rodas', 'Carrinho 4 Rodas', 'Escada Articulada de Alumínio',
-    'Escada Cogumelo', 'Escada de Ferro', 'Furadeira', 'Gerador', 'Marreta', 'Martelete',
-    'Moitão', 'Moitão do Geo', 'Paleteira', 'Parafusadeira'];
-  var nomes = (ferramentasCadastradas || []).map(function (f) { return f.nome; });
-  PADRAO.forEach(function (n) {
-    if (!nomes.some(function (x) { return Estoque.chave(x) === Estoque.chave(n); })) nomes.push(n);
-  });
-  nomes.sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
-
-  var h = '<div class="cartao"><div class="cartao__topo"><h3>🧰 Equipamentos e ferramentas</h3>' +
-    '<span class="mut peq">' + nomes.length + ' itens</span></div>' +
-    '<div class="cartao__corpo">' +
-      '<p class="mut peq" style="margin-bottom:10px">Marque o que vai e a quantidade. ' +
-        'Itens cadastrados em 🧰 FERRAMENTAS entram sozinhos nesta lista.</p>' +
-      nomes.map(function (n, i) {
-        return '<label style="display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
-          '<input type="checkbox" class="js-eq-check" data-i="' + i + '" style="width:22px;height:22px;flex:none">' +
-          '<span style="flex:1">' + U.esc(n) + '</span>' +
-          '<input type="number" class="entrada js-eq-qtd" data-i="' + i + '" inputmode="numeric" min="1" value="1" ' +
-            'style="width:80px;min-height:44px;padding:8px;text-align:center;flex:none" hidden>' +
-        '</label>';
-      }).join('') +
-      '<label class="campo" style="margin-top:14px"><span class="campo__rot">📝 Observações</span>' +
-        '<textarea class="entrada" id="eq-obs" rows="3" style="resize:vertical" ' +
-          'placeholder="Ex.: gerador vai abastecido; devolver escada até sexta"></textarea></label>' +
-    '</div></div>' +
-    '<div class="btn-linha">' +
-      '<button class="btn btn--branco" id="eq-limpar">Limpar</button>' +
-      '<button class="btn btn--laranja" id="eq-gerar" style="flex:1">📄 GERAR PEDIDO (PDF)</button>' +
-    '</div>';
-
-  tela.innerHTML = h;
-
-  U.$$('.js-eq-check', tela).forEach(function (cx) {
-    cx.addEventListener('change', function () {
-      var q = U.$('.js-eq-qtd[data-i="' + cx.dataset.i + '"]', tela);
-      q.hidden = !cx.checked;
-    });
-  });
-
-  U.$('#eq-limpar').addEventListener('click', function () {
-    U.$$('.js-eq-check', tela).forEach(function (cx) { cx.checked = false; });
-    U.$$('.js-eq-qtd', tela).forEach(function (q) { q.hidden = true; q.value = '1'; });
-    U.$('#eq-obs').value = '';
-  });
-
-  U.$('#eq-gerar').addEventListener('click', function () {
-    var escolhidos = [];
-    U.$$('.js-eq-check', tela).forEach(function (cx) {
-      if (!cx.checked) return;
-      var q = U.num(U.$('.js-eq-qtd[data-i="' + cx.dataset.i + '"]', tela).value) || 1;
-      escolhidos.push({ nome: nomes[cx.dataset.i], qtd: q });
-    });
-    if (!escolhidos.length) return U.aviso('Marque pelo menos um equipamento.', 'erro', 4000);
-    if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
-      return U.aviso('O gerador de PDF ainda está carregando — tente de novo em instantes.', 'erro', 5000);
-    }
-
-    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
-    doc.setFont(undefined, 'bold'); doc.setFontSize(14);
-    doc.text('Pedido de Equipamentos', 105, 16, { align: 'center' });
-    doc.setFont(undefined, 'normal'); doc.setFontSize(8);
-    doc.text('Grupo Tendas Plenart · ' + U.fmtDataHora(new Date().toISOString()) +
-      (Sessao.atual ? ' · ' + Sessao.atual.nome : ''), 105, 21, { align: 'center' });
-
-    var col = [12, 92, 122, 152, 182];
-    var y = 30;
-    doc.setFont(undefined, 'bold'); doc.setFontSize(8);
-    doc.setFillColor(240, 240, 240);
-    doc.rect(10, y - 4.5, 190, 6.5, 'F');
-    ['Equipamento', 'Quantidade', 'Conferência', 'Ret. Montagem', 'Ret. Desmontagem'].forEach(function (t, i) {
-      doc.text(t, col[i], y);
-    });
-    y += 6;
-    doc.setFont(undefined, 'normal');
-    escolhidos.forEach(function (e) {
-      if (y > 280) { doc.addPage(); y = 16; }
-      doc.text(String(e.nome).slice(0, 48), col[0], y);
-      doc.text(String(e.qtd), col[1] + 8, y, { align: 'center' });
-      [col[2], col[3], col[4]].forEach(function (x) { doc.line(x, y + 0.5, x + 22, y + 0.5); });
-      doc.line(10, y + 2, 200, y + 2);
-      y += 7;
-    });
-
-    var obs = (U.$('#eq-obs').value || '').trim();
-    y += 4;
-    doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
-    doc.text('OBSERVAÇÕES', 12, y); y += 4;
-    doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
-    if (obs) {
-      doc.splitTextToSize(obs, 186).forEach(function (t) {
-        if (y > 285) { doc.addPage(); y = 16; }
-        doc.text(t, 12, y); y += 3.6;
-      });
-    } else {
-      doc.line(12, y + 1, 198, y + 1); y += 6;
-      doc.line(12, y + 1, 198, y + 1); y += 4;
-    }
-
-    y = Math.max(y + 14, 250);
-    if (y > 275) { doc.addPage(); y = 40; }
-    doc.line(20, y, 95, y); doc.line(115, y, 190, y);
-    doc.setFontSize(7.5);
-    doc.text('Responsável pela retirada', 57, y + 4, { align: 'center' });
-    doc.text('Conferente', 152, y + 4, { align: 'center' });
-
-    doc.save('pedido-equipamentos-' + U.hojeISO() + '.pdf');
-    U.aviso('📄 Pedido gerado! Ele pode ser anexado num carregamento — o app lê este formato.', 'ok', 7000);
-  });
-}
-
 function TelaFerramentas() {
   App.topo('FERRAMENTAS', 'Carrinho, escada, martelete, marreta...');
   var tela = U.$('#tela');
@@ -4254,9 +4137,7 @@ function TelaFerramentas() {
         return ev ? ev.nome : 'Evento apagado';
       }
 
-      var h = '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-pedido-eq" style="margin-bottom:18px">' +
-        '📄 GERAR PEDIDO DE EQUIPAMENTOS</button>' +
-        '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar ferramenta</h3></div>' +
+      var h = '<div class="cartao"><div class="cartao__topo"><h3>➕ Cadastrar ferramenta</h3></div>' +
         '<div class="cartao__corpo">' +
           '<label class="campo"><span class="campo__rot">Nome</span>' +
             '<input id="fe-nome" class="entrada" placeholder="Ex.: Carrinho 4 rodas, Escada 6 degraus"></label>' +
@@ -4299,11 +4180,6 @@ function TelaFerramentas() {
 
       h += '<button class="btn btn--branco btn--bloco" style="margin-top:14px" onclick="App.voltar()">Voltar</button>';
       tela.innerHTML = h;
-
-      var btnPedido = U.$('#btn-pedido-eq', tela);
-      if (btnPedido) btnPedido.addEventListener('click', function () {
-        App.abrir(TelaPedidoEquipamentos, ferramentas);
-      });
 
       var busca = U.$('#busca-fe', tela);
       if (busca) busca.addEventListener('input', function () {
@@ -7004,6 +6880,8 @@ function TelaConferencia(arg) {
      produto_id -> { qtd: quantas foram compostas, itens: [{nome, quantidade}] } */
   var composicao = {};
   var obsGeral = '';   /* observação geral da conferência (fim da tela) */
+  var ferramentasCad = [];   /* cadastro do 🧰 */
+  var movFerramentas = [];   /* movimentos de ferramentas (para saldo e lista) */
   function nomesEquipe(c) {
     var lista = (c && c.equipe && c.equipe.length)
       ? c.equipe.map(function (e) { return e.nome; })
@@ -7024,12 +6902,16 @@ function TelaConferencia(arg) {
     App.carregarEvento(eventoId),
     Banco.listarFornecedores().catch(function () { return []; }),
     Banco.listarMovTerceiros().catch(function () { return []; }),
-    Banco.listarEstoque().catch(function () { return []; })
+    Banco.listarEstoque().catch(function () { return []; }),
+    Banco.listarFerramentas().catch(function () { return []; }),
+    Banco.listarMovFerramentas().catch(function () { return []; })
   ]).then(function (tudo) {
     var p = tudo[0];
     fornecedoresT = tudo[1];
     var movsT = tudo[2];
     saldosT = Terceiros.saldos(movsT);
+    ferramentasCad = tudo[4] || [];
+    movFerramentas = tudo[5] || [];
     var subDeConf = Estoque.subgrupoValido(tudo[3] || []);
     (tudo[3] || []).forEach(function (i) {
       var fams = Estoque.familiasDe(i);
@@ -7598,6 +7480,32 @@ function TelaConferencia(arg) {
     h += '<button class="btn btn--branco btn--bloco" id="btn-add-item" style="border-style:dashed">' +
       '➕ ACRESCENTAR MATERIAL A ESTA CONFERÊNCIA</button>';
 
+    /* 🧰 ferramentas lançadas NESTE carregamento */
+    var minhasFerr = movFerramentas.filter(function (m) {
+      return m.carregamento_id === carregamentoId && m.tipo === (cega ? 'retorno' : 'saida');
+    });
+    h += '<div class="cartao"><div class="cartao__topo"><h3>🧰 Ferramentas deste carregamento</h3>' +
+      '<span class="mut peq">' + minhasFerr.length + ' lançada(s)</span></div>' +
+      '<div class="cartao__corpo">' +
+        '<p class="mut peq" style="margin-bottom:8px">' +
+          (cega
+            ? 'Ferramenta que voltou neste caminhão: lance aqui para dar entrada no 🧰 do galpão.'
+            : 'Carrinho, escada, martelete... que vão neste caminhão. O lançamento dá baixa no 🧰 do galpão.') + '</p>' +
+        (minhasFerr.length
+          ? minhasFerr.map(function (m) {
+              var f = ferramentasCad.filter(function (x) { return x.id === m.ferramenta_id; })[0];
+              return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+                '<span>🧰 <b>' + U.fmt(m.quantidade) + '×</b> ' + U.esc(f ? f.nome : 'Ferramenta') + '</span>' +
+                (travada() ? '' :
+                  '<button class="btn btn--branco btn--peq js-ferr-x" data-id="' + m.id + '" style="color:var(--vermelho)">✕</button>') +
+              '</div>';
+            }).join('')
+          : '') +
+        (travada() ? '' :
+          '<button class="btn btn--branco btn--bloco btn--peq" id="btn-lancar-ferr" style="border-style:dashed;margin-top:8px">' +
+          '➕ LANÇAR FERRAMENTA</button>') +
+      '</div></div>';
+
     if (!navigator.onLine) {
       h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📴</span><div>' +
         '<b>Sem internet agora.</b>Pode continuar contando: tudo fica guardado neste aparelho ' +
@@ -7961,6 +7869,85 @@ function TelaConferencia(arg) {
         if (!embalagem[id]) embalagem[id] = { por: '', qtd: '', soltas: '', obs: '' };
         embalagem[id].obs = el.value;
         guardarRascunho();
+      });
+    });
+
+    /* 🧰 lançar ferramenta neste carregamento */
+    var btnFerr = U.$('#btn-lancar-ferr', tela);
+    if (btnFerr) btnFerr.addEventListener('click', function () {
+      if (!ferramentasCad.length) {
+        return U.aviso('Nenhuma ferramenta cadastrada. O coordenador cadastra em 🧰 FERRAMENTAS no painel.', 'erro', 7000);
+      }
+      /* saldo disponível de cada ferramenta */
+      var saldo = {};
+      ferramentasCad.forEach(function (f) { saldo[f.id] = 0; });
+      movFerramentas.forEach(function (m) {
+        var q = U.num(m.quantidade);
+        if (!(m.ferramenta_id in saldo)) saldo[m.ferramenta_id] = 0;
+        saldo[m.ferramenta_id] += m.tipo === 'saida' ? -q : q;
+      });
+
+      var m = U.modal({
+        titulo: '🧰 Lançar ferramenta',
+        html: '<label class="campo"><span class="campo__rot">Ferramenta</span>' +
+            '<select class="entrada" id="lf-ferr">' +
+              ferramentasCad.map(function (f) {
+                return '<option value="' + f.id + '">' + U.esc(f.nome) +
+                  ' (disponível: ' + U.fmt(Math.max(0, saldo[f.id] || 0)) + ')</option>';
+              }).join('') +
+            '</select></label>' +
+          '<label class="campo"><span class="campo__rot">Quantidade</span>' +
+            '<input class="entrada" id="lf-qtd" type="number" inputmode="numeric" min="1" value="1"></label>' +
+          '<p class="mut peq" style="margin-top:6px">' +
+            (cega ? 'Vai dar ENTRADA no galpão (retorno).' : 'Vai dar BAIXA no galpão (saída para o evento).') + '</p>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--verde" data-ok>LANÇAR</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        var fid = m.querySelector('#lf-ferr').value;
+        var qtd = U.num(m.querySelector('#lf-qtd').value);
+        if (!(qtd > 0)) return U.aviso('Informe a quantidade.', 'erro', 4000);
+        if (!cega && qtd > Math.max(0, saldo[fid] || 0)) {
+          var f = ferramentasCad.filter(function (x) { return x.id === fid; })[0];
+          return U.aviso('Só há ' + U.fmt(Math.max(0, saldo[fid] || 0)) + ' disponível de ' +
+            (f ? f.nome : 'esta ferramenta') + ' no galpão.', 'erro', 6000);
+        }
+        var b = m.querySelector('[data-ok]');
+        b.disabled = true; b.textContent = 'Lançando...';
+        Banco.criarMovFerramenta({
+          ferramenta_id: fid,
+          tipo: cega ? 'retorno' : 'saida',
+          quantidade: qtd,
+          evento_id: eventoId,
+          carregamento_id: carregamentoId,
+          usuario_id: Sessao.atual.id,
+          observacao: (cega ? 'Retorno' : 'Saída') + ' no Carreg. ' + (carregamento ? carregamento.numero : '') +
+            ' — ' + (pacote.evento ? pacote.evento.nome : '')
+        }).then(function (novo) {
+          movFerramentas.unshift(novo);
+          m.fechar();
+          U.aviso('🧰 Ferramenta lançada.', 'ok', 4000);
+          desenhar();
+        }).catch(function (e) {
+          b.disabled = false; b.textContent = 'LANÇAR';
+          App.falhou(e);
+        });
+      });
+    });
+
+    U.$$('.js-ferr-x', tela).forEach(function (bx) {
+      bx.addEventListener('click', function () {
+        U.confirmar('Desfazer o lançamento?', 'A ferramenta volta ao saldo do galpão.')
+          .then(function (ok) {
+            if (!ok) return;
+            Banco.apagarMovFerramenta(bx.dataset.id).then(function () {
+              movFerramentas = movFerramentas.filter(function (m) { return m.id !== bx.dataset.id; });
+              U.aviso('Lançamento desfeito.', 'ok', 3500);
+              desenhar();
+            }).catch(App.falhou);
+          });
       });
     });
 
