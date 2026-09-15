@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Conferência do Produtor · Grupo Tendas Plenart</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --azul:#0B4DA2; --azul-clr:#E8F0FB; --laranja:#F07C00; --verde:#1B8A4B;
+    --vermelho:#C0392B; --txt:#16212E; --txt-2:#44545F; --txt-3:#7C8B96;
+    --linha:#E2E8EE; --fundo:#F4F7FA; --branco:#fff;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--fundo);color:var(--txt);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .topo{background:var(--azul);color:#fff;padding:18px 16px}
+  .topo h1{margin:0;font-size:18px;letter-spacing:.3px}
+  .topo p{margin:4px 0 0;font-size:13px;opacity:.9}
+  .caixa{max-width:720px;margin:0 auto;padding:16px}
+  .cartao{background:var(--branco);border:1px solid var(--linha);border-radius:14px;
+    margin-bottom:14px;overflow:hidden}
+  .cartao__topo{padding:12px 14px;border-bottom:1px solid var(--linha);
+    display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .cartao__topo h3{margin:0;font-size:15px;color:var(--azul)}
+  .cartao__corpo{padding:12px 14px}
+  .peq{font-size:13px} .mut{color:var(--txt-3)}
+  .abas{display:flex;gap:8px;margin-bottom:14px}
+  .aba{flex:1;background:var(--branco);border:1px solid var(--linha);border-radius:12px;
+    padding:12px 8px;font-size:14px;font-weight:700;color:var(--txt-2);cursor:pointer}
+  .aba.on{border-color:var(--azul);color:var(--azul);background:var(--azul-clr)}
+  .item{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--linha)}
+  .item:last-child{border-bottom:0}
+  .item__n{flex:1;min-width:0}
+  .item__n b{display:block;font-size:14px;font-weight:600}
+  .entrada{border:1px solid var(--linha);border-radius:10px;padding:10px 12px;font-size:16px;
+    width:100%;background:var(--branco);color:var(--txt);min-height:46px}
+  .qtd{width:86px;text-align:center;flex:none}
+  .btn{border:1px solid var(--linha);background:var(--branco);color:var(--azul);
+    border-radius:12px;padding:14px 16px;font-size:15px;font-weight:800;cursor:pointer;width:100%}
+  .btn--verde{background:var(--verde);border-color:var(--verde);color:#fff}
+  .btn--laranja{background:var(--laranja);border-color:var(--laranja);color:#fff}
+  .aviso{display:flex;gap:10px;background:var(--azul-clr);border-radius:12px;padding:12px 14px;
+    font-size:13px;color:var(--txt-2);margin-bottom:14px}
+  .ok{background:#E7F6EC;color:#14632F}
+  .erro{background:#FDECEA;color:#8E2A20}
+  .rodape{text-align:center;padding:18px;color:var(--txt-3);font-size:12px}
+  .carregando{text-align:center;padding:60px 20px;color:var(--txt-3)}
+  .selo{display:inline-block;background:var(--verde);color:#fff;border-radius:999px;
+    padding:3px 10px;font-size:12px;font-weight:800}
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>CONFERÊNCIA DO PRODUTOR</h1>
+  <p id="sub">Grupo Tendas Plenart</p>
+</div>
+
+<div class="caixa" id="tela">
+  <div class="carregando">Abrindo o evento...</div>
+</div>
+
+<div class="rodape">Grupo Tendas Plenart · conferência digital</div>
+
+<script>
+/* ============================================================
+   Página EXTERNA do produtor.
+   Abre por link com token: produtor.html#TOKEN
+   Faz duas coisas: 📥 CHEGADA (o que desceu do caminhão) e
+   📦 SOBRA (o que ficou no fim do evento para recolher).
+   ============================================================ */
+var SUPABASE_URL  = "https://cllylcuhpmwnyebmlelf.supabase.co";
+var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E";
+
+var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+var tela = document.getElementById('tela');
+var token = (location.hash || '').replace('#', '').trim();
+
+var evento = null, itensBase = [], aba = 'chegada', jaFeitas = {};
+
+function esc(t) {
+  return String(t === null || t === undefined ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function num(v) { var n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; }
+function fmt(n) { return new Intl.NumberFormat('pt-BR').format(num(n)); }
+function fmtData(d) {
+  if (!d) return '—';
+  var p = String(d).slice(0, 10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d;
+}
+function erroTela(titulo, texto) {
+  tela.innerHTML = '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:36px 16px">' +
+    '<p style="font-size:38px;margin:0 0 8px">🔒</p><h3 style="margin:0 0 6px">' + esc(titulo) + '</h3>' +
+    '<p class="peq mut">' + esc(texto) + '</p></div></div>';
+}
+
+if (!token) {
+  erroTela('Link incompleto', 'Peça ao Grupo Tendas Plenart o link completo da conferência deste evento.');
+} else {
+  carregar();
+}
+
+function carregar() {
+  cli.from('eventos').select('*').eq('token_produtor', token).limit(1)
+    .then(function (r) {
+      if (r.error) throw r.error;
+      evento = (r.data || [])[0];
+      if (!evento) {
+        return erroTela('Link inválido ou expirado',
+          'Esta conferência não está mais disponível. Fale com o Grupo Tendas Plenart.');
+      }
+      document.getElementById('sub').textContent = evento.nome;
+      return Promise.all([
+        cli.from('produtos').select('id,nome,unidade,quantidade_prevista').eq('evento_id', evento.id),
+        cli.from('carregamentos').select('id').eq('evento_id', evento.id),
+        cli.from('conferencias_produtor').select('*').eq('evento_id', evento.id)
+      ]).then(function (rr) {
+        var produtos = (rr[0].data || []);
+        var cgIds = (rr[1].data || []).map(function (c) { return c.id; });
+        (rr[2].data || []).forEach(function (c) { jaFeitas[c.tipo] = c; });
+        if (!cgIds.length) { itensBase = montar(produtos, {}); return desenhar(); }
+        return cli.from('itens_carregamento').select('produto_id,quantidade').in('carregamento_id', cgIds)
+          .then(function (r3) {
+            var prev = {};
+            (r3.data || []).forEach(function (pl) {
+              prev[pl.produto_id] = (prev[pl.produto_id] || 0) + num(pl.quantidade);
+            });
+            itensBase = montar(produtos, prev);
+            desenhar();
+          });
+      });
+    })
+    .catch(function (e) {
+      console.error(e);
+      erroTela('Não consegui abrir', 'Verifique a internet e tente de novo. Se continuar, avise o Grupo Tendas Plenart.');
+    });
+}
+
+/* soma por nome: o produtor vê a lista limpa, sem item repetido */
+function montar(produtos, prev) {
+  var mapa = {};
+  produtos.forEach(function (p) {
+    var ch = String(p.nome || '').trim().toUpperCase();
+    var b = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', previsto: 0 });
+    b.previsto += prev[p.id] !== undefined ? prev[p.id] : num(p.quantidade_prevista);
+  });
+  return Object.keys(mapa).map(function (k) { return mapa[k]; })
+    .filter(function (b) { return b.previsto > 0; })
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+}
+
+function desenhar() {
+  var feita = jaFeitas[aba];
+  var h = '<div class="abas">' +
+      '<button class="aba' + (aba === 'chegada' ? ' on' : '') + '" data-aba="chegada">📥 Chegada' +
+        (jaFeitas.chegada && jaFeitas.chegada.status === 'Finalizado' ? ' ✓' : '') + '</button>' +
+      '<button class="aba' + (aba === 'sobra' ? ' on' : '') + '" data-aba="sobra">📦 Sobra' +
+        (jaFeitas.sobra && jaFeitas.sobra.status === 'Finalizado' ? ' ✓' : '') + '</button>' +
+    '</div>' +
+    '<div class="cartao"><div class="cartao__corpo">' +
+      '<b>' + esc(evento.nome) + '</b>' +
+      '<p class="peq mut" style="margin:4px 0 0">' +
+        (evento.cliente ? esc(evento.cliente) + ' · ' : '') +
+        (evento.local ? esc(evento.local) + ' · ' : '') + fmtData(evento.data) + '</p>' +
+    '</div></div>';
+
+  if (feita && feita.status === 'Finalizado') {
+    h += '<div class="aviso ok"><span>✅</span><div><b>Conferência enviada.</b><br>' +
+      'Recebida em ' + fmtData(feita.finalizada_em) +
+      (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') +
+      '. Se precisar corrigir algo, fale com o Grupo Tendas Plenart.</div></div>' +
+      '<div class="cartao"><div class="cartao__topo"><h3>' +
+        (aba === 'chegada' ? '📥 O que você confirmou na chegada' : '📦 A sobra que você declarou') +
+        '</h3><span class="selo">enviada</span></div><div class="cartao__corpo">' +
+      (feita.itens || []).map(function (i) {
+        return '<div class="item"><span class="item__n"><b>' + esc(i.nome) + '</b>' +
+          (aba === 'chegada' ? '<span class="peq mut">enviado ' + fmt(i.previsto) + '</span>' : '') +
+          '</span><b>' + fmt(i.qtd) + ' ' + esc(i.unidade || 'UN') + '</b></div>';
+      }).join('') +
+      (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
+      '</div></div>';
+    tela.innerHTML = h;
+    ligarAbas();
+    return;
+  }
+
+  h += '<div class="aviso"><span>ℹ️</span><div>' +
+    (aba === 'chegada'
+      ? '<b>Conferência de chegada.</b> Confira o que desceu do caminhão e ajuste a quantidade se vier diferente. ' +
+        'O que não chegou, deixe zerado.'
+      : '<b>Sobra do evento.</b> No fim do evento, informe o que ficou sobrando para o Grupo Tendas Plenart recolher. ' +
+        'Item que foi todo usado ou já devolvido, deixe zerado.') +
+    '</div></div>';
+
+  if (!itensBase.length) {
+    h += '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:30px 12px">' +
+      '<p class="mut">A lista de material ainda não foi lançada. Tente mais tarde.</p></div></div>';
+    tela.innerHTML = h;
+    ligarAbas();
+    return;
+  }
+
+  h += '<div class="cartao"><div class="cartao__topo"><h3>' +
+      (aba === 'chegada' ? '📥 Chegou no evento' : '📦 Ficou sobrando') + '</h3>' +
+      '<span class="peq mut">' + itensBase.length + ' itens</span></div>' +
+    '<div class="cartao__corpo">' +
+      (aba === 'chegada'
+        ? '<button class="btn" id="tudo-ok" style="margin-bottom:12px">✓ CHEGOU TUDO CERTO</button>'
+        : '') +
+      itensBase.map(function (b, i) {
+        return '<div class="item">' +
+          '<span class="item__n"><b>' + esc(b.nome) + '</b>' +
+            (aba === 'chegada'
+              ? '<span class="peq mut">enviado: ' + fmt(b.previsto) + ' ' + esc(b.unidade) + '</span>'
+              : '<span class="peq mut">' + esc(b.unidade) + '</span>') +
+          '</span>' +
+          '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" ' +
+            'placeholder="0" value="">' +
+        '</div>';
+      }).join('') +
+      '<label style="display:block;margin-top:14px"><span class="peq mut">📝 Observações (opcional)</span>' +
+        '<textarea class="entrada" id="obs" rows="3" style="resize:vertical;margin-top:4px" ' +
+          'placeholder="' + (aba === 'chegada' ? 'Ex.: 2 placas riscadas; faltou 1 caixa de cavilha'
+                                               : 'Ex.: material empilhado no portão 3') + '"></textarea></label>' +
+      '<label style="display:block;margin-top:12px"><span class="peq mut">Seu nome (quem está conferindo) *</span>' +
+        '<input class="entrada" id="resp" style="margin-top:4px" placeholder="Nome de quem confere"></label>' +
+    '</div></div>' +
+    '<button class="btn ' + (aba === 'chegada' ? 'btn--verde' : 'btn--laranja') + '" id="enviar">' +
+      (aba === 'chegada' ? '✓ ENVIAR CONFERÊNCIA DE CHEGADA' : '📦 ENVIAR A SOBRA') + '</button>' +
+    '<p class="peq mut" style="text-align:center;margin-top:10px">Depois de enviar, a conferência trava. ' +
+      'Correções são feitas pelo Grupo Tendas Plenart.</p>';
+
+  tela.innerHTML = h;
+  ligarAbas();
+
+  var btnTudo = document.getElementById('tudo-ok');
+  if (btnTudo) btnTudo.addEventListener('click', function () {
+    document.querySelectorAll('.js-q').forEach(function (c) {
+      c.value = itensBase[c.dataset.i].previsto;
+    });
+  });
+
+  document.getElementById('enviar').addEventListener('click', enviar);
+}
+
+function ligarAbas() {
+  document.querySelectorAll('.aba').forEach(function (b) {
+    b.addEventListener('click', function () { aba = b.dataset.aba; desenhar(); });
+  });
+}
+
+function enviar() {
+  var resp = (document.getElementById('resp').value || '').trim();
+  if (resp.length < 3) {
+    return alert('Escreva o nome de quem está conferindo.');
+  }
+  var itens = [], algum = 0;
+  document.querySelectorAll('.js-q').forEach(function (c) {
+    var b = itensBase[c.dataset.i];
+    var q = num(c.value);
+    itens.push({ nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q });
+    algum += q;
+  });
+  if (aba === 'chegada' && algum === 0) {
+    if (!confirm('Nenhuma quantidade foi informada. Enviar mesmo assim?')) return;
+  }
+
+  var bt = document.getElementById('enviar');
+  bt.disabled = true; bt.textContent = 'Enviando...';
+
+  var reg = {
+    evento_id: evento.id,
+    tipo: aba,
+    responsavel: resp,
+    itens: itens,
+    observacao: (document.getElementById('obs').value || '').trim() || null,
+    status: 'Finalizado',
+    finalizada_em: new Date().toISOString()
+  };
+
+  cli.from('conferencias_produtor').upsert(reg, { onConflict: 'evento_id,tipo' }).select()
+    .then(function (r) {
+      if (r.error) throw r.error;
+      jaFeitas[aba] = (r.data || [])[0] || reg;
+      desenhar();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    })
+    .catch(function (e) {
+      console.error(e);
+      bt.disabled = false;
+      bt.textContent = aba === 'chegada' ? '✓ ENVIAR CONFERÊNCIA DE CHEGADA' : '📦 ENVIAR A SOBRA';
+      alert('Não consegui enviar. Verifique a internet e tente de novo.');
+    });
+}
+</script>
+</body>
+</html>
