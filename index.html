@@ -2726,10 +2726,13 @@ function tagTerc(produto) {
   return (produto && produto.terceirizado) ? ' <span class="terc-tag">🔗 TERCEIRIZADO</span>' : '';
 }
 
-function nomeCaminhao(caminhoes, id) {
+function nomeCaminhao(caminhoes, id, cavaloId) {
   var c = (caminhoes || []).filter(function (x) { return x.id === id; })[0];
   if (!c) return 'Caminhão não informado';
-  return c.tipo + (c.modelo ? ' ' + c.modelo : '') + ' · placa ' + c.placa;
+  var txt = c.tipo + (c.modelo ? ' ' + c.modelo : '') + ' · placa ' + c.placa;
+  var cav = cavaloId ? (caminhoes || []).filter(function (x) { return x.id === cavaloId; })[0] : null;
+  if (cav) txt += ' 🔗 cavalo ' + cav.placa;
+  return txt;
 }
 
 /* Pede a senha do coordenador e devolve Promise<boolean>.
@@ -2837,7 +2840,9 @@ function TelaPainel() {
         if (cg.evento_id !== evId || cg.sentido === 'retorno' || !cg.caminhao_id) return;
         var cam = todosCaminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
         if (!cam) return;
-        var rot = (cam.nome || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        var rot = (cam.tipo || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        var cav = cg.cavalo_id ? todosCaminhoes.filter(function (x) { return x.id === cg.cavalo_id; })[0] : null;
+        if (cav) rot += ' 🔗 ' + cav.placa;
         if (nomes.indexOf(rot) < 0) nomes.push(rot);
       });
       return nomes;
@@ -4523,7 +4528,7 @@ function TelaFrota() {
       '<div class="cartao__corpo">' +
         '<label class="campo"><span class="campo__rot">Tipo</span>' +
           '<select id="cam-tipo" class="entrada">' +
-            ['TOCO', 'TRUCK', 'CARRETA', 'BAÚ', 'F-4000', 'VAN', 'OUTRO'].map(function (t) {
+            ['TOCO', 'TRUCK', 'CARRETA', 'CAVALO', 'BAÚ', 'F-4000', 'VAN', 'OUTRO'].map(function (t) {
               return '<option value="' + t + '">' + t + '</option>';
             }).join('') +
           '</select></label>' +
@@ -4762,7 +4767,9 @@ function TelaMeusEventos() {
         if (cg.evento_id !== evId || cg.sentido === 'retorno' || !cg.caminhao_id) return;
         var cam = todosCaminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
         if (!cam) return;
-        var rot = (cam.nome || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        var rot = (cam.tipo || cam.modelo || 'Caminhão') + (cam.placa ? ' — ' + cam.placa : '');
+        var cav = cg.cavalo_id ? todosCaminhoes.filter(function (x) { return x.id === cg.cavalo_id; })[0] : null;
+        if (cav) rot += ' 🔗 ' + cav.placa;
         if (nomes.indexOf(rot) < 0) nomes.push(rot);
       });
       return nomes;
@@ -5283,7 +5290,7 @@ function TelaEvento(eventoId) {
               ? ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📋 checklist próprio</span>'
               : '') +
             selo(cg.status) + '</div>' +
-          '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
+          '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)) + '</b></span>' +
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (ehCoord && !saidaFinal && !eventoFechado
               ? '<button class="btn btn--peq js-plano-cg" data-cg="' + cg.id + '">📋 ' + (planoCg.length ? 'Checklist do caminhão' : 'DEFINIR CHECKLIST') + '</button>' +
@@ -5401,7 +5408,7 @@ function TelaEvento(eventoId) {
         h += '<div class="carga">' +
           '<div class="carga__topo"><span class="carga__tit">↩️ RETORNO — CARREG. ' + cg.numero +
             (cg.nome ? ' · ' + U.esc(cg.nome) : '') + '</span>' + selo(cg.status) + '</div>' +
-          '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id)) + '</b></span>' +
+          '<div class="carga__cam"><span>🚛</span><span><b>' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)) + '</b></span>' +
             '<span style="margin-left:auto;display:flex;gap:6px">' +
             (!retornoFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
@@ -5456,25 +5463,59 @@ function TelaEvento(eventoId) {
     tela.innerHTML = h;
 
     /* ---------- escolher caminhão (novo carregamento / trocar) ---------- */
+    /* carreta não anda sozinha: precisa do cavalo engatado */
+    function ehCarreta(c) { return /CARRETA/i.test(c.tipo || ''); }
+    function ehCavalo(c) { return /CAVALO/i.test(c.tipo || ''); }
+
     function escolherCaminhao(titulo) {
       return new Promise(function (resolve) {
         var ativos = p.caminhoes.filter(function (c) { return c.ativo !== false; });
-        if (!ativos.length) {
+        var veiculos = ativos.filter(function (c) { return !ehCavalo(c); });
+        var cavalos = ativos.filter(ehCavalo);
+        if (!veiculos.length) {
           U.aviso('Nenhum caminhão ativo. Cadastre na FROTA, no painel do coordenador.', 'erro', 7000);
           return resolve(null);
         }
         var m = U.modal({
           titulo: titulo,
-          html: '<div class="escolha">' + ativos.map(function (c) {
+          html: '<div class="escolha">' + veiculos.map(function (c) {
             return '<button class="escolha__item js-cam" data-id="' + c.id + '">' +
               '<span class="escolha__ini" style="background:var(--laranja)">🚚</span>' +
               '<span><span class="escolha__nome">' + U.esc(c.tipo) + (c.modelo ? ' — ' + U.esc(c.modelo) : '') + '</span>' +
-              '<span class="escolha__papel">Placa ' + U.esc(c.placa) + '</span></span></button>';
+              '<span class="escolha__papel">Placa ' + U.esc(c.placa) +
+                (ehCarreta(c) ? ' · escolhe o cavalo depois' : '') + '</span></span></button>';
           }).join('') + '</div>'
         });
         m.querySelector('.modal__fundo').addEventListener('click', function () { resolve(null); });
         U.$$('.js-cam', m).forEach(function (b) {
-          b.addEventListener('click', function () { m.fechar(); resolve(b.dataset.id); });
+          b.addEventListener('click', function () {
+            var esc = veiculos.filter(function (c) { return c.id === b.dataset.id; })[0];
+            m.fechar();
+            if (!esc || !ehCarreta(esc)) return resolve({ caminhao_id: b.dataset.id, cavalo_id: null });
+            if (!cavalos.length) {
+              U.aviso('Nenhum cavalo cadastrado na FROTA — a carreta vai sem cavalo definido.', 'erro', 7000);
+              return resolve({ caminhao_id: b.dataset.id, cavalo_id: null });
+            }
+            /* passo 2: qual cavalo puxa esta carreta */
+            var m2 = U.modal({
+              titulo: '🔗 Qual cavalo vai puxar?',
+              html: '<p class="mut peq" style="margin-bottom:10px">Carreta ' + U.esc(esc.placa) +
+                  ' — escolha o cavalo engatado.</p>' +
+                '<div class="escolha">' + cavalos.map(function (c) {
+                  return '<button class="escolha__item js-cav" data-id="' + c.id + '">' +
+                    '<span class="escolha__ini" style="background:var(--azul)">🛻</span>' +
+                    '<span><span class="escolha__nome">CAVALO' + (c.modelo ? ' — ' + U.esc(c.modelo) : '') + '</span>' +
+                    '<span class="escolha__papel">Placa ' + U.esc(c.placa) + '</span></span></button>';
+                }).join('') + '</div>'
+            });
+            m2.querySelector('.modal__fundo').addEventListener('click', function () { resolve(null); });
+            U.$$('.js-cav', m2).forEach(function (b2) {
+              b2.addEventListener('click', function () {
+                m2.fechar();
+                resolve({ caminhao_id: b.dataset.id, cavalo_id: b2.dataset.id });
+              });
+            });
+          });
         });
       });
     }
@@ -5851,7 +5892,7 @@ function TelaEvento(eventoId) {
                   return '<button class="etapa js-cg-destino" data-cg="' + c.id + '">' +
                     '<span class="etapa__n">🚛</span>' +
                     '<span class="etapa__c"><span class="etapa__t">CARREG. ' + c.numero + '</span>' +
-                    '<span class="etapa__d">' + U.esc(nomeCaminhao(p.caminhoes, c.caminhao_id)) + '</span></span>' +
+                    '<span class="etapa__d">' + U.esc(nomeCaminhao(p.caminhoes, c.caminhao_id, c.cavalo_id)) + '</span></span>' +
                     '<span class="etapa__seta">›</span></button>';
                 }).join('') +
                 '<button class="etapa" id="cg-novo">' +
@@ -5884,11 +5925,11 @@ function TelaEvento(eventoId) {
             });
             m2.querySelector('#cg-novo').addEventListener('click', function () {
               m2.fechar();
-              escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (camId) {
-                if (!camId) return;
+              escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (esc) {
+                if (!esc) return;
                 var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
                 fecharECarregar(Banco.criarCarregamento({
-                  evento_id: eventoId, numero: numero, caminhao_id: camId,
+                  evento_id: eventoId, numero: numero, caminhao_id: esc.caminhao_id, cavalo_id: esc.cavalo_id,
                   sentido: 'saida', status: 'Saída pendente'
                 }).then(function (novo) { return novo.id; }));
               });
@@ -6119,15 +6160,15 @@ function TelaEvento(eventoId) {
       setTimeout(function () { novoCarreg.click(); }, 400);
     }
     if (novoCarreg) novoCarreg.addEventListener('click', function () {
-      escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (camId) {
-        if (!camId) return;
-        nomearEAnexar(camId);
+      escolherCaminhao('Qual caminhão vai fazer este carregamento?').then(function (esc) {
+        if (!esc) return;
+        nomearEAnexar(esc.caminhao_id, esc.cavalo_id);
       });
     });
 
     /* Depois do caminhão: nome do carregamento (Piso, Octanorm, Treliça...)
        e o CHECKLIST DELE. Cada carregamento tem o seu — nada se mistura. */
-    function nomearEAnexar(camId) {
+    function nomearEAnexar(camId, cavaloId) {
       var nomesJa = p.carregamentos.map(function (c) { return c.nome; }).filter(Boolean);
       var sugestoesNome = ['PISO', 'OCTANORM', 'TRELIÇA', 'TENDA', 'PALCO', 'SOM', 'ILUMINAÇÃO', 'MOBILIÁRIO']
         .concat(nomesJa).filter(function (n, i, a) { return a.indexOf(n) === i; });
@@ -6182,7 +6223,7 @@ function TelaEvento(eventoId) {
         var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
         var obsCg = (m.querySelector('#ncg-obs').value || '').trim();
         return Banco.criarCarregamento({
-          evento_id: eventoId, numero: numero, caminhao_id: camId,
+          evento_id: eventoId, numero: numero, caminhao_id: camId, cavalo_id: cavaloId || null,
           sentido: 'saida', status: 'Saída pendente', nome: nomeCg || null,
           observacoes: obsCg || null
         });
@@ -6244,11 +6285,11 @@ function TelaEvento(eventoId) {
     /* ↩️ REGISTRAR RETORNO: escolhe o caminhão e JÁ CAI na contagem */
     var regRetorno = U.$('#btn-reg-retorno', tela);
     if (regRetorno) regRetorno.addEventListener('click', function () {
-      escolherCaminhao('Qual caminhão chegou com o retorno?').then(function (camId) {
-        if (!camId) return;
+      escolherCaminhao('Qual caminhão chegou com o retorno?').then(function (esc) {
+        if (!esc) return;
         var numero = p.carregamentos.reduce(function (mx, c) { return Math.max(mx, c.numero || 0); }, 0) + 1;
         Banco.criarCarregamento({
-          evento_id: eventoId, numero: numero, caminhao_id: camId,
+          evento_id: eventoId, numero: numero, caminhao_id: esc.caminhao_id, cavalo_id: esc.cavalo_id,
           sentido: 'retorno', status: 'Retorno pendente'
         }).then(function (novo) {
           App.abrir(TelaConferencia, { eventoId: eventoId, carregamentoId: novo.id, tipo: 'retorno' });
@@ -6450,9 +6491,9 @@ function TelaEvento(eventoId) {
 
     U.$$('.js-trocar-cam', tela).forEach(function (b) {
       b.addEventListener('click', function () {
-        escolherCaminhao('Trocar o caminhão deste carregamento').then(function (camId) {
-          if (!camId) return;
-          Banco.atualizarCarregamento(b.dataset.cg, { caminhao_id: camId })
+        escolherCaminhao('Trocar o caminhão deste carregamento').then(function (esc) {
+          if (!esc) return;
+          Banco.atualizarCarregamento(b.dataset.cg, { caminhao_id: esc.caminhao_id, cavalo_id: esc.cavalo_id })
             .then(function () { U.aviso('✓ Caminhão atualizado.', 'ok'); App.recarregar(); })
             .catch(App.falhou);
         });
@@ -7195,7 +7236,7 @@ function TelaConferencia(arg) {
         : '') + '</div>';
 
     h += '<div class="carga__cam" style="border:2px solid var(--linha);border-radius:var(--r);margin-bottom:14px;background:var(--branco)">' +
-      '<span>🚛</span><b>' + U.esc(nomeCaminhao(pacote.caminhoes, carregamento.caminhao_id)) + '</b></div>';
+      '<span>🚛</span><b>' + U.esc(nomeCaminhao(pacote.caminhoes, carregamento.caminhao_id, carregamento.cavalo_id)) + '</b></div>';
 
     /* agora, mesmo no retorno às cegas, a comparação é revelada */
     if (cega) {
@@ -7359,7 +7400,7 @@ function TelaConferencia(arg) {
     h += '<div class="aviso aviso--azul"><span class="aviso__ico">ℹ</span><div>' + explicacao + '</div></div>';
 
     h += '<div class="carga__cam" style="border:2px solid var(--linha);border-radius:var(--r);margin-bottom:14px;background:var(--branco)">' +
-      '<span>🚛</span><b>' + U.esc(nomeCaminhao(pacote.caminhoes, carregamento.caminhao_id)) + '</b>' +
+      '<span>🚛</span><b>' + U.esc(nomeCaminhao(pacote.caminhoes, carregamento.caminhao_id, carregamento.cavalo_id)) + '</b>' +
       '<span class="mut peq" style="margin-left:auto">Carregamento ' + carregamento.numero + '</span></div>';
 
     if (conferencia && !finalizada()) {
@@ -7600,7 +7641,7 @@ function TelaConferencia(arg) {
                   '<span class="etapa__n">🚛</span>' +
                   '<span class="etapa__c"><span class="etapa__t">CARREG. ' + c.numero +
                     (c.nome ? ' · ' + U.esc(c.nome) : '') + '</span>' +
-                  '<span class="etapa__d">' + U.esc(nomeCaminhao(pacote.caminhoes, c.caminhao_id)) + '</span></span>' +
+                  '<span class="etapa__d">' + U.esc(nomeCaminhao(pacote.caminhoes, c.caminhao_id, c.cavalo_id)) + '</span></span>' +
                   '<span class="etapa__seta">›</span></button>';
               }).join('') +
               '<button class="etapa" id="pa-novo">' +
@@ -8985,9 +9026,13 @@ function TelaRelatorios() {
     var planoPorEvento = {}, itensPorEvento = {};
     todosPlanos.forEach(function (pl) { var e = cgIdEvento[pl.carregamento_id]; if (e) (planoPorEvento[e] = planoPorEvento[e] || []).push(pl); });
     todosItens.forEach(function (i) { var e = confIdEvento[i.conferencia_id]; if (e) (itensPorEvento[e] = itensPorEvento[e] || []).push(i); });
-    function nomeCam(id) {
+    function nomeCam(id, cavaloId) {
       var c = todosCaminhoes.filter(function (x) { return x.id === id; })[0];
-      return c ? (c.nome || c.modelo || 'Caminhão') + (c.placa ? ' — ' + c.placa : '') : '—';
+      if (!c) return '—';
+      var txt = (c.tipo || c.modelo || 'Caminhão') + (c.placa ? ' — ' + c.placa : '');
+      var cav = cavaloId ? todosCaminhoes.filter(function (x) { return x.id === cavaloId; })[0] : null;
+      if (cav) txt += ' 🔗 ' + cav.placa;
+      return txt;
     }
     function linhasDe(ev) {
       return Calculo.montarEvento(prodPorEvento[ev.id] || [], cgPorEvento[ev.id] || [],
@@ -9061,11 +9106,11 @@ function TelaRelatorios() {
           cgs.map(function (cg) {
             var conf = Calculo.confDe(App.conferencias, cg.id, cg.sentido === 'retorno' ? 'retorno' : 'saida');
             var qtdItens = todosPlanos.filter(function (pl) { return pl.carregamento_id === cg.id; }).length;
-            exportLinhas.push([ev.nome, cg.numero, cg.nome || '', cg.sentido || 'saida', nomeCam(cg.caminhao_id),
+            exportLinhas.push([ev.nome, cg.numero, cg.nome || '', cg.sentido || 'saida', nomeCam(cg.caminhao_id, cg.cavalo_id),
               conf ? conf.status : 'não iniciada', qtdItens]);
             return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
               '<span>' + (cg.sentido === 'retorno' ? '↩️' : '🚚') + ' Carreg. ' + cg.numero +
-                (cg.nome ? ' · <b>' + U.esc(cg.nome) + '</b>' : '') + ' · ' + U.esc(nomeCam(cg.caminhao_id)) + '</span>' +
+                (cg.nome ? ' · <b>' + U.esc(cg.nome) + '</b>' : '') + ' · ' + U.esc(nomeCam(cg.caminhao_id, cg.cavalo_id)) + '</span>' +
               '<span>' + (conf ? U.esc(conf.status) : '<span class="mut">não iniciada</span>') +
                 (qtdItens ? ' · ' + qtdItens + ' itens' : '') + '</span></div>';
           }).join('') + '</div></div>';
@@ -9636,7 +9681,7 @@ const Relatorio = {
     return {
       tipo: tipo,
       carregamento: cg,
-      caminhao: nomeCaminhao(pacote.caminhoes, cg.caminhao_id),
+      caminhao: nomeCaminhao(pacote.caminhoes, cg.caminhao_id, cg.cavalo_id),
       conferencia: c,
       conferente: App.nomeUsuario(c.conferente_id),
       linhas: linhas,
