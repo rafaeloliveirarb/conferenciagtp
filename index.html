@@ -9054,8 +9054,10 @@ function TelaRelatorios() {
       App.eventos.forEach(function (ev) {
         var cgs = (cgPorEvento[ev.id] || []).filter(function () { return casaBusca(ev.nome + ' ' + (ev.cliente || '')); });
         if (!cgs.length) return;
-        h += '<div class="cartao"><div class="cartao__topo"><h3>' + U.esc(ev.nome) + '</h3>' +
-          '<span class="mut peq">' + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo">' +
+        h += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
+          '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
+          U.esc(ev.nome) + '</h3>' +
+          '<span class="mut peq">' + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo" hidden>' +
           cgs.map(function (cg) {
             var conf = Calculo.confDe(App.conferencias, cg.id, cg.sentido === 'retorno' ? 'retorno' : 'saida');
             var qtdItens = todosPlanos.filter(function (pl) { return pl.carregamento_id === cg.id; }).length;
@@ -9080,7 +9082,13 @@ function TelaRelatorios() {
         var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
         var linhasEv = porNomeDe(ev).filter(function (b) { return b.dano > 0 || (fechado && b.fora > 0 && !ev.pendencia_resolvida_em); });
         if (!linhasEv.length) return;
-        h += '<div class="cartao"><div class="cartao__topo"><h3>' + U.esc(ev.nome) + '</h3></div><div class="cartao__corpo">' +
+        var totEv = 0;
+        linhasEv.forEach(function (b) { totEv += b.dano + (fechado ? b.fora : 0); });
+        h += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
+          '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
+          U.esc(ev.nome) + '</h3>' +
+          '<span class="peq" style="color:var(--vermelho);font-weight:800">' + U.fmt(totEv) + ' peça(s)</span>' +
+          '</div><div class="cartao__corpo" hidden>' +
           linhasEv.map(function (b) {
             total += b.dano + (fechado ? b.fora : 0);
             exportLinhas.push([ev.nome, b.nome, b.dano, fechado ? b.fora : 0]);
