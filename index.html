@@ -5094,21 +5094,23 @@ function TelaEvento(eventoId) {
     }
 
     var eventoPorCaminhao = (p.planos || []).length > 0;
-    /* conferente na fase de retorno: números da saída ficam ocultos (às cegas) */
+    /* CONFERENTE É SEMPRE ÀS CEGAS: checklist total e quantidades são do
+       coordenador. O conferente conta na conferência, sem ver o previsto. */
     var _saidasCega = p.carregamentos.filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
-    var faseRetornoCega = !ehCoord &&
+    var eventoAberto = !(ev.status === 'Finalizado' || ev.status === 'Com divergência');
+    var faseRetornoCega = !ehCoord && eventoAberto &&
       _saidasCega.length > 0 &&
       _saidasCega.every(function (cg) {
         var c = Calculo.confDe(p.conferencias, cg.id, 'saida');
         return !!c && (c.status === 'Finalizado' || c.status === 'Com divergência');
-      }) &&
-      !(ev.status === 'Finalizado' || ev.status === 'Com divergência');
+      });
+    var escondeChecklist = !ehCoord && eventoAberto;
 
-    if (faseRetornoCega) {
+    if (escondeChecklist) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🙈</span><div>' +
-        '<b>Checklist guardado para o retorno às cegas.</b>' +
-        'Conte o que chegou em cada caminhão sem olhar o que saiu — a comparação completa ' +
-        'aparece quando o evento for encerrado.</div></div>';
+        '<b>Conferência às cegas.</b>' +
+        'O checklist fica com o coordenador: você conta o que sobe e o que desce do caminhão, ' +
+        'e o app compara sozinho. A comparação completa aparece quando o evento for encerrado.</div></div>';
     } else if (!p.produtos.length) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🚚</span><div>' +
         '<b>O checklist entra pelo carregamento.</b>' +
@@ -5301,7 +5303,7 @@ function TelaEvento(eventoId) {
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
           '</div>' +
-          (planoCg.length
+          (planoCg.length && ehCoord
             ? '<div style="margin:10px 14px 0;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
               '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
                 '📋 Checklist deste caminhão · ' + planoCg.length + ' itens · ' + U.fmt(planoQtd) + ' unid.</div>' +
@@ -9158,8 +9160,8 @@ function TelaRelatorios() {
           linhasEv.map(function (b) {
             total += b.dano + (fechado ? b.fora : 0);
             exportLinhas.push([ev.nome, b.nome, b.dano, fechado ? b.fora : 0]);
-            return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-              '<span>' + U.esc(b.nome) + '</span><span>' +
+            return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--linha)">' +
+              '<span>' + U.esc(b.nome) + '</span><span style="display:flex;gap:8px;align-items:center">' +
               (b.dano > 0 ? '<b style="color:var(--vermelho)">🔧 ' + U.fmt(b.dano) + ' danificada(s)</b> ' : '') +
               (fechado && b.fora > 0 ? '<b style="color:var(--laranja)">✂ ' + U.fmt(b.fora) + ' não voltou</b>' : '') +
               '</span></div>';
@@ -9219,10 +9221,92 @@ function TelaRelatorios() {
         }).join('') + '</div></div>';
     }
 
+    /* 🛠️ MANUTENÇÃO — peças danificadas no retorno: o que está na oficina,
+       o que já foi consertado e o que virou sucata. */
+    function abaManutencao() {
+      exportTitulo = 'Manutenção';
+      exportLinhas = [['Evento', 'Item', 'Qtd', 'Situação', 'Defeito', 'Resolvido por', 'Quando']];
+
+      var pendentes = [], resolvidos = [];
+      todosItens.forEach(function (i) {
+        var q = U.num(i.qtd_danificada);
+        if (!(q > 0)) return;
+        var evId = confIdEvento[i.conferencia_id];
+        var ev = App.eventos.filter(function (e) { return e.id === evId; })[0];
+        var prod = todosProdutos.filter(function (p) { return p.id === i.produto_id; })[0];
+        var nome = prod ? prod.nome : 'Item';
+        if (!casaBusca((ev ? ev.nome : '') + ' ' + nome)) return;
+        var reg = {
+          id: i.id, nome: nome, qtd: q, evNome: ev ? ev.nome : '—', evId: evId,
+          defeito: i.dano_descricao || '', foto: i.dano_foto_base64 || null,
+          status: i.manutencao_status || 'pendente',
+          por: i.manutencao_por || '', em: i.manutencao_em || '', obs: i.manutencao_obs || ''
+        };
+        (reg.status === 'pendente' ? pendentes : resolvidos).push(reg);
+      });
+
+      var totalPend = 0;
+      pendentes.forEach(function (r) { totalPend += r.qtd; });
+      var consertadas = 0, descartadas = 0;
+      resolvidos.forEach(function (r) {
+        if (r.status === 'consertada') consertadas += r.qtd; else descartadas += r.qtd;
+      });
+
+      function linhaCard(r, comBotoes) {
+        exportLinhas.push([r.evNome, r.nome, r.qtd,
+          r.status === 'pendente' ? 'Na oficina' : r.status === 'consertada' ? 'Consertada' : 'Descartada',
+          r.defeito, r.por, r.em ? U.fmtDataHora(r.em) : '']);
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--linha)">' +
+          '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">' +
+            '<span><b>' + U.fmt(r.qtd) + '×</b> ' + U.esc(r.nome) +
+              ' <span class="peq mut">· ' + U.esc(r.evNome) + '</span></span>' +
+            (comBotoes
+              ? '<span style="display:flex;gap:6px">' +
+                '<button class="btn btn--verde btn--peq js-mnt" data-id="' + r.id + '" data-acao="consertada" ' +
+                  'data-nome="' + U.esc(r.nome) + '">🔧 Consertada</button>' +
+                '<button class="btn btn--branco btn--peq js-mnt" data-id="' + r.id + '" data-acao="descartada" ' +
+                  'data-nome="' + U.esc(r.nome) + '" style="color:var(--vermelho);border-color:var(--vermelho)">🗑️ Sucata</button>' +
+                '</span>'
+              : '<span class="peq" style="color:' + (r.status === 'consertada' ? 'var(--verde)' : 'var(--vermelho)') + ';font-weight:800">' +
+                (r.status === 'consertada' ? '🔧 Consertada' : '🗑️ Descartada') +
+                (r.por ? ' · ' + U.esc(r.por) : '') + (r.em ? ' · ' + U.fmtData(r.em) : '') + '</span>') +
+          '</div>' +
+          (r.defeito ? '<p class="peq mut" style="margin-top:4px">📝 ' + U.esc(r.defeito) + '</p>' : '') +
+          (r.obs ? '<p class="peq" style="margin-top:2px;color:var(--azul)">🛠️ ' + U.esc(r.obs) + '</p>' : '') +
+          (r.foto ? '<img src="' + r.foto + '" style="max-width:150px;border-radius:8px;margin-top:6px">' : '') +
+        '</div>';
+      }
+
+      return '<div class="dupla" style="margin-bottom:16px">' +
+          '<div class="cartao" style="text-align:center;padding:18px 10px">' +
+            '<p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalPend) + '</p>' +
+            '<p class="mut peq">Peças na oficina agora</p></div>' +
+          '<div class="cartao" style="text-align:center;padding:18px 10px">' +
+            '<p style="font-size:34px;font-weight:900;color:var(--verde)">' + U.fmt(consertadas) + '</p>' +
+            '<p class="mut peq">Já consertadas</p></div>' +
+        '</div>' +
+        '<div class="cartao"><div class="cartao__topo"><h3>🛠️ Na oficina</h3>' +
+          '<span class="mut peq">' + pendentes.length + ' registro(s)</span></div><div class="cartao__corpo">' +
+          (pendentes.length
+            ? '<p class="mut peq" style="margin-bottom:6px">Peças que voltaram danificadas e ainda não foram resolvidas.</p>' +
+              pendentes.map(function (r) { return linhaCard(r, Sessao.ehCoordenador()); }).join('')
+            : '<p class="mut peq">Nenhuma peça esperando conserto. 🎉</p>') +
+        '</div></div>' +
+        (resolvidos.length
+          ? '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
+            '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
+            'Histórico da oficina</h3><span class="mut peq">' + resolvidos.length + ' · 🗑️ ' + U.fmt(descartadas) + ' sucata</span>' +
+            '</div><div class="cartao__corpo" hidden>' +
+            resolvidos.map(function (r) { return linhaCard(r, false); }).join('') +
+          '</div></div>'
+          : '');
+    }
+
     var ABAS = {
       material: { rot: '🚧 Material na rua', fn: abaMaterial },
       cargas: { rot: '🚚 Carregamentos', fn: abaCarregamentos },
       perdas: { rot: '🔧 Perdas e quebras', fn: abaPerdas },
+      manutencao: { rot: '🛠️ Manutenção', fn: abaManutencao },
       historico: { rot: '🗂️ Histórico por evento', fn: abaHistorico },
       giro: { rot: '🔄 Giro de peças', fn: abaGiro }
     };
@@ -9267,6 +9351,55 @@ function TelaRelatorios() {
       });
       U.$$('.js-rel-abrir', tela).forEach(function (c) {
         c.addEventListener('click', function () { App.abrir(TelaEvento, c.dataset.id); });
+      });
+
+      /* 🔧 consertada / 🗑️ sucata */
+      U.$$('.js-mnt', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var acao = b.dataset.acao;
+          var m = U.modal({
+            titulo: acao === 'consertada' ? '🔧 Peça consertada' : '🗑️ Dar baixa (sucata)',
+            html: '<p>' + U.esc(b.dataset.nome) + '</p>' +
+              '<p class="mut peq" style="margin-top:6px">' +
+                (acao === 'consertada'
+                  ? 'A peça sai da oficina e volta a contar como disponível.'
+                  : 'A peça é dada como perdida e sai do estoque disponível.') + '</p>' +
+              '<label class="campo" style="margin-top:10px"><span class="campo__rot">📝 Observação (opcional)</span>' +
+                '<textarea class="entrada" id="mnt-obs" rows="2" style="resize:vertical" ' +
+                  'placeholder="Ex.: solda refeita na oficina; sem conserto, base torta"></textarea></label>',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+                '<button class="btn ' + (acao === 'consertada' ? 'btn--verde' : 'btn--laranja') + '" data-ok>CONFIRMAR</button>',
+            travado: true
+          });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var bo = m.querySelector('[data-ok]');
+            bo.disabled = true; bo.textContent = 'Salvando...';
+            Banco.cliente.from('itens_conferencia').update({
+              manutencao_status: acao,
+              manutencao_em: new Date().toISOString(),
+              manutencao_por: Sessao.atual.nome,
+              manutencao_obs: (m.querySelector('#mnt-obs').value || '').trim() || null
+            }).eq('id', b.dataset.id).then(function (r) {
+              if (r.error) throw r.error;
+              /* atualiza na memória e redesenha */
+              todosItens.forEach(function (i) {
+                if (i.id === b.dataset.id) {
+                  i.manutencao_status = acao;
+                  i.manutencao_em = new Date().toISOString();
+                  i.manutencao_por = Sessao.atual.nome;
+                }
+              });
+              m.fechar();
+              U.aviso(acao === 'consertada' ? '🔧 Peça consertada.' : '🗑️ Baixa registrada.', 'ok', 4000);
+              U.$('#rel-conteudo', tela).innerHTML = ABAS[abaAtiva].fn();
+              ligarConteudo();
+            }).catch(function (e) {
+              bo.disabled = false; bo.textContent = 'CONFIRMAR';
+              App.falhou(e);
+            });
+          });
+        });
       });
     }
 
