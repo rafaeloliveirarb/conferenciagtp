@@ -5067,47 +5067,67 @@ function TelaEvento(eventoId) {
         : '') +
       '</div></div>';
 
-    /* --- 🤝 produtor: link externo + o que ele enviou --- */
+    /* --- 🤝 produtor: link externo + o que ele enviou (POR CARREGAMENTO) --- */
     if (ehCoord) {
       var cps = p.confProdutor || [];
-      var cheg = cps.filter(function (c) { return c.tipo === 'chegada'; })[0];
       var sob = cps.filter(function (c) { return c.tipo === 'sobra'; })[0];
+      var chegPorCg = {};
+      cps.forEach(function (c) { if (c.tipo === 'chegada' && c.carregamento_id) chegPorCg[c.carregamento_id] = c; });
+      var saidasProd = p.carregamentos.filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
+
       h += '<div class="cartao"><div class="cartao__topo"><h3>🤝 Conferência do produtor</h3>' +
         '<span class="mut peq">' + (cps.length ? cps.length + ' enviada(s)' : 'link externo') + '</span></div>' +
         '<div class="cartao__corpo">' +
-          '<p class="mut peq">Página externa para quem recebe o material no evento: confirma a <b>chegada</b> ' +
+          '<p class="mut peq">Página externa para quem recebe no evento: ele confere <b>caminhão por caminhão</b> ' +
             'e declara a <b>sobra</b> no fim. Não vê preço nem outros eventos.</p>' +
-          [['📥 Chegada', cheg], ['📦 Sobra', sob]].map(function (par) {
-            var rot = par[0], c = par[1];
-            if (!c) {
-              return '<p class="peq mut" style="margin-top:8px">' + rot + ': <b>ainda não enviada</b></p>';
-            }
-            var tot = 0;
-            (c.itens || []).forEach(function (i) { tot += U.num(i.qtd); });
-            var difs = (c.itens || []).filter(function (i) {
-              return c.tipo === 'chegada' && U.num(i.qtd) !== U.num(i.previsto);
-            });
-            return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
-              '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
-                rot + ' · ' + U.fmt(tot) + ' peças · ' + U.esc(c.responsavel || '—') +
-                ' · ' + U.fmtData(c.finalizada_em) + '</div>' +
-              '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
-                (c.tipo === 'chegada'
-                  ? (difs.length
-                      ? difs.map(function (i) {
+          (saidasProd.length
+            ? saidasProd.map(function (cg) {
+                var c = chegPorCg[cg.id];
+                if (!c) {
+                  return '<p class="peq mut" style="margin-top:8px">🚚 Carreg. ' + cg.numero +
+                    (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ': <b>produtor ainda não conferiu</b></p>';
+                }
+                var difs = (c.itens || []).filter(function (i2) { return U.num(i2.qtd) !== U.num(i2.previsto); });
+                var tot = 0;
+                (c.itens || []).forEach(function (i2) { tot += U.num(i2.qtd); });
+                return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
+                  '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
+                    '🚚 Carreg. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' · ' + U.fmt(tot) + ' peças · ' +
+                    U.esc(c.responsavel || '—') + ' · ' + U.fmtData(c.finalizada_em) + '</div>' +
+                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
+                    (difs.length
+                      ? difs.map(function (i2) {
                           return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                            '<span>' + U.esc(i.nome) + '</span><b style="color:var(--laranja)">chegou ' +
-                            U.fmt(i.qtd) + ' de ' + U.fmt(i.previsto) + '</b></div>';
+                            '<span>' + U.esc(i2.nome) + '</span><b style="color:var(--laranja)">chegou ' +
+                            U.fmt(i2.qtd) + ' de ' + U.fmt(i2.previsto) + '</b></div>';
                         }).join('')
-                      : '<p class="peq" style="color:var(--verde);font-weight:700;padding:8px 0">✓ Produtor confirmou tudo conforme enviado.</p>')
-                  : (c.itens || []).filter(function (i) { return U.num(i.qtd) > 0; }).map(function (i) {
+                      : '<p class="peq" style="color:var(--verde);font-weight:700;padding:8px 0">✓ Produtor confirmou tudo conforme enviado.</p>') +
+                  '</div>' +
+                  (c.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(c.observacao) + '</p>' : '') +
+                '</div>';
+              }).join('')
+            : '<p class="peq mut" style="margin-top:8px">Nenhum carregamento criado ainda.</p>') +
+
+          (sob
+            ? (function () {
+                var itensSob = (sob.itens || []).filter(function (i2) { return U.num(i2.qtd) > 0; });
+                var totS = 0;
+                itensSob.forEach(function (i2) { totS += U.num(i2.qtd); });
+                return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
+                  '<div class="peq" style="background:#FFF4E5;color:var(--laranja);font-weight:800;padding:6px 12px">' +
+                    '📦 Sobra declarada · ' + U.fmt(totS) + ' peças · ' + U.esc(sob.responsavel || '—') +
+                    ' · ' + U.fmtData(sob.finalizada_em) + '</div>' +
+                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
+                    (itensSob.map(function (i2) {
                       return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                        '<span>' + U.esc(i.nome) + '</span><b>' + U.fmt(i.qtd) + ' ' + U.esc(i.unidade || 'UN') + '</b></div>';
+                        '<span>' + U.esc(i2.nome) + '</span><b>' + U.fmt(i2.qtd) + ' ' + U.esc(i2.unidade || 'UN') + '</b></div>';
                     }).join('') || '<p class="peq mut" style="padding:8px 0">Nenhuma sobra declarada.</p>') +
-              '</div>' +
-              (c.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(c.observacao) + '</p>' : '') +
-            '</div>';
-          }).join('') +
+                  '</div>' +
+                  (sob.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(sob.observacao) + '</p>' : '') +
+                '</div>';
+              })()
+            : '<p class="peq mut" style="margin-top:8px">📦 Sobra: <b>ainda não declarada</b></p>') +
+
           '<button class="btn btn--branco btn--bloco btn--peq" id="btn-link-produtor" style="margin-top:12px">' +
             '🔗 ' + (ev.token_produtor ? 'VER / COPIAR O LINK DO PRODUTOR' : 'GERAR LINK DO PRODUTOR') + '</button>' +
         '</div></div>';

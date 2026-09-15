@@ -78,7 +78,18 @@ var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 var tela = document.getElementById('tela');
 var token = (location.hash || '').replace('#', '').trim();
 
-var evento = null, itensBase = [], aba = 'chegada', jaFeitas = {};
+var evento = null, itensBase = [], aba = 'chegada', jaFeitas = { chegada: {}, sobra: null };
+var cargas = [], cargaSel = null, caminhoes = [], sobraBase = [];
+var produtosEv = [], planoPorCg = {};
+
+function nomeCam(cg) {
+  var c = caminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+  if (!c) return 'caminhão a definir';
+  var t = (c.tipo || 'Caminhão') + (c.placa ? ' — ' + c.placa : '');
+  var cav = cg.cavalo_id ? caminhoes.filter(function (x) { return x.id === cg.cavalo_id; })[0] : null;
+  if (cav) t += ' + cavalo ' + cav.placa;
+  return t;
+}
 
 function esc(t) {
   return String(t === null || t === undefined ? '' : t)
@@ -115,20 +126,30 @@ function carregar() {
       document.getElementById('sub').textContent = evento.nome;
       return Promise.all([
         cli.from('produtos').select('id,nome,unidade,quantidade_prevista').eq('evento_id', evento.id),
-        cli.from('carregamentos').select('id').eq('evento_id', evento.id),
-        cli.from('conferencias_produtor').select('*').eq('evento_id', evento.id)
+        cli.from('carregamentos').select('*').eq('evento_id', evento.id).order('numero'),
+        cli.from('conferencias_produtor').select('*').eq('evento_id', evento.id),
+        cli.from('caminhoes').select('id,tipo,modelo,placa')
       ]).then(function (rr) {
-        var produtos = (rr[0].data || []);
-        var cgIds = (rr[1].data || []).map(function (c) { return c.id; });
-        (rr[2].data || []).forEach(function (c) { jaFeitas[c.tipo] = c; });
-        if (!cgIds.length) { itensBase = montar(produtos, {}); return desenhar(); }
-        return cli.from('itens_carregamento').select('produto_id,quantidade').in('carregamento_id', cgIds)
+        produtosEv = (rr[0].data || []);
+        caminhoes = (rr[3].data || []);
+        (rr[2].data || []).forEach(function (c) {
+          if (c.tipo === 'sobra') jaFeitas.sobra = c;
+          else jaFeitas.chegada[c.carregamento_id] = c;
+        });
+        /* só os carregamentos de SAÍDA (o que vai para o evento) */
+        cargas = (rr[1].data || []).filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
+        var cgIds = cargas.map(function (c) { return c.id; });
+        if (!cgIds.length) { planoPorCg = {}; sobraBase = montar(produtosEv, {}); return desenhar(); }
+        return cli.from('itens_carregamento').select('carregamento_id,produto_id,quantidade').in('carregamento_id', cgIds)
           .then(function (r3) {
-            var prev = {};
+            planoPorCg = {};
+            var totalEv = {};
             (r3.data || []).forEach(function (pl) {
-              prev[pl.produto_id] = (prev[pl.produto_id] || 0) + num(pl.quantidade);
+              var b = planoPorCg[pl.carregamento_id] || (planoPorCg[pl.carregamento_id] = {});
+              b[pl.produto_id] = (b[pl.produto_id] || 0) + num(pl.quantidade);
+              totalEv[pl.produto_id] = (totalEv[pl.produto_id] || 0) + num(pl.quantidade);
             });
-            itensBase = montar(produtos, prev);
+            sobraBase = montar(produtosEv, totalEv, true);
             desenhar();
           });
       });
@@ -140,9 +161,10 @@ function carregar() {
 }
 
 /* soma por nome: o produtor vê a lista limpa, sem item repetido */
-function montar(produtos, prev) {
+function montar(produtos, prev, estrito) {
   var mapa = {};
   produtos.forEach(function (p) {
+    if (estrito && prev[p.id] === undefined) return;   /* não é deste caminhão */
     var ch = String(p.nome || '').trim().toUpperCase();
     var b = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', previsto: 0 });
     b.previsto += prev[p.id] !== undefined ? prev[p.id] : num(p.quantidade_prevista);
@@ -153,12 +175,10 @@ function montar(produtos, prev) {
 }
 
 function desenhar() {
-  var feita = jaFeitas[aba];
   var h = '<div class="abas">' +
-      '<button class="aba' + (aba === 'chegada' ? ' on' : '') + '" data-aba="chegada">📥 Chegada' +
-        (jaFeitas.chegada && jaFeitas.chegada.status === 'Finalizado' ? ' ✓' : '') + '</button>' +
+      '<button class="aba' + (aba === 'chegada' ? ' on' : '') + '" data-aba="chegada">🚚 Chegada</button>' +
       '<button class="aba' + (aba === 'sobra' ? ' on' : '') + '" data-aba="sobra">📦 Sobra' +
-        (jaFeitas.sobra && jaFeitas.sobra.status === 'Finalizado' ? ' ✓' : '') + '</button>' +
+        (jaFeitas.sobra ? ' ✓' : '') + '</button>' +
     '</div>' +
     '<div class="cartao"><div class="cartao__corpo">' +
       '<b>' + esc(evento.nome) + '</b>' +
@@ -167,96 +187,159 @@ function desenhar() {
         (evento.local ? esc(evento.local) + ' · ' : '') + fmtData(evento.data) + '</p>' +
     '</div></div>';
 
-  if (feita && feita.status === 'Finalizado') {
-    h += '<div class="aviso ok"><span>✅</span><div><b>Conferência enviada.</b><br>' +
-      'Recebida em ' + fmtData(feita.finalizada_em) +
+  if (aba === 'sobra') { tela.innerHTML = h + telaSobra(); return ligarTudo(); }
+
+  /* 1) nenhum caminhão escolhido: lista os caminhões do evento */
+  if (!cargaSel) {
+    h += '<div class="aviso"><span>ℹ️</span><div><b>Confira caminhão por caminhão.</b> ' +
+      'Toque no caminhão que acabou de chegar e confira só o que veio nele. ' +
+      'Chegando outro depois, você confere ele também.</div></div>';
+    if (!cargas.length) {
+      h += '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:30px 12px">' +
+        '<p class="mut">Nenhum carregamento lançado ainda. Tente mais tarde.</p></div></div>';
+    } else {
+      h += cargas.map(function (cg) {
+        var feita = jaFeitas.chegada[cg.id];
+        var plano = planoPorCg[cg.id] || {};
+        var qtdItens = Object.keys(plano).length;
+        return '<div class="cartao js-carga" data-id="' + cg.id + '" style="cursor:pointer">' +
+          '<div class="cartao__corpo" style="display:flex;gap:12px;align-items:center">' +
+            '<span style="font-size:26px">' + (feita ? '✅' : '🚚') + '</span>' +
+            '<span style="flex:1;min-width:0">' +
+              '<b>Carregamento ' + cg.numero + (cg.nome ? ' · ' + esc(cg.nome) : '') + '</b>' +
+              '<span class="peq mut" style="display:block">' + esc(nomeCam(cg)) + '</span>' +
+              '<span class="peq" style="display:block;color:' + (feita ? 'var(--verde)' : 'var(--laranja)') + ';font-weight:700">' +
+                (feita ? 'conferido por ' + esc(feita.responsavel || '—') : qtdItens + ' itens para conferir') +
+              '</span>' +
+            '</span><span class="mut">›</span>' +
+          '</div></div>';
+      }).join('');
+    }
+    tela.innerHTML = h;
+    return ligarTudo();
+  }
+
+  /* 2) caminhão escolhido */
+  var cg = cargas.filter(function (c) { return c.id === cargaSel; })[0];
+  var feita = jaFeitas.chegada[cargaSel];
+  itensBase = montar(produtosEv, planoPorCg[cargaSel] || {}, true);
+
+  h += '<button class="btn" id="voltar-cargas" style="margin-bottom:12px">‹ VER OS OUTROS CAMINHÕES</button>' +
+    '<div class="cartao"><div class="cartao__corpo">' +
+      '<b>Carregamento ' + cg.numero + (cg.nome ? ' · ' + esc(cg.nome) : '') + '</b>' +
+      '<p class="peq mut" style="margin:2px 0 0">' + esc(nomeCam(cg)) + '</p>' +
+      (cg.observacoes ? '<p class="peq" style="margin:8px 0 0">📝 ' + esc(cg.observacoes) + '</p>' : '') +
+    '</div></div>';
+
+  if (feita) {
+    h += '<div class="aviso ok"><span>✅</span><div><b>Este caminhão já foi conferido.</b><br>' +
+      'Recebido em ' + fmtData(feita.finalizada_em) +
       (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') +
-      '. Se precisar corrigir algo, fale com o Grupo Tendas Plenart.</div></div>' +
-      '<div class="cartao"><div class="cartao__topo"><h3>' +
-        (aba === 'chegada' ? '📥 O que você confirmou na chegada' : '📦 A sobra que você declarou') +
-        '</h3><span class="selo">enviada</span></div><div class="cartao__corpo">' +
-      (feita.itens || []).map(function (i) {
-        return '<div class="item"><span class="item__n"><b>' + esc(i.nome) + '</b>' +
-          (aba === 'chegada' ? '<span class="peq mut">enviado ' + fmt(i.previsto) + '</span>' : '') +
-          '</span><b>' + fmt(i.qtd) + ' ' + esc(i.unidade || 'UN') + '</b></div>';
+      '. Para corrigir, fale com o Grupo Tendas Plenart.</div></div>' +
+      '<div class="cartao"><div class="cartao__topo"><h3>📥 O que você confirmou</h3>' +
+        '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
+      (feita.itens || []).map(function (i2) {
+        return '<div class="item"><span class="item__n"><b>' + esc(i2.nome) + '</b>' +
+          '<span class="peq mut">enviado ' + fmt(i2.previsto) + '</span></span>' +
+          '<b style="' + (num(i2.qtd) !== num(i2.previsto) ? 'color:var(--laranja)' : '') + '">' +
+            fmt(i2.qtd) + ' ' + esc(i2.unidade || 'UN') + '</b></div>';
       }).join('') +
       (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
       '</div></div>';
     tela.innerHTML = h;
-    ligarAbas();
-    return;
+    return ligarTudo();
   }
 
-  h += '<div class="aviso"><span>ℹ️</span><div>' +
-    (aba === 'chegada'
-      ? '<b>Conferência de chegada.</b> Confira o que desceu do caminhão e ajuste a quantidade se vier diferente. ' +
-        'O que não chegou, deixe zerado.'
-      : '<b>Sobra do evento.</b> No fim do evento, informe o que ficou sobrando para o Grupo Tendas Plenart recolher. ' +
-        'Item que foi todo usado ou já devolvido, deixe zerado.') +
-    '</div></div>';
-
-  if (!itensBase.length) {
-    h += '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:30px 12px">' +
-      '<p class="mut">A lista de material ainda não foi lançada. Tente mais tarde.</p></div></div>';
-    tela.innerHTML = h;
-    ligarAbas();
-    return;
-  }
-
-  h += '<div class="cartao"><div class="cartao__topo"><h3>' +
-      (aba === 'chegada' ? '📥 Chegou no evento' : '📦 Ficou sobrando') + '</h3>' +
+  h += '<div class="aviso"><span>ℹ️</span><div><b>Confira o que desceu deste caminhão.</b> ' +
+      'Ajuste a quantidade se vier diferente. O que não chegou, deixe zerado.</div></div>' +
+    '<div class="cartao"><div class="cartao__topo"><h3>📥 Chegou neste caminhão</h3>' +
       '<span class="peq mut">' + itensBase.length + ' itens</span></div>' +
     '<div class="cartao__corpo">' +
-      (aba === 'chegada'
-        ? '<button class="btn" id="tudo-ok" style="margin-bottom:12px">✓ CHEGOU TUDO CERTO</button>'
-        : '') +
-      itensBase.map(function (b, i) {
+      '<button class="btn" id="tudo-ok" style="margin-bottom:12px">✓ CHEGOU TUDO CERTO</button>' +
+      itensBase.map(function (b, i2) {
         return '<div class="item">' +
           '<span class="item__n"><b>' + esc(b.nome) + '</b>' +
-            (aba === 'chegada'
-              ? '<span class="peq mut">enviado: ' + fmt(b.previsto) + ' ' + esc(b.unidade) + '</span>'
-              : '<span class="peq mut">' + esc(b.unidade) + '</span>') +
-          '</span>' +
-          '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" ' +
-            'placeholder="0" value="">' +
+            '<span class="peq mut">enviado: ' + fmt(b.previsto) + ' ' + esc(b.unidade) + '</span></span>' +
+          '<input class="entrada qtd js-q" data-i="' + i2 + '" type="number" inputmode="numeric" min="0" placeholder="0">' +
         '</div>';
       }).join('') +
-      '<label style="display:block;margin-top:14px"><span class="peq mut">📝 Observações (opcional)</span>' +
-        '<textarea class="entrada" id="obs" rows="3" style="resize:vertical;margin-top:4px" ' +
-          'placeholder="' + (aba === 'chegada' ? 'Ex.: 2 placas riscadas; faltou 1 caixa de cavilha'
-                                               : 'Ex.: material empilhado no portão 3') + '"></textarea></label>' +
-      '<label style="display:block;margin-top:12px"><span class="peq mut">Seu nome (quem está conferindo) *</span>' +
-        '<input class="entrada" id="resp" style="margin-top:4px" placeholder="Nome de quem confere"></label>' +
+      campoObsNome('Ex.: 2 placas riscadas; faltou 1 caixa de cavilha') +
     '</div></div>' +
-    '<button class="btn ' + (aba === 'chegada' ? 'btn--verde' : 'btn--laranja') + '" id="enviar">' +
-      (aba === 'chegada' ? '✓ ENVIAR CONFERÊNCIA DE CHEGADA' : '📦 ENVIAR A SOBRA') + '</button>' +
-    '<p class="peq mut" style="text-align:center;margin-top:10px">Depois de enviar, a conferência trava. ' +
+    '<button class="btn btn--verde" id="enviar">✓ ENVIAR CONFERÊNCIA DESTE CAMINHÃO</button>' +
+    '<p class="peq mut" style="text-align:center;margin-top:10px">Depois de enviar, este caminhão trava. ' +
       'Correções são feitas pelo Grupo Tendas Plenart.</p>';
 
   tela.innerHTML = h;
-  ligarAbas();
+  ligarTudo();
+}
 
+function campoObsNome(ph) {
+  return '<label style="display:block;margin-top:14px"><span class="peq mut">📝 Observações (opcional)</span>' +
+      '<textarea class="entrada" id="obs" rows="3" style="resize:vertical;margin-top:4px" placeholder="' + ph + '"></textarea></label>' +
+    '<label style="display:block;margin-top:12px"><span class="peq mut">Seu nome (quem está conferindo) *</span>' +
+      '<input class="entrada" id="resp" style="margin-top:4px" placeholder="Nome de quem confere"></label>';
+}
+
+function telaSobra() {
+  var feita = jaFeitas.sobra;
+  if (feita) {
+    return '<div class="aviso ok"><span>✅</span><div><b>Sobra enviada.</b><br>' +
+      'Em ' + fmtData(feita.finalizada_em) + (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') + '.</div></div>' +
+      '<div class="cartao"><div class="cartao__topo"><h3>📦 A sobra que você declarou</h3>' +
+        '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
+      ((feita.itens || []).filter(function (i) { return num(i.qtd) > 0; }).map(function (i) {
+        return '<div class="item"><span class="item__n"><b>' + esc(i.nome) + '</b></span>' +
+          '<b>' + fmt(i.qtd) + ' ' + esc(i.unidade || 'UN') + '</b></div>';
+      }).join('') || '<p class="peq mut">Nenhuma sobra declarada.</p>') +
+      (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
+      '</div></div>';
+  }
+  itensBase = sobraBase;
+  if (!itensBase.length) {
+    return '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:30px 12px">' +
+      '<p class="mut">A lista de material ainda não foi lançada.</p></div></div>';
+  }
+  return '<div class="aviso"><span>ℹ️</span><div><b>Sobra do evento.</b> No fim do evento, informe o que ficou ' +
+      'sobrando para o Grupo Tendas Plenart recolher — é o total do evento, não precisa separar por caminhão. ' +
+      'Item todo usado ou já devolvido, deixe zerado.</div></div>' +
+    '<div class="cartao"><div class="cartao__topo"><h3>📦 Ficou sobrando</h3>' +
+      '<span class="peq mut">' + itensBase.length + ' itens</span></div><div class="cartao__corpo">' +
+      itensBase.map(function (b, i) {
+        return '<div class="item"><span class="item__n"><b>' + esc(b.nome) + '</b>' +
+          '<span class="peq mut">' + esc(b.unidade) + '</span></span>' +
+          '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0">' +
+        '</div>';
+      }).join('') +
+      campoObsNome('Ex.: material empilhado no portão 3') +
+    '</div></div>' +
+    '<button class="btn btn--laranja" id="enviar">📦 ENVIAR A SOBRA</button>';
+}
+
+function ligarTudo() {
+  ligarAbas();
+  document.querySelectorAll('.js-carga').forEach(function (c) {
+    c.addEventListener('click', function () { cargaSel = c.dataset.id; desenhar(); window.scrollTo(0, 0); });
+  });
+  var volt = document.getElementById('voltar-cargas');
+  if (volt) volt.addEventListener('click', function () { cargaSel = null; desenhar(); window.scrollTo(0, 0); });
   var btnTudo = document.getElementById('tudo-ok');
   if (btnTudo) btnTudo.addEventListener('click', function () {
-    document.querySelectorAll('.js-q').forEach(function (c) {
-      c.value = itensBase[c.dataset.i].previsto;
-    });
+    document.querySelectorAll('.js-q').forEach(function (c) { c.value = itensBase[c.dataset.i].previsto; });
   });
-
-  document.getElementById('enviar').addEventListener('click', enviar);
+  var env = document.getElementById('enviar');
+  if (env) env.addEventListener('click', enviar);
 }
 
 function ligarAbas() {
   document.querySelectorAll('.aba').forEach(function (b) {
-    b.addEventListener('click', function () { aba = b.dataset.aba; desenhar(); });
+    b.addEventListener('click', function () { aba = b.dataset.aba; cargaSel = null; desenhar(); });
   });
 }
 
 function enviar() {
   var resp = (document.getElementById('resp').value || '').trim();
-  if (resp.length < 3) {
-    return alert('Escreva o nome de quem está conferindo.');
-  }
+  if (resp.length < 3) return alert('Escreva o nome de quem está conferindo.');
+
   var itens = [], algum = 0;
   document.querySelectorAll('.js-q').forEach(function (c) {
     var b = itensBase[c.dataset.i];
@@ -264,15 +347,16 @@ function enviar() {
     itens.push({ nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q });
     algum += q;
   });
-  if (aba === 'chegada' && algum === 0) {
-    if (!confirm('Nenhuma quantidade foi informada. Enviar mesmo assim?')) return;
-  }
+  if (aba === 'chegada' && algum === 0 &&
+      !confirm('Nenhuma quantidade foi informada. Enviar mesmo assim?')) return;
 
   var bt = document.getElementById('enviar');
+  var rotulo = bt.textContent;
   bt.disabled = true; bt.textContent = 'Enviando...';
 
   var reg = {
     evento_id: evento.id,
+    carregamento_id: aba === 'chegada' ? cargaSel : null,
     tipo: aba,
     responsavel: resp,
     itens: itens,
@@ -281,17 +365,18 @@ function enviar() {
     finalizada_em: new Date().toISOString()
   };
 
-  cli.from('conferencias_produtor').upsert(reg, { onConflict: 'evento_id,tipo' }).select()
+  cli.from('conferencias_produtor').insert(reg).select()
     .then(function (r) {
       if (r.error) throw r.error;
-      jaFeitas[aba] = (r.data || [])[0] || reg;
+      var novo = (r.data || [])[0] || reg;
+      if (aba === 'chegada') jaFeitas.chegada[cargaSel] = novo;
+      else jaFeitas.sobra = novo;
       desenhar();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     })
     .catch(function (e) {
       console.error(e);
-      bt.disabled = false;
-      bt.textContent = aba === 'chegada' ? '✓ ENVIAR CONFERÊNCIA DE CHEGADA' : '📦 ENVIAR A SOBRA';
+      bt.disabled = false; bt.textContent = rotulo;
       alert('Não consegui enviar. Verifique a internet e tente de novo.');
     });
 }
