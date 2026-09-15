@@ -5492,10 +5492,30 @@ function TelaEvento(eventoId) {
             var esc = veiculos.filter(function (c) { return c.id === b.dataset.id; })[0];
             m.fechar();
             if (!esc || !ehCarreta(esc)) return resolve({ caminhao_id: b.dataset.id, cavalo_id: null });
-            if (!cavalos.length) {
-              U.aviso('Nenhum cavalo cadastrado na FROTA — a carreta vai sem cavalo definido.', 'erro', 7000);
+
+            /* sem cavalo no banco? cadastra os quatro da frota sozinho */
+            var prontoCavalos = cavalos.length
+              ? Promise.resolve(cavalos)
+              : (function () {
+                  U.aviso('Cadastrando os cavalos da frota...', 'info', 2500);
+                  var PLACAS = ['KPL 2F07', 'LQN 5F62', 'KPY 2A94', 'JBE 2G77'];
+                  return Promise.all(PLACAS.map(function (pl) {
+                    return Banco.criarCaminhao({ tipo: 'CAVALO', modelo: null, placa: pl, ativo: true })
+                      .catch(function () { return null; });   /* já existia? segue */
+                  })).then(function () { return Banco.listarCaminhoes(); })
+                    .then(function (todos) {
+                      p.caminhoes = todos;
+                      return todos.filter(function (c) { return c.ativo !== false && ehCavalo(c); });
+                    })
+                    .catch(function () { return []; });
+                })();
+
+            prontoCavalos.then(function (listaCavalos) {
+            if (!listaCavalos.length) {
+              U.aviso('Não consegui cadastrar os cavalos — a carreta vai sem cavalo definido.', 'erro', 7000);
               return resolve({ caminhao_id: b.dataset.id, cavalo_id: null });
             }
+            cavalos = listaCavalos;
             /* passo 2: qual cavalo puxa esta carreta */
             var m2 = U.modal({
               titulo: '🔗 Qual cavalo vai puxar?',
@@ -5514,6 +5534,7 @@ function TelaEvento(eventoId) {
                 m2.fechar();
                 resolve({ caminhao_id: b.dataset.id, cavalo_id: b2.dataset.id });
               });
+            });
             });
           });
         });
