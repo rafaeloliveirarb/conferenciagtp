@@ -9281,7 +9281,7 @@ function TelaRelatorios() {
       return '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
         '<p style="font-size:34px;font-weight:900;color:var(--vermelho)">' + U.fmt(total) + '</p>' +
         '<p class="mut peq">Peças danificadas ou perdidas</p></div>' +
-        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda registrada</h3></div>');
+        (h || '<div class="vazio"><h3>Nenhuma perda registrada</h3></div>');
     }
 
     function abaHistorico() {
@@ -9401,7 +9401,7 @@ function TelaRelatorios() {
           (pendentes.length
             ? '<p class="mut peq" style="margin-bottom:6px">Peças que voltaram danificadas e ainda não foram resolvidas.</p>' +
               pendentes.map(function (r) { return linhaCard(r, Sessao.ehCoordenador()); }).join('')
-            : '<p class="mut peq">Nenhuma peça esperando conserto. 🎉</p>') +
+            : '<p class="mut peq">Nenhuma peça esperando conserto.</p>') +
         '</div></div>' +
         (resolvidos.length
           ? '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
