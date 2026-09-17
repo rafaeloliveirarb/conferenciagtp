@@ -49,6 +49,50 @@
   .carregando{text-align:center;padding:60px 20px;color:var(--txt-3)}
   .selo{display:inline-block;background:var(--verde);color:#fff;border-radius:999px;
     padding:3px 10px;font-size:12px;font-weight:800}
+  /* ---- avaria ---- */
+  .item{flex-wrap:wrap}
+  .item__acoes{display:flex;gap:8px;align-items:center;flex:none}
+  .btn-av{border:1px solid var(--linha);background:var(--branco);color:var(--txt-2);border-radius:10px;
+    padding:0 10px;min-height:46px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .btn-av.on{background:#FDECEA;border-color:var(--vermelho);color:var(--vermelho)}
+  .av{flex-basis:100%;background:#FFF6F5;border:1px solid #F3C9C4;border-radius:12px;padding:10px 12px;margin-top:2px}
+  .av__linha{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .av__linha .entrada{min-height:42px;padding:8px 10px}
+  .av__rot{font-size:13px;color:var(--vermelho);font-weight:700}
+  .fotos{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .foto{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--linha);flex:none}
+  .foto img{width:100%;height:100%;object-fit:cover;display:block;cursor:pointer}
+  .foto__x{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;border:0;
+    background:rgba(0,0,0,.65);color:#fff;font-size:13px;line-height:22px;padding:0;cursor:pointer}
+  .btn-foto{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:64px;padding:0 14px;
+    border:2px dashed var(--vermelho);border-radius:10px;color:var(--vermelho);font-size:13px;font-weight:800;
+    cursor:pointer;background:var(--branco)}
+  .btn-foto input{display:none}
+  .falta-foto{font-size:12px;color:var(--vermelho);font-weight:700;margin-top:6px}
+  .tag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:800;margin-left:6px;vertical-align:middle}
+  .tag--av{background:#FDECEA;color:var(--vermelho)}
+  .tag--extra{background:#FFF1E0;color:#A85600}
+  /* ---- acrescentar sobra ---- */
+  .add{border:2px dashed var(--laranja);border-radius:12px;padding:12px;margin-top:14px;background:#FFFAF4}
+  .add h4{margin:0 0 8px;font-size:14px;color:#A85600}
+  .add__linha{display:flex;gap:8px}
+  .add__linha .entrada{min-height:46px}
+  .btn-rm{border:0;background:none;color:var(--txt-3);font-size:12px;text-decoration:underline;padding:0;cursor:pointer}
+  /* ---- janelas ---- */
+  .modal{position:fixed;inset:0;background:rgba(10,20,35,.55);display:none;align-items:flex-end;justify-content:center;z-index:50;padding:0}
+  .modal.on{display:flex}
+  .modal__caixa{background:var(--branco);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 16px calc(18px + env(safe-area-inset-bottom));
+    max-height:92vh;overflow:auto}
+  @media(min-width:600px){.modal{align-items:center}.modal__caixa{border-radius:18px}}
+  .modal__caixa h3{margin:0 0 4px;color:var(--azul);font-size:18px}
+  .estrelas{display:flex;justify-content:center;gap:6px;margin:16px 0 4px}
+  .estrela{border:0;background:none;font-size:42px;line-height:1;cursor:pointer;color:#D5DCE3;padding:2px}
+  .estrela.on{color:#F5A300}
+  .nota-txt{text-align:center;font-weight:800;min-height:22px;color:var(--txt-2)}
+  .foto-grande{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:60;padding:14px}
+  .foto-grande.on{display:flex}
+  .foto-grande img{max-width:100%;max-height:100%;border-radius:8px}
+  button:focus-visible,.entrada:focus-visible,.btn-foto:focus-within{outline:3px solid var(--laranja);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -63,6 +107,30 @@
 </div>
 
 <div class="rodape">Grupo Tendas Plenart · conferência digital</div>
+
+<!-- janela: avaliação do carregamento -->
+<div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
+  <div class="modal__caixa">
+    <h3 id="av-tit">⭐ Avalie o carregamento</h3>
+    <p class="peq mut" style="margin:0">Como este caminhão chegou? Organização, amarração, material limpo e fácil de descarregar.</p>
+    <div class="estrelas" id="estrelas">
+      <button class="estrela" data-n="1" aria-label="1 estrela">★</button>
+      <button class="estrela" data-n="2" aria-label="2 estrelas">★</button>
+      <button class="estrela" data-n="3" aria-label="3 estrelas">★</button>
+      <button class="estrela" data-n="4" aria-label="4 estrelas">★</button>
+      <button class="estrela" data-n="5" aria-label="5 estrelas">★</button>
+    </div>
+    <div class="nota-txt" id="nota-txt">Toque nas estrelas</div>
+    <label style="display:block;margin-top:12px"><span class="peq mut" id="av-com-rot">Comentário sobre o carregamento (opcional)</span>
+      <textarea class="entrada" id="av-com" rows="3" style="resize:vertical;margin-top:4px" placeholder="Ex.: material bem amarrado, veio tudo separado por família"></textarea></label>
+    <button class="btn btn--verde" id="av-enviar" style="margin-top:14px">✓ ENVIAR CONFERÊNCIA</button>
+    <button class="btn" id="av-cancelar" style="margin-top:8px">Voltar para a conferência</button>
+  </div>
+</div>
+
+<!-- foto em tela cheia -->
+<div class="foto-grande" id="foto-grande"><img alt="Foto da avaria"></div>
+
 
 <script>
 /* ============================================================
@@ -113,6 +181,9 @@ if (!token) {
 } else {
   carregar();
 }
+
+var rascPorCg = {};          /* guarda o que o produtor já digitou em cada caminhão */
+var notaAv = 0;
 
 function carregar() {
   cli.from('eventos').select('*').eq('token_produtor', token).limit(1)
@@ -171,9 +242,16 @@ function montar(produtos, prev, estrito) {
   });
   return Object.keys(mapa).map(function (k) { return mapa[k]; })
     .filter(function (b) { return b.previsto > 0; })
-    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); })
+    .map(novoRasc);
 }
 
+function novoRasc(b) {
+  b.qtd = ''; b.avOn = false; b.avQtd = ''; b.avDesc = ''; b.avFotos = [];
+  return b;
+}
+
+/* ---------- desenho das telas ---------- */
 function desenhar() {
   var h = '<div class="abas">' +
       '<button class="aba' + (aba === 'chegada' ? ' on' : '') + '" data-aba="chegada">🚚 Chegada</button>' +
@@ -202,6 +280,7 @@ function desenhar() {
         var feita = jaFeitas.chegada[cg.id];
         var plano = planoPorCg[cg.id] || {};
         var qtdItens = Object.keys(plano).length;
+        var nota = feita ? notaDe(feita) : 0;
         return '<div class="cartao js-carga" data-id="' + cg.id + '" style="cursor:pointer">' +
           '<div class="cartao__corpo" style="display:flex;gap:12px;align-items:center">' +
             '<span style="font-size:26px">' + (feita ? '✅' : '🚚') + '</span>' +
@@ -209,7 +288,7 @@ function desenhar() {
               '<b>Carregamento ' + cg.numero + (cg.nome ? ' · ' + esc(cg.nome) : '') + '</b>' +
               '<span class="peq mut" style="display:block">' + esc(nomeCam(cg)) + '</span>' +
               '<span class="peq" style="display:block;color:' + (feita ? 'var(--verde)' : 'var(--laranja)') + ';font-weight:700">' +
-                (feita ? 'conferido por ' + esc(feita.responsavel || '—') : qtdItens + ' itens para conferir') +
+                (feita ? 'conferido por ' + esc(feita.responsavel || '—') + (nota ? ' · ' + estrelasTxt(nota) : '') : qtdItens + ' itens para conferir') +
               '</span>' +
             '</span><span class="mut">›</span>' +
           '</div></div>';
@@ -222,7 +301,8 @@ function desenhar() {
   /* 2) caminhão escolhido */
   var cg = cargas.filter(function (c) { return c.id === cargaSel; })[0];
   var feita = jaFeitas.chegada[cargaSel];
-  itensBase = montar(produtosEv, planoPorCg[cargaSel] || {}, true);
+  if (!rascPorCg[cargaSel]) rascPorCg[cargaSel] = montar(produtosEv, planoPorCg[cargaSel] || {}, true);
+  itensBase = rascPorCg[cargaSel];
 
   h += '<button class="btn" id="voltar-cargas" style="margin-bottom:12px">‹ VER OS OUTROS CAMINHÕES</button>' +
     '<div class="cartao"><div class="cartao__corpo">' +
@@ -232,18 +312,18 @@ function desenhar() {
     '</div></div>';
 
   if (feita) {
+    var nota = notaDe(feita);
     h += '<div class="aviso ok"><span>✅</span><div><b>Este caminhão já foi conferido.</b><br>' +
       'Recebido em ' + fmtData(feita.finalizada_em) +
       (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') +
       '. Para corrigir, fale com o Grupo Tendas Plenart.</div></div>' +
+      (nota ? '<div class="cartao"><div class="cartao__corpo"><b>⭐ Avaliação do carregamento</b>' +
+        '<p style="margin:4px 0 0;font-size:22px;color:#F5A300">' + estrelasTxt(nota) + '</p>' +
+        (feita.avaliacao && feita.avaliacao.comentario ? '<p class="peq" style="margin:4px 0 0">' + esc(feita.avaliacao.comentario) + '</p>' : '') +
+        '</div></div>' : '') +
       '<div class="cartao"><div class="cartao__topo"><h3>📥 O que você confirmou</h3>' +
         '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
-      (feita.itens || []).map(function (i2) {
-        return '<div class="item"><span class="item__n"><b>' + esc(i2.nome) + '</b>' +
-          '<span class="peq mut">enviado ' + fmt(i2.previsto) + '</span></span>' +
-          '<b style="' + (num(i2.qtd) !== num(i2.previsto) ? 'color:var(--laranja)' : '') + '">' +
-            fmt(i2.qtd) + ' ' + esc(i2.unidade || 'UN') + '</b></div>';
-      }).join('') +
+      (feita.itens || []).map(function (i2) { return htmlItemFeito(i2, true); }).join('') +
       (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
       '</div></div>';
     tela.innerHTML = h;
@@ -251,26 +331,60 @@ function desenhar() {
   }
 
   h += '<div class="aviso"><span>ℹ️</span><div><b>Confira o que desceu deste caminhão.</b> ' +
-      'Ajuste a quantidade se vier diferente. O que não chegou, deixe zerado.</div></div>' +
+      'Conte e digite a quantidade de cada item. O que não chegou, deixe zerado. ' +
+      'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.</div></div>' +
     '<div class="cartao"><div class="cartao__topo"><h3>📥 Chegou neste caminhão</h3>' +
       '<span class="peq mut">' + itensBase.length + ' itens</span></div>' +
     '<div class="cartao__corpo">' +
-      '<button class="btn" id="tudo-ok" style="margin-bottom:12px">✓ CHEGOU TUDO CERTO</button>' +
-      itensBase.map(function (b, i2) {
-        return '<div class="item">' +
-          '<span class="item__n"><b>' + esc(b.nome) + '</b>' +
-            '<span class="peq mut">enviado: ' + fmt(b.previsto) + ' ' + esc(b.unidade) + '</span></span>' +
-          '<input class="entrada qtd js-q" data-i="' + i2 + '" type="number" inputmode="numeric" min="0" placeholder="0">' +
-        '</div>';
-      }).join('') +
-      campoObsNome('Ex.: 2 placas riscadas; faltou 1 caixa de cavilha') +
+      '<div id="lista"></div>' +
+      campoObsNome('Ex.: faltou 1 caixa de cavilha') +
     '</div></div>' +
-    '<button class="btn btn--verde" id="enviar">✓ ENVIAR CONFERÊNCIA DESTE CAMINHÃO</button>' +
-    '<p class="peq mut" style="text-align:center;margin-top:10px">Depois de enviar, este caminhão trava. ' +
-      'Correções são feitas pelo Grupo Tendas Plenart.</p>';
+    '<button class="btn btn--verde" id="enviar">✓ FINALIZAR CONFERÊNCIA DESTE CAMINHÃO</button>' +
+    '<p class="peq mut" style="text-align:center;margin-top:10px">Ao finalizar você avalia o carregamento. ' +
+      'Depois de enviar, este caminhão trava — correções são feitas pelo Grupo Tendas Plenart.</p>';
 
   tela.innerHTML = h;
+  desenharLista();
   ligarTudo();
+}
+
+function telaSobra() {
+  var feita = jaFeitas.sobra;
+  if (feita) {
+    var itensF = (feita.itens || []).filter(function (i) { return num(i.qtd) > 0; });
+    return '<div class="aviso ok"><span>✅</span><div><b>Sobra enviada.</b><br>' +
+      'Em ' + fmtData(feita.finalizada_em) + (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') + '.</div></div>' +
+      '<div class="cartao"><div class="cartao__topo"><h3>📦 A sobra que você declarou</h3>' +
+        '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
+      (itensF.map(function (i) { return htmlItemFeito(i, false); }).join('') ||
+        '<p class="peq mut">Nenhuma sobra declarada.</p>') +
+      (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
+      '</div></div>';
+  }
+  itensBase = sobraBase;
+  var nomes = {};
+  produtosEv.forEach(function (p) { nomes[String(p.nome || '').trim().toUpperCase()] = p.nome; });
+
+  return '<div class="aviso"><span>ℹ️</span><div><b>Sobra do evento.</b> No fim do evento, informe o que ficou ' +
+      'sobrando para o Grupo Tendas Plenart recolher — é o total do evento, não precisa separar por caminhão. ' +
+      'Item todo usado ou já devolvido, deixe zerado. Está voltando algo que não está na lista? Acrescente lá embaixo.</div></div>' +
+    '<div class="cartao"><div class="cartao__topo"><h3>📦 Ficou sobrando</h3>' +
+      '<span class="peq mut" id="cont-itens">' + itensBase.length + ' itens</span></div><div class="cartao__corpo">' +
+      '<div id="lista"></div>' +
+      '<div class="add">' +
+        '<h4>➕ Acrescentar produto que está voltando em sobra</h4>' +
+        '<datalist id="dl-produtos">' + Object.keys(nomes).sort().map(function (k) {
+          return '<option value="' + esc(nomes[k]) + '">'; }).join('') + '</datalist>' +
+        '<input class="entrada" id="add-nome" list="dl-produtos" placeholder="Nome do produto" autocomplete="off" style="margin-bottom:8px">' +
+        '<div class="add__linha">' +
+          '<input class="entrada" id="add-qtd" type="number" inputmode="numeric" min="0" placeholder="Qtd" style="width:96px;text-align:center">' +
+          '<input class="entrada" id="add-un" placeholder="UN" style="width:80px;text-align:center">' +
+          '<button class="btn btn--laranja" id="add-ok" style="flex:1;padding:10px">ACRESCENTAR</button>' +
+        '</div>' +
+      '</div>' +
+      campoObsNome('Ex.: material empilhado no portão 3') +
+    '</div></div>' +
+    '<button class="btn btn--laranja" id="enviar">📦 ENVIAR A SOBRA</button>';
 }
 
 function campoObsNome(ph) {
@@ -280,41 +394,72 @@ function campoObsNome(ph) {
       '<input class="entrada" id="resp" style="margin-top:4px" placeholder="Nome de quem confere"></label>';
 }
 
-function telaSobra() {
-  var feita = jaFeitas.sobra;
-  if (feita) {
-    return '<div class="aviso ok"><span>✅</span><div><b>Sobra enviada.</b><br>' +
-      'Em ' + fmtData(feita.finalizada_em) + (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') + '.</div></div>' +
-      '<div class="cartao"><div class="cartao__topo"><h3>📦 A sobra que você declarou</h3>' +
-        '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
-      ((feita.itens || []).filter(function (i) { return num(i.qtd) > 0; }).map(function (i) {
-        return '<div class="item"><span class="item__n"><b>' + esc(i.nome) + '</b></span>' +
-          '<b>' + fmt(i.qtd) + ' ' + esc(i.unidade || 'UN') + '</b></div>';
-      }).join('') || '<p class="peq mut">Nenhuma sobra declarada.</p>') +
-      (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
-      '</div></div>';
-  }
-  itensBase = sobraBase;
+/* ---------- lista editável (redesenha só a lista, não perde nome/obs) ---------- */
+function desenharLista() {
+  var box = document.getElementById('lista');
+  if (!box) return;
   if (!itensBase.length) {
-    return '<div class="cartao"><div class="cartao__corpo" style="text-align:center;padding:30px 12px">' +
-      '<p class="mut">A lista de material ainda não foi lançada.</p></div></div>';
+    box.innerHTML = '<p class="peq mut" style="text-align:center;padding:14px 0">' +
+      (aba === 'sobra' ? 'Nenhum item na lista. Acrescente abaixo o que está voltando.' : 'Nenhum item neste caminhão.') + '</p>';
+  } else {
+    box.innerHTML = itensBase.map(htmlItemEdit).join('');
   }
-  return '<div class="aviso"><span>ℹ️</span><div><b>Sobra do evento.</b> No fim do evento, informe o que ficou ' +
-      'sobrando para o Grupo Tendas Plenart recolher — é o total do evento, não precisa separar por caminhão. ' +
-      'Item todo usado ou já devolvido, deixe zerado.</div></div>' +
-    '<div class="cartao"><div class="cartao__topo"><h3>📦 Ficou sobrando</h3>' +
-      '<span class="peq mut">' + itensBase.length + ' itens</span></div><div class="cartao__corpo">' +
-      itensBase.map(function (b, i) {
-        return '<div class="item"><span class="item__n"><b>' + esc(b.nome) + '</b>' +
-          '<span class="peq mut">' + esc(b.unidade) + '</span></span>' +
-          '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0">' +
-        '</div>';
-      }).join('') +
-      campoObsNome('Ex.: material empilhado no portão 3') +
-    '</div></div>' +
-    '<button class="btn btn--laranja" id="enviar">📦 ENVIAR A SOBRA</button>';
+  var cont = document.getElementById('cont-itens');
+  if (cont) cont.textContent = itensBase.length + ' itens';
 }
 
+function htmlItemEdit(b, i) {
+  var sub = b.extra
+    ? '<span class="peq" style="color:#A85600">➕ acrescentado por você · ' + esc(b.unidade) +
+        ' · <button class="btn-rm js-rmextra" data-i="' + i + '">remover</button></span>'
+    : '<span class="peq mut">' + (aba === 'chegada' ? 'enviado: ' + fmt(b.previsto) + ' ' : '') + esc(b.unidade) + '</span>';
+  var h = '<div class="item">' +
+    '<span class="item__n"><b>' + esc(b.nome) + '</b>' + sub + '</span>' +
+    '<span class="item__acoes">' +
+      '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '" aria-pressed="' + b.avOn + '">⚠️ Avaria</button>' +
+      '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.qtd) + '" aria-label="Quantidade de ' + esc(b.nome) + '">' +
+    '</span>';
+  if (b.avOn) {
+    h += '<div class="av">' +
+      '<div class="av__linha"><span class="av__rot" style="flex:1">Quantas peças avariadas?</span>' +
+        '<input class="entrada qtd js-avq" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.avQtd) + '"></div>' +
+      '<div class="av__linha"><input class="entrada js-avd" data-i="' + i + '" placeholder="O que aconteceu? Ex.: placa rachada, lona rasgada" value="' + esc(b.avDesc) + '"></div>' +
+      '<div class="fotos">' +
+        b.avFotos.map(function (f, k) {
+          return '<span class="foto"><img src="' + f + '" class="js-ver" alt="Foto da avaria">' +
+            '<button class="foto__x js-rmfoto" data-i="' + i + '" data-k="' + k + '" aria-label="Apagar foto">✕</button></span>';
+        }).join('') +
+        '<label class="btn-foto">📷 ' + (b.avFotos.length ? 'MAIS FOTO' : 'TIRAR FOTO') +
+          '<input type="file" accept="image/*" class="js-foto" data-i="' + i + '"></label>' +
+      '</div>' +
+      (b.avFotos.length ? '' : '<div class="falta-foto">Foto obrigatória para enviar</div>') +
+    '</div>';
+  }
+  return h + '</div>';
+}
+
+function htmlItemFeito(i2, chegada) {
+  var av = i2.avaria;
+  var dif = chegada && num(i2.qtd) !== num(i2.previsto);
+  var h = '<div class="item"><span class="item__n"><b>' + esc(i2.nome) +
+      (i2.extra ? '<span class="tag tag--extra">acrescentado</span>' : '') +
+      (av && num(av.qtd) > 0 ? '<span class="tag tag--av">' + fmt(av.qtd) + ' avariada(s)</span>' : '') + '</b>' +
+      (chegada && !i2.extra ? '<span class="peq mut">enviado ' + fmt(i2.previsto) + '</span>' : '') + '</span>' +
+    '<b style="' + (dif ? 'color:var(--laranja)' : '') + '">' + fmt(i2.qtd) + ' ' + esc(i2.unidade || 'UN') + '</b>';
+  if (av && num(av.qtd) > 0) {
+    h += '<div class="av">' +
+      (av.descricao ? '<p class="peq" style="margin:0 0 8px">' + esc(av.descricao) + '</p>' : '') +
+      '<div class="fotos">' + (av.fotos || []).map(function (f) {
+        return '<span class="foto"><img src="' + esc(f) + '" class="js-ver" alt="Foto da avaria"></span>';
+      }).join('') + '</div></div>';
+  }
+  return h + '</div>';
+}
+
+function notaDe(c) { return c && c.avaliacao ? num(c.avaliacao.nota) : 0; }
+function estrelasTxt(n) { var s = ''; for (var k = 1; k <= 5; k++) s += k <= n ? '★' : '☆'; return s; }
+
+/* ---------- eventos ---------- */
 function ligarTudo() {
   ligarAbas();
   document.querySelectorAll('.js-carga').forEach(function (c) {
@@ -322,12 +467,57 @@ function ligarTudo() {
   });
   var volt = document.getElementById('voltar-cargas');
   if (volt) volt.addEventListener('click', function () { cargaSel = null; desenhar(); window.scrollTo(0, 0); });
-  var btnTudo = document.getElementById('tudo-ok');
-  if (btnTudo) btnTudo.addEventListener('click', function () {
-    document.querySelectorAll('.js-q').forEach(function (c) { c.value = itensBase[c.dataset.i].previsto; });
-  });
   var env = document.getElementById('enviar');
   if (env) env.addEventListener('click', enviar);
+  var addOk = document.getElementById('add-ok');
+  if (addOk) addOk.addEventListener('click', acrescentarSobra);
+  var addNome = document.getElementById('add-nome');
+  if (addNome) addNome.addEventListener('change', function () {
+    var p = acharProduto(addNome.value);
+    if (p) document.getElementById('add-un').value = p.unidade || 'UN';
+  });
+  if (aba === 'sobra' && !jaFeitas.sobra) desenharLista();
+
+  /* fotos em tela cheia (lista editável e já enviada) */
+  tela.onclick = function (e) {
+    var t = e.target;
+    if (t.classList.contains('js-ver')) return verFoto(t.src);
+    var i = t.dataset ? t.dataset.i : undefined;
+    if (t.classList.contains('js-avtog')) {
+      itensBase[i].avOn = !itensBase[i].avOn;
+      return desenharLista();
+    }
+    if (t.classList.contains('js-rmfoto')) {
+      itensBase[i].avFotos.splice(num(t.dataset.k), 1);
+      return desenharLista();
+    }
+    if (t.classList.contains('js-rmextra')) {
+      itensBase.splice(num(i), 1);
+      return desenharLista();
+    }
+  };
+  tela.oninput = function (e) {
+    var t = e.target, i = t.dataset ? t.dataset.i : undefined;
+    if (i === undefined || !itensBase[i]) return;
+    if (t.classList.contains('js-q')) itensBase[i].qtd = t.value;
+    if (t.classList.contains('js-avq')) itensBase[i].avQtd = t.value;
+    if (t.classList.contains('js-avd')) itensBase[i].avDesc = t.value;
+  };
+  tela.onchange = function (e) {
+    var t = e.target;
+    if (!t.classList.contains('js-foto') || !t.files || !t.files.length) return;
+    var b = itensBase[t.dataset.i];
+    var arqs = Array.prototype.slice.call(t.files);
+    var lab = t.parentNode; lab.firstChild.textContent = '⏳ ';
+    Promise.all(arqs.map(comprimir)).then(function (fotos) {
+      fotos.forEach(function (f) { b.avFotos.push(f); });
+      desenharLista();
+    }).catch(function (err) {
+      console.error(err);
+      alert('Não consegui ler a foto. Tente tirar de novo.');
+      desenharLista();
+    });
+  };
 }
 
 function ligarAbas() {
@@ -336,40 +526,173 @@ function ligarAbas() {
   });
 }
 
-function enviar() {
-  var resp = (document.getElementById('resp').value || '').trim();
-  if (resp.length < 3) return alert('Escreva o nome de quem está conferindo.');
+function acharProduto(nome) {
+  var ch = String(nome || '').trim().toUpperCase();
+  return produtosEv.filter(function (p) { return String(p.nome || '').trim().toUpperCase() === ch; })[0];
+}
 
-  var itens = [], algum = 0;
-  document.querySelectorAll('.js-q').forEach(function (c) {
-    var b = itensBase[c.dataset.i];
-    var q = num(c.value);
-    itens.push({ nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q });
+function acrescentarSobra() {
+  var nome = (document.getElementById('add-nome').value || '').trim();
+  var q = num(document.getElementById('add-qtd').value);
+  var un = (document.getElementById('add-un').value || '').trim().toUpperCase() || 'UN';
+  if (nome.length < 2) return alert('Escreva o nome do produto.');
+  if (q <= 0) return alert('Informe a quantidade que está voltando.');
+  var ch = nome.toUpperCase();
+  var jaTem = -1;
+  itensBase.forEach(function (b, k) { if (String(b.nome).trim().toUpperCase() === ch) jaTem = k; });
+  if (jaTem >= 0) {
+    itensBase[jaTem].qtd = String(num(itensBase[jaTem].qtd) + q);
+  } else {
+    var p = acharProduto(nome);
+    itensBase.push(novoRasc({ nome: p ? p.nome : nome.toUpperCase(), unidade: p ? (p.unidade || un) : un, previsto: 0, extra: true }));
+    itensBase[itensBase.length - 1].qtd = String(q);
+  }
+  document.getElementById('add-nome').value = '';
+  document.getElementById('add-qtd').value = '';
+  document.getElementById('add-un').value = '';
+  desenharLista();
+}
+
+/* reduz a foto do celular para não pesar (máx. 1280px, JPEG) */
+function comprimir(arq) {
+  return new Promise(function (ok, falha) {
+    var fr = new FileReader();
+    fr.onerror = falha;
+    fr.onload = function () {
+      var img = new Image();
+      img.onerror = falha;
+      img.onload = function () {
+        var max = 1280, w = img.width, h = img.height;
+        if (Math.max(w, h) > max) { var k = max / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        ok(cv.toDataURL('image/jpeg', 0.7));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(arq);
+  });
+}
+
+function verFoto(src) {
+  var fg = document.getElementById('foto-grande');
+  fg.querySelector('img').src = src;
+  fg.classList.add('on');
+}
+document.getElementById('foto-grande').addEventListener('click', function () { this.classList.remove('on'); });
+
+/* ---------- envio ---------- */
+function montarEnvio() {
+  var resp = (document.getElementById('resp').value || '').trim();
+  if (resp.length < 3) { alert('Escreva o nome de quem está conferindo.'); return null; }
+
+  var itens = [], algum = 0, erro = null;
+  itensBase.forEach(function (b) {
+    if (erro) return;
+    var q = num(b.qtd);
+    var it = { nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q };
+    if (b.extra) it.extra = true;
+    if (b.avOn) {
+      var aq = num(b.avQtd);
+      if (aq <= 0) { erro = b.nome + ': informe quantas peças estão avariadas (ou desmarque a avaria).'; return; }
+      if (q > 0 && aq > q) { erro = b.nome + ': avariadas (' + fmt(aq) + ') não pode ser maior que a quantidade (' + fmt(q) + ').'; return; }
+      if (q <= 0) { erro = b.nome + ': informe a quantidade total do item, incluindo as avariadas.'; return; }
+      if (!b.avFotos.length) { erro = b.nome + ': a FOTO da avaria é obrigatória.'; return; }
+      it.avaria = { qtd: aq, descricao: (b.avDesc || '').trim() || null, fotos: b.avFotos.slice() };
+    }
+    itens.push(it);
     algum += q;
   });
-  if (aba === 'chegada' && algum === 0 &&
-      !confirm('Nenhuma quantidade foi informada. Enviar mesmo assim?')) return;
+  if (erro) { alert(erro); return null; }
 
+  return {
+    reg: {
+      evento_id: evento.id,
+      carregamento_id: aba === 'chegada' ? cargaSel : null,
+      tipo: aba,
+      responsavel: resp,
+      itens: itens,
+      observacao: (document.getElementById('obs').value || '').trim() || null,
+      status: 'Finalizado'
+    },
+    algum: algum
+  };
+}
+
+var envioPendente = null;
+
+function enviar() {
+  var m = montarEnvio();
+  if (!m) return;
+  if (aba === 'chegada' && m.algum === 0 &&
+      !confirm('Nenhuma quantidade foi informada. Finalizar mesmo assim?')) return;
+  if (aba === 'chegada') {
+    envioPendente = m.reg;
+    abrirAvaliacao();
+    return;
+  }
   var bt = document.getElementById('enviar');
+  gravar(m.reg, bt);
+}
+
+function abrirAvaliacao() {
+  notaAv = 0;
+  document.getElementById('av-com').value = '';
+  pintarEstrelas();
+  document.getElementById('modal-av').classList.add('on');
+}
+function fecharAvaliacao() { document.getElementById('modal-av').classList.remove('on'); }
+
+var NOTAS = ['', 'Péssimo', 'Ruim', 'Regular', 'Bom', 'Ótimo'];
+function pintarEstrelas() {
+  document.querySelectorAll('.estrela').forEach(function (s) {
+    s.classList.toggle('on', num(s.dataset.n) <= notaAv);
+  });
+  document.getElementById('nota-txt').textContent = notaAv ? NOTAS[notaAv] : 'Toque nas estrelas';
+  document.getElementById('av-com-rot').textContent = notaAv && notaAv <= 2
+    ? 'O que estava ruim no carregamento? *' : 'Comentário sobre o carregamento (opcional)';
+}
+document.querySelectorAll('.estrela').forEach(function (s) {
+  s.addEventListener('click', function () { notaAv = num(s.dataset.n); pintarEstrelas(); });
+});
+document.getElementById('av-cancelar').addEventListener('click', fecharAvaliacao);
+document.getElementById('av-enviar').addEventListener('click', function () {
+  if (!envioPendente) return fecharAvaliacao();
+  if (!notaAv) return alert('Dê uma nota de 1 a 5 estrelas para o carregamento.');
+  var com = (document.getElementById('av-com').value || '').trim();
+  if (notaAv <= 2 && com.length < 3) return alert('Conte o que estava ruim no carregamento.');
+  envioPendente.avaliacao = { nota: notaAv, comentario: com || null, por: envioPendente.responsavel, em: new Date().toISOString() };
+  gravar(envioPendente, this);
+});
+
+function gravar(reg, bt) {
   var rotulo = bt.textContent;
   bt.disabled = true; bt.textContent = 'Enviando...';
+  reg.finalizada_em = new Date().toISOString();
 
-  var reg = {
-    evento_id: evento.id,
-    carregamento_id: aba === 'chegada' ? cargaSel : null,
-    tipo: aba,
-    responsavel: resp,
-    itens: itens,
-    observacao: (document.getElementById('obs').value || '').trim() || null,
-    status: 'Finalizado',
-    finalizada_em: new Date().toISOString()
-  };
+  function inserir(dados) { return cli.from('conferencias_produtor').insert(dados).select(); }
 
-  cli.from('conferencias_produtor').insert(reg).select()
+  inserir(reg)
     .then(function (r) {
+      /* se a coluna "avaliacao" ainda não existir no banco, grava a nota dentro da observação */
+      if (r.error && reg.avaliacao && /avaliacao/i.test(r.error.message || '')) {
+        var copia = {}; Object.keys(reg).forEach(function (k) { if (k !== 'avaliacao') copia[k] = reg[k]; });
+        var a = reg.avaliacao;
+        copia.observacao = '⭐ AVALIAÇÃO DO CARREGAMENTO: ' + a.nota + '/5' + (a.comentario ? ' — ' + a.comentario : '') +
+          (reg.observacao ? '\n' + reg.observacao : '');
+        return inserir(copia).then(function (r2) {
+          if (r2.error) throw r2.error;
+          var n = (r2.data || [])[0] || copia; n.avaliacao = a; return n;
+        });
+      }
       if (r.error) throw r.error;
-      var novo = (r.data || [])[0] || reg;
-      if (aba === 'chegada') jaFeitas.chegada[cargaSel] = novo;
+      return (r.data || [])[0] || reg;
+    })
+    .then(function (novo) {
+      bt.disabled = false; bt.textContent = rotulo;
+      fecharAvaliacao();
+      envioPendente = null;
+      if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = novo; delete rascPorCg[reg.carregamento_id]; }
       else jaFeitas.sobra = novo;
       desenhar();
       window.scrollTo({ top: 0, behavior: 'smooth' });
