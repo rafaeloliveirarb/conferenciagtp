@@ -758,7 +758,9 @@ const Banco = {
   _erro: function (erro) { throw new Error(Banco.explicar(erro)); },
 
   listarUsuarios: function () {
-    return this.cliente.from('usuarios').select('*').eq('ativo', true).order('nome')
+    /* traz também os inativos: o nome continua aparecendo nas conferências antigas,
+       mas quem está inativo não aparece para escolher nem para entrar */
+    return this.cliente.from('usuarios').select('*').order('nome')
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
@@ -2352,7 +2354,7 @@ const App = {
   conferentes: function () {
     /* avulsos (entraram pelo "Outro conferente") não aparecem na lista:
        o nome deles vale nas conferências, mas o cadastro fixo é só da equipe */
-    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso; });
+    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso && u.ativo !== false; });
   },
 
   /* Mostra o erro na tela sem apagar o que a pessoa estava fazendo. */
@@ -2644,6 +2646,80 @@ var Terceiros = {
       if (m.tipo !== 'chegada' || m.data_devolucao) return false;
       var item = (saldos[m.fornecedor_id] || {})[Terceiros.chave(m.material)];
       return item && item.emMaos > 0;
+    });
+  },
+
+  /* Quanto de material terceirizado este evento levou e ainda NÃO foi dado
+     como devolvido ao fornecedor. Busca direto no banco (dado sempre fresco).
+     0 = pode excluir o evento. */
+  pendenteEvento: function (ev) {
+    if (!ev || ev.terceiros_devolvidos_em) return Promise.resolve(0);
+    var cli = Banco.cliente;
+    function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+    return Promise.all([
+      lista(cli.from('conferencias').select('id,tipo').eq('evento_id', ev.id)),
+      lista(cli.from('produtos').select('id,terceirizado').eq('evento_id', ev.id)),
+      lista(cli.from('movimentos_terceiros').select('tipo,quantidade').eq('evento_id', ev.id)).catch(function () { return []; })
+    ]).then(function (r) {
+      var saidas = r[0].filter(function (c) { return c.tipo === 'saida'; }).map(function (c) { return c.id; });
+      var terc100 = {};
+      r[1].forEach(function (p) { if (p.terceirizado) terc100[p.id] = true; });
+      var mov = 0;
+      r[2].forEach(function (m) { if (m.tipo === 'envio') mov += Math.abs(U.num(m.quantidade)); });
+      if (!saidas.length) return mov;
+      return lista(cli.from('itens_conferencia').select('produto_id,quantidade,qtd_terceirizada').in('conferencia_id', saidas))
+        .then(function (itens) {
+          var conf = 0;
+          itens.forEach(function (i) {
+            var t = U.num(i.qtd_terceirizada);
+            if (terc100[i.produto_id]) t = Math.max(t, U.num(i.quantidade));
+            conf += t;
+          });
+          return Math.max(conf, mov);
+        });
+    });
+  },
+
+  /* Antes de excluir um evento: se tem terceirizado sem devolução, trava.
+     Devolve uma promessa: true = pode seguir com a exclusão. */
+  liberaExclusao: function (ev) {
+    return Terceiros.pendenteEvento(ev).then(function (qtd) {
+      if (!qtd) return true;
+      return new Promise(function (resolve) {
+        var m = U.modal({
+          titulo: '🔗 Não dá para excluir este evento',
+          html: '<p>O evento <b>' + U.esc(ev.nome) + '</b> tem <b>' + U.fmt(qtd) + ' unid. de material terceirizado</b> ' +
+            'que ainda não foi devolvido ao fornecedor.</p>' +
+            '<p class="peq mut" style="margin-top:10px">Primeiro devolva o material e dê baixa em ' +
+            '<b>✔ DEVOLVIDO AO FORNECEDOR</b>. Depois disso o evento pode ser excluído.</p>',
+          pe: '<button class="btn btn--branco" data-nao>Voltar</button>' +
+              '<button class="btn btn--verde" data-dev>✔ JÁ DEVOLVI AO FORNECEDOR</button>',
+          travado: true
+        });
+        m.querySelector('[data-nao]').addEventListener('click', function () { m.fechar(); resolve(false); });
+        m.querySelector('[data-dev]').addEventListener('click', function () {
+          m.fechar();
+          U.confirmar('Dar baixa nos terceirizados?',
+            'Confirma que TODO o material terceirizado de "' + ev.nome + '" foi devolvido ao fornecedor?',
+            'SIM, DEVOLVIDO', 'btn--verde')
+            .then(function (ok) {
+              if (!ok) return resolve(false);
+              Banco.atualizarEvento(ev.id, {
+                terceiros_devolvidos_em: new Date().toISOString(),
+                terceiros_devolvidos_por: Sessao.atual ? Sessao.atual.nome : null
+              }).then(function () {
+                ev.terceiros_devolvidos_em = new Date().toISOString();
+                U.aviso('🔗 Devolução registrada. Agora o evento já pode ser excluído.', 'ok', 6000);
+                resolve(false);
+                App.recarregar();
+              }).catch(function (e) { App.falhou(e); resolve(false); });
+            });
+        });
+      });
+    }).catch(function (e) {
+      console.error(e);
+      U.aviso('Não consegui verificar o material terceirizado do evento. Tente de novo.', 'erro', 6000);
+      return false;
     });
   },
 
@@ -3123,6 +3199,9 @@ function TelaPainel() {
       U.$$('.js-del-ev', caixa).forEach(function (b) {
         b.addEventListener('click', function (e) {
           e.stopPropagation();
+          var evDel = App.eventos.filter(function (x) { return x.id === b.dataset.id; })[0];
+          Terceiros.liberaExclusao(evDel).then(function (livre) {
+          if (!livre) return;
           pedirSenhaCoordenador('Excluir evento',
             'Excluir "' + b.dataset.nome + '"? Apaga o checklist, os carregamentos e as conferências. Não dá para desfazer.')
             .then(function (ok) {
@@ -3132,6 +3211,7 @@ function TelaPainel() {
                 App.recarregar();
               }).catch(App.falhou);
             });
+          });
         });
       });
     }
@@ -5130,6 +5210,7 @@ function TelaEvento(eventoId) {
                   '<div class="peq" style="background:#FFF4E5;color:var(--laranja);font-weight:800;padding:6px 12px">' +
                     '📦 Sobra declarada · ' + U.fmt(totS) + ' peças · ' + U.esc(sob.responsavel || '—') +
                     ' · ' + U.fmtData(sob.finalizada_em) + '</div>' +
+                  '<p class="peq mut" style="padding:6px 12px 0">ℹ️ Informativo: a sobra do produtor não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' +
                   (ConfProd.chips(sob) ? '<div style="padding:8px 12px 0;display:flex;gap:6px;flex-wrap:wrap">' + ConfProd.chips(sob) + '</div>' : '') +
                   '<div style="max-height:320px;overflow:auto;padding:6px 12px 10px">' + ConfProd.detalhe(sob) + '</div>' +
                 '</div>';
@@ -6521,6 +6602,8 @@ function TelaEvento(eventoId) {
     var excluirEv = U.$('#btn-excluir-evento', tela);
     if (excluirEv) excluirEv.addEventListener('click', function () {
       var nCg = p.carregamentos.length, nCf = p.conferencias.length;
+      Terceiros.liberaExclusao(ev).then(function (livre) {
+      if (!livre) return;
       pedirSenhaCoordenador('Excluir evento',
         'Isto apaga o evento "' + ev.nome + '" INTEIRO: checklist (' + p.produtos.length + ' produtos)' +
         (nCg ? ', ' + nCg + ' carregamento' + (nCg > 1 ? 's' : '') : '') +
@@ -6536,6 +6619,7 @@ function TelaEvento(eventoId) {
             })
             .catch(App.falhou);
         });
+      });
     });
 
     var excluirCk = U.$('#btn-excluir-checklist', tela);
@@ -9776,7 +9860,9 @@ function TelaProdutores() {
           '</span>' +
         '</button>' +
         (aberto
-          ? '<div class="cp-corpo">' + ConfProd.detalhe(c) +
+          ? '<div class="cp-corpo">' +
+              (sobra ? '<p class="peq mut" style="margin-bottom:8px">ℹ️ Informativo: não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' : '') +
+              ConfProd.detalhe(c) +
               '<button class="btn btn--branco btn--bloco btn--peq js-cp-ev" data-ev="' + c.evento_id + '" style="margin-top:12px">ABRIR O EVENTO</button>' +
             '</div>'
           : '') +
@@ -10685,7 +10771,7 @@ const Relatorio = {
           campo.focus();
           return;
         }
-        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador'; })[0];
+        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador' && u.ativo !== false; })[0];
         if (!coord) return U.aviso('O usuário coordenador não está cadastrado no Supabase. Rode o SQL de instalação.', 'erro', 7000);
         Sessao.entrar(coord);
         m.fechar();
@@ -10783,6 +10869,9 @@ const Relatorio = {
           var igual = App.usuarios.filter(function (u) {
             return u.nome.trim().toUpperCase() === nome.toUpperCase();
           })[0];
+          if (igual && igual.ativo === false) {
+            return U.aviso('Este nome não está mais ativo como conferente. Fale com o coordenador.', 'erro', 6000);
+          }
           if (igual) { m2.fechar(); return entrarComo(igual); }
 
           var botao = m2.querySelector('[data-ok]');
