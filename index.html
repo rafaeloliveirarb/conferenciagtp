@@ -488,6 +488,7 @@ table.tab{width:100%;border-collapse:collapse}
 .cp-chip--lar{background:var(--laranja-clr);color:var(--laranja-esc)}
 .cp-chip--av{background:var(--vermelho-clr);color:var(--vermelho)}
 .cp-chip--ex{background:var(--amarelo-clr);color:var(--amarelo)}
+.cp-chip--terc{background:#EDE7F6;color:#5B3A99}
 .cp-estr{display:block;color:#F5A300;font-size:20px;letter-spacing:1px;line-height:1}
 .cp-aval{background:var(--branco);border:1px solid var(--linha);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
 .cp-aval .cp-estr{display:inline-block;margin-right:8px;vertical-align:middle}
@@ -9676,9 +9677,10 @@ var ConfProd = {
     return s;
   },
   resumo: function (c) {
-    var r = { pecas: 0, difs: 0, avarias: 0, qtdAvariada: 0, extras: 0, fotos: 0 };
+    var r = { pecas: 0, difs: 0, avarias: 0, qtdAvariada: 0, extras: 0, fotos: 0, terc: 0, qtdTerc: 0 };
     (c.itens || []).forEach(function (i) {
       r.pecas += U.num(i.qtd);
+      if (i.terceirizado) { r.terc++; r.qtdTerc += U.num(i.qtd); }
       if (i.extra) r.extras++;
       else if (c.tipo !== 'sobra' && U.num(i.qtd) !== U.num(i.previsto)) r.difs++;
       if (i.avaria && U.num(i.avaria.qtd) > 0) {
@@ -9698,6 +9700,7 @@ var ConfProd = {
         : '<span class="cp-chip cp-chip--ok">✓ bateu com o enviado</span>';
     }
     if (r.avarias) h += '<span class="cp-chip cp-chip--av">⚠️ ' + U.fmt(r.qtdAvariada) + ' avariada' + (r.qtdAvariada > 1 ? 's' : '') + '</span>';
+    if (r.terc) h += '<span class="cp-chip cp-chip--terc">🔗 ' + U.fmt(r.qtdTerc) + ' terceirizado' + (r.qtdTerc > 1 ? 's' : '') + '</span>';
     if (r.extras) h += '<span class="cp-chip cp-chip--ex">➕ ' + r.extras + ' acrescentado' + (r.extras > 1 ? 's' : '') + '</span>';
     return h;
   },
@@ -9713,7 +9716,8 @@ var ConfProd = {
       if (i.avaria && U.num(i.avaria.qtd) > 0) return 0;
       if (chegada && !i.extra && U.num(i.qtd) !== U.num(i.previsto)) return 1;
       if (i.extra) return 2;
-      return 3;
+      if (i.terceirizado) return 3;
+      return 4;
     }
     itens = itens.slice().sort(function (a, b) {
       return peso(a) - peso(b) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
@@ -9737,6 +9741,7 @@ var ConfProd = {
         : '<b style="white-space:nowrap">' + U.fmt(i.qtd) + ' ' + U.esc(i.unidade || 'UN') + '</b>';
       return '<div class="cp-item">' +
         '<div class="cp-item__lin"><span style="flex:1;min-width:0">' + U.esc(i.nome) +
+          (i.terceirizado ? ' <span class="cp-chip cp-chip--terc">🔗 terceirizado</span>' : '') +
           (i.extra ? ' <span class="cp-chip cp-chip--ex">acrescentado pelo produtor</span>' : '') + '</span>' + lado + '</div>' +
         (av
           ? '<div class="cp-av"><b>⚠️ ' + U.fmt(av.qtd) + ' avariada' + (U.num(av.qtd) > 1 ? 's' : '') + '</b>' +
@@ -9822,6 +9827,7 @@ function TelaProdutores() {
       '<div class="abas" style="flex-wrap:wrap">' +
         '<button class="aba is-ativa" data-aba="todas">📋 Todas<span class="n">' + cps.length + '</span></button>' +
         '<button class="aba" data-aba="avaria">⚠️ Com avaria<span class="n">' + comAvaria.length + '</span></button>' +
+        '<button class="aba" data-aba="terc">🔗 Terceirizado<span class="n">' + cps.filter(function (c) { return ConfProd.resumo(c).terc > 0; }).length + '</span></button>' +
         '<button class="aba" data-aba="sobra">📦 Sobras<span class="n">' + cps.filter(function (c) { return c.tipo === 'sobra'; }).length + '</span></button>' +
         '<button class="aba" data-aba="aguardando">⏳ Aguardando<span class="n">' + aguardando.length + '</span></button>' +
       '</div>' +
@@ -9893,6 +9899,7 @@ function TelaProdutores() {
         var itensLista = cps.filter(function (c) {
           if (abaAt === 'avaria' && !ConfProd.resumo(c).avarias) return false;
           if (abaAt === 'sobra' && c.tipo !== 'sobra') return false;
+          if (abaAt === 'terc' && !ConfProd.resumo(c).terc) return false;
           var ev = evPorId[c.evento_id], cg = cgPorId[c.carregamento_id];
           return casa([ev.nome, ev.cliente, ev.local, c.responsavel, nomeCam(cg),
             (c.itens || []).map(function (i) { return i.nome; }).join(' ')].join(' '));
@@ -9901,7 +9908,7 @@ function TelaProdutores() {
           : busca
             ? '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3><p>Nenhuma conferência combina com "' + U.esc(busca) + '".</p></div>'
             : '<div class="vazio"><p class="vazio__ico">🤝</p><h3>' +
-                (abaAt === 'avaria' ? 'Nenhuma avaria registrada' : abaAt === 'sobra' ? 'Nenhuma sobra declarada' : 'Nenhuma conferência de produtor ainda') + '</h3>' +
+                (abaAt === 'avaria' ? 'Nenhuma avaria registrada' : abaAt === 'terc' ? 'Nenhum terceirizado conferido pelo produtor' : abaAt === 'sobra' ? 'Nenhuma sobra declarada' : 'Nenhuma conferência de produtor ainda') + '</h3>' +
                 '<p>Gere o link na tela do evento (🔗 LINK DO PRODUTOR) e mande para quem recebe o material. O que ele enviar aparece aqui.</p></div>';
       }
       U.$$('.js-cp-abrir', caixa).forEach(function (b) {

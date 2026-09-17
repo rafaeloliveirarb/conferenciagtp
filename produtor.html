@@ -72,6 +72,13 @@
   .tag{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:800;margin-left:6px;vertical-align:middle}
   .tag--av{background:#FDECEA;color:var(--vermelho)}
   .tag--extra{background:#FFF1E0;color:#A85600}
+  [hidden]{display:none!important}
+  .tag--terc{background:#EDE7F6;color:#5B3A99}
+  .cartao--terc{border:2px solid #B9A5DD}
+  .cartao--terc .cartao__topo{background:#F4F0FA}
+  .cartao--terc h3{color:#5B3A99}
+  .chk-terc{display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:14px;font-weight:700;color:#5B3A99;cursor:pointer}
+  .chk-terc input{width:20px;height:20px}
   /* ---- acrescentar sobra ---- */
   .add{border:2px dashed var(--laranja);border-radius:12px;padding:12px;margin-top:14px;background:#FFFAF4}
   .add h4{margin:0 0 8px;font-size:14px;color:#A85600}
@@ -106,7 +113,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 17/09 B</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 17/09 C</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -229,7 +236,7 @@ function carregar() {
       }
       document.getElementById('sub').textContent = evento.nome;
       return Promise.all([
-        cli.from('produtos').select('id,nome,unidade,quantidade_prevista').eq('evento_id', evento.id),
+        cli.from('produtos').select('id,nome,unidade,quantidade_prevista,terceirizado').eq('evento_id', evento.id),
         cli.from('carregamentos').select('*').eq('evento_id', evento.id).order('numero'),
         cli.from('conferencias_produtor').select('*').eq('evento_id', evento.id),
         cli.from('caminhoes').select('id,tipo,modelo,placa')
@@ -243,9 +250,12 @@ function carregar() {
         /* só os carregamentos de SAÍDA (o que vai para o evento) */
         cargas = (rr[1].data || []).filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
         var cgIds = cargas.map(function (c) { return c.id; });
-        if (!cgIds.length) { planoPorCg = {}; sobraBase = montar(produtosEv, {}); return desenhar(); }
-        return cli.from('itens_carregamento').select('carregamento_id,produto_id,quantidade').in('carregamento_id', cgIds)
-          .then(function (r3) {
+        if (!cgIds.length) { planoPorCg = {}; tercPorCg = {}; sobraBase = montar(produtosEv, {}, false, {}); return desenhar(); }
+        return Promise.all([
+          cli.from('itens_carregamento').select('carregamento_id,produto_id,quantidade').in('carregamento_id', cgIds),
+          carregarTerceirizado()
+        ]).then(function (rx) {
+            var r3 = rx[0];
             planoPorCg = {};
             var totalEv = {};
             (r3.data || []).forEach(function (pl) {
@@ -253,7 +263,7 @@ function carregar() {
               b[pl.produto_id] = (b[pl.produto_id] || 0) + num(pl.quantidade);
               totalEv[pl.produto_id] = (totalEv[pl.produto_id] || 0) + num(pl.quantidade);
             });
-            sobraBase = montar(produtosEv, totalEv, true);
+            sobraBase = montar(produtosEv, totalEv, true, tercEv);
             desenhar();
           });
       });
@@ -264,20 +274,63 @@ function carregar() {
     });
 }
 
-/* soma por nome: o produtor vê a lista limpa, sem item repetido */
-function montar(produtos, prev, estrito) {
+/* 🔗 terceirizado: o que o conferente marcou como material de fornecedor na SAÍDA
+   de cada caminhão. tercPorCg[carregamento][produto] e tercEv[produto] (total). */
+var tercPorCg = {}, tercEv = {};
+function carregarTerceirizado() {
+  tercPorCg = {}; tercEv = {};
+  return cli.from('conferencias').select('id,carregamento_id,tipo,finalizada_em').eq('evento_id', evento.id)
+    .then(function (r) {
+      if (r.error) throw r.error;
+      var saidas = (r.data || []).filter(function (c) { return c.tipo === 'saida'; });
+      if (!saidas.length) return;
+      var cgDe = {};
+      saidas.forEach(function (c) { cgDe[c.id] = c.carregamento_id; });
+      return cli.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_terceirizada')
+        .in('conferencia_id', Object.keys(cgDe))
+        .then(function (r2) {
+          if (r2.error) throw r2.error;
+          var terc100 = {};
+          produtosEv.forEach(function (p) { if (p.terceirizado) terc100[p.id] = true; });
+          (r2.data || []).forEach(function (i) {
+            var t = num(i.qtd_terceirizada);
+            if (terc100[i.produto_id]) t = Math.max(t, num(i.quantidade));
+            var cg = cgDe[i.conferencia_id];
+            var b = tercPorCg[cg] || (tercPorCg[cg] = {});
+            b[i.produto_id] = (b[i.produto_id] || 0) + t;
+            tercEv[i.produto_id] = (tercEv[i.produto_id] || 0) + t;
+          });
+        });
+    })
+    .catch(function (e) { console.error('terceirizado', e); });   /* sem isso a página abre normal */
+}
+
+/* soma por nome: o produtor vê a lista limpa, sem item repetido.
+   Separa NOSSO material do TERCEIRIZADO (vão em quadros diferentes). */
+function montar(produtos, prev, estrito, terc) {
+  terc = terc || {};
   var mapa = {};
+  function soma(p, qtd, ehTerc) {
+    if (qtd <= 0) return;
+    var ch = String(p.nome || '').trim().toUpperCase() + (ehTerc ? '|T' : '');
+    var b = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', previsto: 0, terceirizado: ehTerc });
+    b.previsto += qtd;
+  }
   produtos.forEach(function (p) {
-    if (estrito && prev[p.id] === undefined) return;   /* não é deste caminhão */
-    var ch = String(p.nome || '').trim().toUpperCase();
-    var b = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', previsto: 0 });
-    b.previsto += prev[p.id] !== undefined ? prev[p.id] : num(p.quantidade_prevista);
+    if (estrito && prev[p.id] === undefined && !terc[p.id]) return;   /* não é deste caminhão */
+    var plano = prev[p.id] !== undefined ? prev[p.id] : num(p.quantidade_prevista);
+    var t = terc[p.id] !== undefined ? terc[p.id] : (p.terceirizado ? plano : 0);
+    var nosso = p.terceirizado ? 0 : Math.max(0, plano - t);
+    soma(p, nosso, false);
+    soma(p, t, true);
   });
   return Object.keys(mapa).map(function (k) { return mapa[k]; })
-    .filter(function (b) { return b.previsto > 0; })
     .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); })
     .map(novoRasc);
 }
+
+function qtdNosso() { return itensBase.filter(function (b) { return !b.terceirizado; }).length; }
+function qtdTerc() { return itensBase.filter(function (b) { return b.terceirizado; }).length; }
 
 function novoRasc(b) {
   b.qtd = ''; b.avOn = false; b.avQtd = ''; b.avDesc = ''; b.avFotos = [];
@@ -334,7 +387,7 @@ function desenhar() {
   /* 2) caminhão escolhido */
   var cg = cargas.filter(function (c) { return c.id === cargaSel; })[0];
   var feita = jaFeitas.chegada[cargaSel];
-  if (!rascPorCg[cargaSel]) rascPorCg[cargaSel] = montar(produtosEv, planoPorCg[cargaSel] || {}, true);
+  if (!rascPorCg[cargaSel]) rascPorCg[cargaSel] = montar(produtosEv, planoPorCg[cargaSel] || {}, true, tercPorCg[cargaSel] || {});
   itensBase = rascPorCg[cargaSel];
 
   h += '<button class="btn" id="voltar-cargas" style="margin-bottom:12px">‹ VER OS OUTROS CAMINHÕES</button>' +
@@ -365,11 +418,14 @@ function desenhar() {
 
   h += '<div class="aviso"><span>ℹ️</span><div><b>Confira o que desceu deste caminhão.</b> ' +
       'Conte e digite a quantidade de cada item. O que não chegou, deixe zerado. ' +
-      'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.</div></div>' +
+      'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.' +
+      (qtdTerc() ? ' O material <b>🔗 terceirizado</b> (de fornecedor) está num quadro separado, confira ele também.' : '') +
+      '</div></div>' +
     '<div class="cartao"><div class="cartao__topo"><h3>📥 Chegou neste caminhão</h3>' +
-      '<span class="peq mut">' + itensBase.length + ' itens</span></div>' +
-    '<div class="cartao__corpo">' +
-      '<div id="lista"></div>' +
+      '<span class="peq mut" id="cont-itens">' + qtdNosso() + ' itens</span></div>' +
+    '<div class="cartao__corpo"><div id="lista"></div></div></div>' +
+    blocoTerc('🔗 Material terceirizado neste caminhão', 'Material de fornecedor que veio neste caminhão. Conte igual ao resto — ele precisa voltar inteiro para ser devolvido ao fornecedor.') +
+    '<div class="cartao"><div class="cartao__corpo" style="padding-top:2px">' +
       campoObsNome('Ex.: faltou 1 caixa de cavilha') +
     '</div></div>' +
     '<button class="btn btn--verde" id="enviar">✓ FINALIZAR CONFERÊNCIA DESTE CAMINHÃO</button>' +
@@ -402,13 +458,16 @@ function telaSobra() {
       'sobrando para o Grupo Tendas Plenart recolher — é o total do evento, não precisa separar por caminhão. ' +
       'Item todo usado ou já devolvido, deixe zerado. Está voltando algo que não está na lista? Acrescente lá embaixo.</div></div>' +
     '<div class="cartao"><div class="cartao__topo"><h3>📦 Ficou sobrando</h3>' +
-      '<span class="peq mut" id="cont-itens">' + itensBase.length + ' itens</span></div><div class="cartao__corpo">' +
-      '<div id="lista"></div>' +
-      '<div class="add">' +
+      '<span class="peq mut" id="cont-itens">' + qtdNosso() + ' itens</span></div><div class="cartao__corpo">' +
+      '<div id="lista"></div></div></div>' +
+    blocoTerc('🔗 Material terceirizado que está voltando', 'Material de fornecedor. Informe tudo que está voltando — ele é devolvido ao fornecedor.') +
+    '<div class="cartao"><div class="cartao__corpo">' +
+      '<div class="add" style="margin-top:0">' +
         '<h4>➕ Acrescentar produto que está voltando em sobra</h4>' +
         '<datalist id="dl-produtos">' + Object.keys(nomes).sort().map(function (k) {
           return '<option value="' + esc(nomes[k]) + '">'; }).join('') + '</datalist>' +
         '<input class="entrada" id="add-nome" list="dl-produtos" placeholder="Nome do produto" autocomplete="off" style="margin-bottom:8px">' +
+        '<label class="chk-terc"><input type="checkbox" id="add-terc"> 🔗 É material terceirizado (de fornecedor)</label>' +
         '<div class="add__linha">' +
           '<input class="entrada" id="add-qtd" type="number" inputmode="numeric" min="0" placeholder="Qtd" style="width:96px;text-align:center">' +
           '<input class="entrada" id="add-un" placeholder="UN" style="width:80px;text-align:center">' +
@@ -427,18 +486,30 @@ function campoObsNome(ph) {
       '<input class="entrada" id="resp" style="margin-top:4px" placeholder="Nome de quem confere"></label>';
 }
 
+function blocoTerc(titulo, texto) {
+  return '<div class="cartao cartao--terc" id="bloco-terc"' + (qtdTerc() ? '' : ' hidden') + '>' +
+    '<div class="cartao__topo"><h3>' + titulo + '</h3><span class="peq mut" id="cont-terc">' + qtdTerc() + ' itens</span></div>' +
+    '<div class="cartao__corpo"><p class="peq mut" style="margin:0 0 6px">' + texto + '</p><div id="lista-terc"></div></div></div>';
+}
+
 /* ---------- lista editável (redesenha só a lista, não perde nome/obs) ---------- */
 function desenharLista() {
   var box = document.getElementById('lista');
   if (!box) return;
-  if (!itensBase.length) {
-    box.innerHTML = '<p class="peq mut" style="text-align:center;padding:14px 0">' +
-      (aba === 'sobra' ? 'Nenhum item na lista. Acrescente abaixo o que está voltando.' : 'Nenhum item neste caminhão.') + '</p>';
-  } else {
-    box.innerHTML = itensBase.map(htmlItemEdit).join('');
-  }
+  var nosso = '', terc = '';
+  itensBase.forEach(function (b, i) {
+    if (b.terceirizado) terc += htmlItemEdit(b, i); else nosso += htmlItemEdit(b, i);
+  });
+  box.innerHTML = nosso || '<p class="peq mut" style="text-align:center;padding:14px 0">' +
+    (aba === 'sobra' ? 'Nenhum item na lista. Acrescente abaixo o que está voltando.' : 'Nenhum item do nosso material neste caminhão.') + '</p>';
+  var bt = document.getElementById('lista-terc');
+  if (bt) bt.innerHTML = terc;
+  var bloco = document.getElementById('bloco-terc');
+  if (bloco) bloco.hidden = !terc;
   var cont = document.getElementById('cont-itens');
-  if (cont) cont.textContent = itensBase.length + ' itens';
+  if (cont) cont.textContent = qtdNosso() + ' itens';
+  var ct = document.getElementById('cont-terc');
+  if (ct) ct.textContent = qtdTerc() + ' itens';
 }
 
 function htmlItemEdit(b, i) {
@@ -475,6 +546,7 @@ function htmlItemFeito(i2, chegada) {
   var av = i2.avaria;
   var dif = chegada && num(i2.qtd) !== num(i2.previsto);
   var h = '<div class="item"><span class="item__n"><b>' + esc(i2.nome) +
+      (i2.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
       (i2.extra ? '<span class="tag tag--extra">acrescentado</span>' : '') +
       (av && num(av.qtd) > 0 ? '<span class="tag tag--av">' + fmt(av.qtd) + ' avariada(s)</span>' : '') + '</b>' +
       (chegada && !i2.extra ? '<span class="peq mut">enviado ' + fmt(i2.previsto) + '</span>' : '') + '</span>' +
@@ -508,6 +580,7 @@ function ligarTudo() {
   if (addNome) addNome.addEventListener('change', function () {
     var p = acharProduto(addNome.value);
     if (p) document.getElementById('add-un').value = p.unidade || 'UN';
+    if (p && p.terceirizado) document.getElementById('add-terc').checked = true;
   });
   if (aba === 'sobra' && !jaFeitas.sobra) desenharLista();
 
@@ -570,19 +643,27 @@ function acrescentarSobra() {
   var un = (document.getElementById('add-un').value || '').trim().toUpperCase() || 'UN';
   if (nome.length < 2) return alert('Escreva o nome do produto.');
   if (q <= 0) return alert('Informe a quantidade que está voltando.');
+  var ehTerc = document.getElementById('add-terc').checked;
   var ch = nome.toUpperCase();
   var jaTem = -1;
-  itensBase.forEach(function (b, k) { if (String(b.nome).trim().toUpperCase() === ch) jaTem = k; });
+  itensBase.forEach(function (b, k) {
+    if (String(b.nome).trim().toUpperCase() === ch && !!b.terceirizado === ehTerc) jaTem = k;
+  });
   if (jaTem >= 0) {
     itensBase[jaTem].qtd = String(num(itensBase[jaTem].qtd) + q);
   } else {
     var p = acharProduto(nome);
-    itensBase.push(novoRasc({ nome: p ? p.nome : nome.toUpperCase(), unidade: p ? (p.unidade || un) : un, previsto: 0, extra: true }));
+    itensBase.push(novoRasc({ nome: p ? p.nome : nome.toUpperCase(), unidade: p ? (p.unidade || un) : un, previsto: 0, extra: true, terceirizado: ehTerc }));
     itensBase[itensBase.length - 1].qtd = String(q);
   }
   document.getElementById('add-nome').value = '';
   document.getElementById('add-qtd').value = '';
   document.getElementById('add-un').value = '';
+  document.getElementById('add-terc').checked = false;
+  if (ehTerc) {
+    var bl = document.getElementById('bloco-terc');
+    setTimeout(function () { if (bl && bl.scrollIntoView) bl.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50);
+  }
   desenharLista();
 }
 
@@ -625,6 +706,7 @@ function montarEnvio() {
     var q = num(b.qtd);
     var it = { nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q };
     if (b.extra) it.extra = true;
+    if (b.terceirizado) it.terceirizado = true;
     if (b.avOn) {
       var aq = num(b.avQtd);
       if (aq <= 0) { erro = b.nome + ': informe quantas peças estão avariadas (ou desmarque a avaria).'; return; }
