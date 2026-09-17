@@ -106,7 +106,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 17/09 B</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -142,7 +142,40 @@
 var SUPABASE_URL  = "https://cllylcuhpmwnyebmlelf.supabase.co";
 var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E";
 
-var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+/* A barra da Vercel (quem está logado na Vercel vê ela no computador) tenta clonar
+   os cabeçalhos das chamadas e quebra o envio. Este fetch passa os cabeçalhos
+   como objeto simples — o mesmo conserto que a Central já usa. */
+function fetchLimpo(recurso, opcoes) {
+  opcoes = opcoes || {};
+  try {
+    if (opcoes.headers && typeof Headers !== 'undefined' && opcoes.headers instanceof Headers) {
+      var simples = {};
+      opcoes.headers.forEach(function (v, k) { simples[k] = v; });
+      var copia = {};
+      Object.keys(opcoes).forEach(function (k) { copia[k] = opcoes[k]; });
+      copia.headers = simples;
+      opcoes = copia;
+    }
+  } catch (e) { }
+  return fetch(recurso, opcoes);
+}
+var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
+
+/* explica o erro de verdade em vez de sempre culpar a internet */
+function motivoErro(e) {
+  var m = (e && (e.message || e.msg || e.details)) || String(e || '');
+  if (/DataCloneError|could not be cloned|postMessage/i.test(m))
+    return 'Uma extensão ou a barra da Vercel do navegador bloqueou o envio. Teste numa janela anônima (Ctrl+Shift+N).';
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m))
+    return 'Sem conexão com o servidor. Verifique a internet e tente de novo.';
+  if (/does not exist|Could not find the table|schema cache/i.test(m))
+    return 'A tabela da conferência do produtor não existe no banco. Avise o Grupo Tendas Plenart.\n(' + m + ')';
+  if (/row-level security|violates|permission denied/i.test(m))
+    return 'O banco bloqueou o envio (permissão). Avise o Grupo Tendas Plenart.\n(' + m + ')';
+  if (/too large|payload|413/i.test(m))
+    return 'As fotos ficaram pesadas demais para enviar de uma vez. Apague uma ou duas fotos e tente de novo.';
+  return 'Não consegui enviar.\nMotivo: ' + m;
+}
 var tela = document.getElementById('tela');
 var token = (location.hash || '').replace('#', '').trim();
 
@@ -700,7 +733,7 @@ function gravar(reg, bt) {
     .catch(function (e) {
       console.error(e);
       bt.disabled = false; bt.textContent = rotulo;
-      alert('Não consegui enviar. Verifique a internet e tente de novo.');
+      alert(motivoErro(e));
     });
 }
 </script>
