@@ -9187,6 +9187,9 @@ function TelaRelatorios() {
     }
 
     var busca = '';
+    /* 📤 período das saídas: padrão = mês atual */
+    var periodoDe = U.hojeISO().slice(0, 8) + '01';
+    var periodoAte = U.hojeISO();
     function casaBusca(txt) {
       if (!busca) return true;
       var alvo = String(txt || '').toLowerCase();
@@ -9413,7 +9416,119 @@ function TelaRelatorios() {
           : '');
     }
 
+    /* 📤 SAÍDAS NO PERÍODO — quanto material saiu entre duas datas e
+       quais peças mais saíram. Base: conferências de SAÍDA finalizadas,
+       datadas pelo dia em que o conferente finalizou. */
+    function abaSaidas() {
+      var rotPeriodo = (periodoDe || periodoAte)
+        ? (periodoDe ? U.fmtData(periodoDe) : 'início') + ' a ' + (periodoAte ? U.fmtData(periodoAte) : 'hoje')
+        : 'todo o histórico';
+      exportTitulo = 'Saidas no periodo';
+      exportLinhas = [['Período', rotPeriodo], ['Item', 'Unidade', 'Saiu', 'Em quantos eventos']];
+
+      var evPorId = {};
+      App.eventos.forEach(function (ev) { evPorId[ev.id] = ev; });
+      var prodPorId = {};
+      todosProdutos.forEach(function (p) { prodPorId[p.id] = p; });
+      var itensPorConf = {};
+      todosItens.forEach(function (i) {
+        (itensPorConf[i.conferencia_id] = itensPorConf[i.conferencia_id] || []).push(i);
+      });
+
+      var mapa = {}, porEvento = {}, totalPecas = 0, nConfs = 0;
+      App.conferencias.forEach(function (c) {
+        if (c.tipo !== 'saida' || !c.finalizada_em) return;
+        var ev = evPorId[c.evento_id];
+        var d = String(c.finalizada_em).slice(0, 10) || (ev ? String(ev.data || '').slice(0, 10) : '');
+        if (periodoDe && d && d < periodoDe) return;
+        if (periodoAte && d && d > periodoAte) return;
+
+        var contou = false;
+        (itensPorConf[c.id] || []).forEach(function (i) {
+          var p = prodPorId[i.produto_id];
+          if (!p) return;
+          var q = U.num(i.quantidade) + U.num(i.qtd_danificada);
+          if (!(q > 0)) return;
+          if (!casaBusca(p.nome + ' ' + (ev ? ev.nome : ''))) return;
+          contou = true;
+          var ch = Estoque.chave(p.nome);
+          var m = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', saiu: 0, evs: {} });
+          m.saiu += q;
+          m.evs[c.evento_id] = true;
+          totalPecas += q;
+          var pe = porEvento[c.evento_id] ||
+            (porEvento[c.evento_id] = { id: c.evento_id, nome: ev ? ev.nome : 'Evento apagado', data: d, qtd: 0 });
+          pe.qtd += q;
+          if (d && d > pe.data) pe.data = d;
+        });
+        if (contou) nConfs++;
+      });
+
+      var ranking = Object.keys(mapa).map(function (k) {
+        var m = mapa[k];
+        m.eventos = Object.keys(m.evs).length;
+        return m;
+      }).sort(function (a, b) { return b.saiu - a.saiu; });
+      var eventosLista = Object.keys(porEvento).map(function (k) { return porEvento[k]; })
+        .sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+
+      var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
+        '<span class="peq mut" style="flex:none">📅 Período</span>' +
+        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<span class="peq mut" style="flex:none">até</span>' +
+        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
+      '</div></div>' +
+
+      '<div class="dupla" style="margin-bottom:16px">' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px">' +
+          '<p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalPecas) + '</p>' +
+          '<p class="mut peq">Peças saíram · ' + U.esc(rotPeriodo) + '</p></div>' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px">' +
+          '<p style="font-size:34px;font-weight:900;color:var(--azul)">' + eventosLista.length + '</p>' +
+          '<p class="mut peq">Evento(s) atendido(s) · ' + nConfs + ' caminhão(ões) de saída</p></div>' +
+      '</div>';
+
+      if (!ranking.length) {
+        return h + '<div class="vazio"><p class="vazio__ico">📤</p><h3>Nenhuma saída neste período</h3>' +
+          '<p>Mude as datas acima ou toque em <b>Tudo</b> para ver o histórico completo.</p></div>';
+      }
+
+      var max = ranking[0].saiu || 1;
+      h += '<div class="cartao"><div class="cartao__topo"><h3>🏆 O que mais saiu no período</h3>' +
+        '<span class="mut peq">' + ranking.length + ' item(ns)</span></div>' +
+        '<div class="cartao__corpo" style="max-height:56vh;overflow:auto">' +
+        ranking.map(function (m, i) {
+          exportLinhas.push([m.nome, m.unidade, m.saiu, m.eventos]);
+          return '<div style="padding:6px 0;border-bottom:1px solid var(--linha)">' +
+            '<div class="peq" style="display:flex;justify-content:space-between;gap:10px">' +
+              '<span>' + (i + 1) + 'º ' + U.esc(m.nome) + '</span>' +
+              '<b style="flex:none">' + U.fmt(m.saiu) + ' ' + U.esc(m.unidade) +
+                ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s)</span></b></div>' +
+            '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:4px">' +
+              '<div style="height:6px;border-radius:4px;background:var(--laranja);width:' +
+                Math.max(2, Math.round(m.saiu / max * 100)) + '%"></div></div>' +
+          '</div>';
+        }).join('') +
+      '</div></div>';
+
+      h += '<div class="cartao"><div class="cartao__topo"><h3>📅 Eventos com saída no período</h3>' +
+        '<span class="mut peq">' + eventosLista.length + '</span></div><div class="cartao__corpo">' +
+        eventosLista.map(function (e) {
+          return '<div class="peq js-rel-abrir" data-id="' + e.id + '" ' +
+            'style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
+            '<span>' + U.esc(e.nome) + ' <span class="mut">· ' + U.fmtData(e.data) + '</span></span>' +
+            '<b style="flex:none">' + U.fmt(e.qtd) + ' peças ›</b></div>';
+        }).join('') +
+      '</div></div>';
+
+      return h;
+    }
+
     var ABAS = {
+      saidas: { rot: '📤 Saídas no período', fn: abaSaidas },
       material: { rot: '🚧 Material na rua', fn: abaMaterial },
       cargas: { rot: '🚚 Carregamentos', fn: abaCarregamentos },
       perdas: { rot: '🔧 Perdas e quebras', fn: abaPerdas },
@@ -9421,7 +9536,7 @@ function TelaRelatorios() {
       historico: { rot: '🗂️ Histórico por evento', fn: abaHistorico },
       giro: { rot: '🔄 Giro de peças', fn: abaGiro }
     };
-    var abaAtiva = 'material';
+    var abaAtiva = 'saidas';
 
     function desenhar() {
       var h = '<div class="abas" style="flex-wrap:wrap">' +
@@ -9451,6 +9566,33 @@ function TelaRelatorios() {
     }
 
     function ligarConteudo() {
+      /* 📤 filtros do período de saídas */
+      function redesenharConteudo() {
+        U.$('#rel-conteudo', tela).innerHTML = ABAS[abaAtiva].fn();
+        ligarConteudo();
+      }
+      var spDe = U.$('#sp-de', tela), spAte = U.$('#sp-ate', tela);
+      if (spDe) spDe.addEventListener('change', function () { periodoDe = spDe.value; redesenharConteudo(); });
+      if (spAte) spAte.addEventListener('change', function () { periodoAte = spAte.value; redesenharConteudo(); });
+      var spMes = U.$('#sp-mes', tela);
+      if (spMes) spMes.addEventListener('click', function () {
+        periodoDe = U.hojeISO().slice(0, 8) + '01';
+        periodoAte = U.hojeISO();
+        redesenharConteudo();
+      });
+      var sp30 = U.$('#sp-30', tela);
+      if (sp30) sp30.addEventListener('click', function () {
+        var d = new Date(Date.now() - 30 * 86400000);
+        periodoDe = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        periodoAte = U.hojeISO();
+        redesenharConteudo();
+      });
+      var spTudo = U.$('#sp-tudo', tela);
+      if (spTudo) spTudo.addEventListener('click', function () {
+        periodoDe = ''; periodoAte = '';
+        redesenharConteudo();
+      });
+
       U.$$('.js-rel-tg', tela).forEach(function (topo) {
         topo.addEventListener('click', function () {
           var corpo = topo.parentElement.querySelector('.cartao__corpo');
