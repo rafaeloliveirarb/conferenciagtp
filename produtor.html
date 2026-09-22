@@ -73,6 +73,13 @@
   .tag--av{background:#FDECEA;color:var(--vermelho)}
   .tag--extra{background:#FFF1E0;color:#A85600}
   [hidden]{display:none!important}
+  .q30bloco{border:1px solid var(--linha);border-radius:10px;overflow:hidden;margin-bottom:10px}
+  .q30bloco:last-child{margin-bottom:0}
+  .q30bloco header{background:var(--azul);color:#fff;font-weight:800;font-size:14px;padding:7px 12px}
+  .q30bloco .it{display:flex;justify-content:space-between;gap:10px;padding:6px 12px;border-bottom:1px solid var(--linha);font-size:14px}
+  .q30bloco .it:last-of-type{border-bottom:0}
+  .q30bloco .it b{font-variant-numeric:tabular-nums}
+  .q30bloco footer{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;background:#FFF4E5;color:#A85600;font-weight:800;font-size:13px}
   .tag--terc{background:#EDE7F6;color:#5B3A99}
   .cartao--terc{border:2px solid #B9A5DD}
   .cartao--terc .cartao__topo{background:#F4F0FA}
@@ -113,7 +120,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 17/09 C</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 22/09 D</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -189,6 +196,7 @@ var token = (location.hash || '').replace('#', '').trim();
 var evento = null, itensBase = [], aba = 'chegada', jaFeitas = { chegada: {}, sobra: null };
 var cargas = [], cargaSel = null, caminhoes = [], sobraBase = [];
 var produtosEv = [], planoPorCg = {};
+var areasQ30 = [], areasAbertas = false;
 
 function nomeCam(cg) {
   var c = caminhoes.filter(function (x) { return x.id === cg.caminhao_id; })[0];
@@ -239,10 +247,14 @@ function carregar() {
         cli.from('produtos').select('id,nome,unidade,quantidade_prevista,terceirizado').eq('evento_id', evento.id),
         cli.from('carregamentos').select('*').eq('evento_id', evento.id).order('numero'),
         cli.from('conferencias_produtor').select('*').eq('evento_id', evento.id),
-        cli.from('caminhoes').select('id,tipo,modelo,placa')
+        cli.from('caminhoes').select('id,tipo,modelo,placa'),
+        cli.from('q30_areas').select('dados').eq('evento_id', evento.id)
+          .then(function (r) { return r.error ? [] : (r.data || []); })
+          .catch(function () { return []; })
       ]).then(function (rr) {
         produtosEv = (rr[0].data || []);
         caminhoes = (rr[3].data || []);
+        areasQ30 = ((rr[4] || [])[0] || {}).dados || [];
         (rr[2].data || []).forEach(function (c) {
           if (c.tipo === 'sobra') jaFeitas.sobra = c;
           else jaFeitas.chegada[c.carregamento_id] = c;
@@ -380,6 +392,7 @@ function desenhar() {
           '</div></div>';
       }).join('');
     }
+    h += cartaoAreasQ30();
     tela.innerHTML = h;
     return ligarTudo();
   }
@@ -479,6 +492,27 @@ function telaSobra() {
     '<button class="btn btn--laranja" id="enviar">📦 ENVIAR A SOBRA</button>';
 }
 
+/* 🔺 guia de montagem: a treliça Q30 separada por área (vem do quantificador) */
+function cartaoAreasQ30() {
+  if (!areasQ30.length) return '';
+  var h = '<div class="cartao"><div class="cartao__topo" id="q30-topo" style="cursor:pointer">' +
+    '<h3>🔺 Treliça por área — guia de montagem</h3>' +
+    '<span class="peq" style="color:var(--azul);font-weight:800">' + areasQ30.length + ' área' + (areasQ30.length > 1 ? 's' : '') +
+      ' ' + (areasAbertas ? '▲' : '▼') + '</span></div>';
+  if (areasAbertas) {
+    h += '<div class="cartao__corpo">' +
+      '<p class="peq mut" style="margin:0 0 10px">Onde cada peça de treliça vai. É só um guia — a conferência continua sendo pelo caminhão.</p>' +
+      areasQ30.map(function (a) {
+        return '<div class="q30bloco"><header>' + esc(a.nome) + '</header>' +
+          (a.itens || []).map(function (it) {
+            return '<div class="it"><span>' + esc(it.n) + '</span><b>' + fmt(it.q) + '</b></div>';
+          }).join('') +
+          '<footer><span>TOTAL DE PEÇAS</span><b>' + fmt(a.total) + '</b></footer></div>';
+      }).join('') + '</div>';
+  }
+  return h + '</div>';
+}
+
 function campoObsNome(ph) {
   return '<label style="display:block;margin-top:14px"><span class="peq mut">📝 Observações (opcional)</span>' +
       '<textarea class="entrada" id="obs" rows="3" style="resize:vertical;margin-top:4px" placeholder="' + ph + '"></textarea></label>' +
@@ -572,6 +606,8 @@ function ligarTudo() {
   });
   var volt = document.getElementById('voltar-cargas');
   if (volt) volt.addEventListener('click', function () { cargaSel = null; desenhar(); window.scrollTo(0, 0); });
+  var q30t = document.getElementById('q30-topo');
+  if (q30t) q30t.addEventListener('click', function () { areasAbertas = !areasAbertas; desenhar(); });
   var env = document.getElementById('enviar');
   if (env) env.addEventListener('click', enviar);
   var addOk = document.getElementById('add-ok');

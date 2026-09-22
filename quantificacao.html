@@ -1,0 +1,1818 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Quantificação Treliça Q30</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --azul:#1F3A6E; --azul-2:#2E5496; --azul-tint:#EAF0FA;
+    --laranja:#F28C28; --laranja-2:#D9761A; --laranja-tint:#FDF0E2;
+    --tinta:#16202F; --suave:#65738A; --papel:#F4F6FA; --cartao:#FFFFFF;
+    --borda:#DBE2ED; --borda-forte:#C3CDDD; --campo:#FFFFFF; --grade:#CFD8E6;
+    --ok:#1B7A4B; --contra:#FFFFFF; --sombra:0 1px 2px rgba(22,32,47,.06),0 8px 24px rgba(22,32,47,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --azul:#7FA7EA; --azul-2:#A5C1F2; --azul-tint:#1B2740;
+      --laranja:#F5A04A; --laranja-2:#FFB86B; --laranja-tint:#33240F;
+      --tinta:#E7EDF7; --suave:#93A2B8; --papel:#0E1621; --cartao:#17212F;
+      --borda:#2A3648; --borda-forte:#3B4A60; --campo:#111A26; --grade:#31405A;
+      --ok:#4FBF87; --contra:#0E1621; --sombra:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --azul:#7FA7EA; --azul-2:#A5C1F2; --azul-tint:#1B2740;
+    --laranja:#F5A04A; --laranja-2:#FFB86B; --laranja-tint:#33240F;
+    --tinta:#E7EDF7; --suave:#93A2B8; --papel:#0E1621; --cartao:#17212F;
+    --borda:#2A3648; --borda-forte:#3B4A60; --campo:#111A26; --grade:#31405A;
+    --ok:#4FBF87; --contra:#0E1621; --sombra:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--papel);color:var(--tinta);
+       font-family:Barlow,"Segoe UI",system-ui,sans-serif;font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%}
+  h1,h2,h3,h4,.cond{font-family:"Barlow Condensed",Barlow,"Arial Narrow",sans-serif;letter-spacing:.02em}
+  .num{font-variant-numeric:tabular-nums}
+  .wrap{max-width:1060px;margin:0 auto;padding-inline:16px;padding-block:0 44px}
+
+  .topo{background:var(--azul);color:#fff;margin-inline:-16px;padding:16px;
+        padding-top:calc(16px + env(safe-area-inset-top,0px))}
+  .topo-in{max-width:1028px;margin:0 auto;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between}
+  .marca{display:flex;align-items:center;gap:12px}
+  .barras{display:flex;gap:3px;align-items:flex-end;height:30px}
+  .barras i{display:block;width:5px;background:var(--laranja);border-radius:1px}
+  .barras i:nth-child(1){height:14px}.barras i:nth-child(2){height:22px}.barras i:nth-child(3){height:30px;background:#fff}
+  .marca h1{margin:0;font-size:25px;font-weight:700;text-transform:uppercase;line-height:1.05;color:#fff}
+  .marca p{margin:2px 0 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#BED0EE;font-weight:600}
+  .placar{text-align:right}
+  .placar .n{font-family:"Barlow Condensed",sans-serif;font-size:38px;font-weight:700;line-height:.95;
+             color:var(--laranja);font-variant-numeric:tabular-nums}
+  .placar .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#BED0EE;font-weight:600}
+
+  .abasEv{display:flex;gap:4px;align-items:flex-end;margin-top:18px;overflow-x:auto;padding-bottom:0;
+          scrollbar-width:thin}
+  .abaEv{display:flex;align-items:center;gap:7px;background:var(--papel);border:1px solid var(--borda);
+         border-bottom:0;border-radius:4px 4px 0 0;padding:8px 11px;cursor:pointer;
+         font-family:"Barlow Condensed",sans-serif;font-size:15.5px;font-weight:700;letter-spacing:.03em;
+         text-transform:uppercase;color:var(--suave);white-space:nowrap;flex:0 0 auto;max-width:260px}
+  .abaEv:hover{color:var(--azul)}
+  .abaEv .rot{overflow:hidden;text-overflow:ellipsis}
+  .abaEv .n{font-family:Barlow,sans-serif;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;
+            background:var(--borda);color:var(--suave);border-radius:9px;padding:1px 7px}
+  .abaEv.on{background:var(--cartao);color:var(--azul);border-top:3px solid var(--laranja);padding-top:6px}
+  .abaEv.on .n{background:var(--laranja);color:#2A1602}
+  .abaEv .x{border:0;background:none;color:var(--borda-forte);cursor:pointer;font-size:13px;
+            line-height:1;padding:2px 1px;font-family:inherit}
+  .abaEv .x:hover{color:var(--laranja-2)}
+  .maisEv{flex:0 0 auto;border:1px dashed var(--borda-forte);background:none;color:var(--suave);
+          border-bottom:0;border-radius:4px 4px 0 0;padding:8px 12px;cursor:pointer;
+          font-family:"Barlow Condensed",sans-serif;font-size:15px;font-weight:700;letter-spacing:.06em;
+          text-transform:uppercase;white-space:nowrap}
+  .maisEv:hover{border-color:var(--laranja);color:var(--laranja-2)}
+
+  .ficha{background:var(--cartao);border:1px solid var(--borda);border-radius:0 4px 4px 4px;box-shadow:var(--sombra);
+         margin-top:0;padding:14px;display:grid;gap:12px;grid-template-columns:2fr 1fr 1fr 1.3fr}
+  label.cap{display:block;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--suave);margin-bottom:5px}
+  input[type=text],input[type=date],input[type=number]{
+    width:100%;background:var(--campo);color:var(--tinta);border:1px solid var(--borda-forte);border-radius:3px;
+    padding:8px 10px;font-family:inherit;font-size:15px;font-weight:600;text-transform:uppercase}
+  input[type=date]{text-transform:none}
+  input:focus-visible,button:focus-visible{outline:2px solid var(--laranja);outline-offset:1px}
+
+  .trilho{display:flex;gap:10px;align-items:center;margin-top:20px;flex-wrap:wrap}
+  .etapa{display:flex;align-items:center;gap:8px;font-family:"Barlow Condensed",sans-serif;font-size:16px;
+         font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--suave);
+         background:none;border:0;padding:0;cursor:pointer}
+  .etapa b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:14px;
+           background:var(--borda);color:var(--suave)}
+  .etapa.on{color:var(--azul)} .etapa.on b{background:var(--laranja);color:#2A1602}
+  .trilho .seta{color:var(--borda-forte);font-size:16px}
+  .trilho .vaomem{margin-left:auto;font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;
+        letter-spacing:.06em;text-transform:uppercase;color:var(--azul);background:none;border:0;
+        border-bottom:2px solid var(--laranja);padding:0 0 1px;cursor:pointer}
+
+  .aviso{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--laranja-tint);
+         border-left:3px solid var(--laranja);padding:9px 12px;margin-top:14px;font-size:13px;font-weight:600}
+
+  .cartao{background:var(--cartao);border:1px solid var(--borda);border-radius:4px;box-shadow:var(--sombra);margin-top:16px}
+  .cartao > h2{margin:0;padding:11px 14px;font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+               color:var(--contra);background:var(--azul);border-radius:3px 3px 0 0;
+               display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+
+  .montadas{display:flex;flex-direction:column}
+  .linha{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--borda)}
+  .linha:last-child{border-bottom:0}
+  .linha .ord{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:15px;color:var(--suave);
+              min-width:20px;font-variant-numeric:tabular-nums}
+  .linha .nm{flex:1;min-width:0}
+  .linha .nm b{display:block;font-family:"Barlow Condensed",sans-serif;font-size:19px;font-weight:700;
+               text-transform:uppercase;line-height:1.15;overflow-wrap:anywhere}
+  .linha .nm small{color:var(--suave);font-size:12.5px;font-weight:600}
+  .linha .qt{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:var(--azul);
+             font-variant-numeric:tabular-nums;text-align:right;line-height:1}
+  .linha .qt s{display:block;text-decoration:none;font-family:Barlow,sans-serif;font-size:10px;
+               letter-spacing:.1em;text-transform:uppercase;color:var(--suave);font-weight:700}
+  .mini{border:1px solid var(--borda-forte);background:var(--cartao);color:var(--tinta);border-radius:3px;
+        font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:700;letter-spacing:.06em;
+        text-transform:uppercase;padding:5px 11px;cursor:pointer}
+  .mini:hover{border-color:var(--azul);color:var(--azul)}
+  .mini.x{padding:5px 9px;color:var(--suave)}
+  .mini.x:hover{border-color:var(--laranja-2);color:var(--laranja-2)}
+  .mini.claro{border-color:rgba(255,255,255,.5);background:transparent;color:inherit}
+  .mini.claro:hover{background:rgba(255,255,255,.16);color:inherit;border-color:currentColor}
+  .nada{padding:26px 14px;text-align:center;color:var(--suave);font-weight:600}
+
+  .fecho{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 14px;
+         border-top:2px solid var(--borda);background:var(--azul-tint)}
+  .fecho span{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--suave)}
+  .fecho strong{font-family:"Barlow Condensed",sans-serif;font-size:26px;color:var(--azul);font-variant-numeric:tabular-nums}
+
+  .nova{display:flex;gap:8px;padding:14px}
+  .nova input{font-size:17px;padding:11px 12px;letter-spacing:.02em}
+
+  .barra-area{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+              padding:12px 14px;border-bottom:1px solid var(--borda)}
+  .barra-area h3{margin:0;font-size:23px;font-weight:700;text-transform:uppercase;color:var(--azul);overflow-wrap:anywhere}
+  .barra-area input.nomemem{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;
+        color:var(--azul);border-color:var(--borda);max-width:440px}
+  .rep{display:flex;align-items:center;gap:8px}
+  .rep label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--suave)}
+  .rep input{width:62px;text-align:center}
+
+  .folha{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.planilha{border-collapse:collapse;width:100%;min-width:420px;font-size:14.5px;background:var(--campo)}
+  table.planilha th{background:var(--azul-tint);color:var(--suave);font-size:11px;font-weight:700;
+        letter-spacing:.12em;text-transform:uppercase;padding:7px 9px;border:1px solid var(--grade);text-align:left}
+  table.planilha th.q,table.planilha td.q{text-align:right;width:104px}
+  table.planilha th.g,table.planilha td.g{width:36px;text-align:center;padding:0}
+  table.planilha td{border:1px solid var(--grade);padding:0;background:var(--campo)}
+  table.planilha td.g{background:var(--azul-tint);color:var(--suave);font-size:12px;font-weight:700;
+        font-variant-numeric:tabular-nums;padding:5px 2px}
+  table.planilha input{border:0;border-radius:0;background:transparent;color:var(--tinta);width:100%;
+        padding:8px 9px;font-family:inherit;font-size:14.5px;font-weight:600;text-transform:uppercase}
+  table.planilha td.q input{text-align:right;font-variant-numeric:tabular-nums}
+  table.planilha input:focus{outline:2px solid var(--laranja);outline-offset:-2px;background:var(--cartao);position:relative;z-index:1}
+  table.planilha tr.tem td.g{background:var(--laranja-tint);color:var(--laranja-2)}
+  table.planilha td.x{width:34px;text-align:center;padding:0}
+  .apagalinha{border:0;background:none;color:var(--borda-forte);font-size:14px;cursor:pointer;padding:6px 8px;line-height:1}
+  .apagalinha:hover{color:var(--laranja-2)}
+  table.planilha tfoot td{background:var(--azul);color:#fff;font-weight:700;border-color:var(--azul-2);padding:8px 9px}
+  table.planilha tfoot td.q{font-family:"Barlow Condensed",sans-serif;font-size:19px;font-variant-numeric:tabular-nums}
+  .dica{padding:9px 14px;font-size:12.5px;color:var(--suave);font-weight:600;border-top:1px solid var(--borda);
+        display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+  .mem{padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .mem .usar{border:1px solid var(--borda-forte);background:var(--campo);color:var(--tinta);border-radius:3px;
+        padding:6px 11px;cursor:pointer;font-family:"Barlow Condensed",sans-serif;font-size:15px;font-weight:700;
+        letter-spacing:.04em;text-transform:uppercase}
+  .mem .usar:hover{border-color:var(--laranja);background:var(--laranja-tint)}
+  .mem .usar span{color:var(--suave);font-weight:600}
+  .mem .nada{padding:0;text-align:left;font-size:13px;flex:1 1 220px}
+
+  /* cartões de memória */
+  .gradeMem{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:12px;padding:14px}
+  .cardmem{border:1px solid var(--borda);border-radius:4px;background:var(--campo);display:flex;flex-direction:column;overflow:hidden}
+  .cm-top{padding:10px 12px;border-bottom:1px solid var(--borda);background:var(--azul-tint)}
+  .cm-top b{display:block;font-family:"Barlow Condensed",sans-serif;font-size:19px;font-weight:700;
+        text-transform:uppercase;line-height:1.15;color:var(--azul);overflow-wrap:anywhere}
+  .cm-top span{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--suave)}
+  .cm-itens{list-style:none;margin:0;padding:8px 12px;flex:1;display:flex;flex-direction:column;gap:2px;max-height:210px;overflow:auto}
+  .cm-itens li{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;border-bottom:1px dotted var(--borda);padding:2px 0}
+  .cm-itens li:last-child{border-bottom:0}
+  .cm-itens li span{font-weight:600;overflow-wrap:anywhere}
+  .cm-itens li b{font-variant-numeric:tabular-nums;color:var(--azul)}
+  .cm-bot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--borda);flex-wrap:wrap}
+
+  .rolo{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.soma{border-collapse:collapse;width:100%;font-size:14px}
+  table.soma th,table.soma td{border:1px solid var(--borda);padding:6px 9px;text-align:center;white-space:nowrap}
+  table.soma thead th{background:var(--azul);color:#fff;font-family:"Barlow Condensed",sans-serif;font-size:13px;
+        font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  table.soma thead th.tot{background:var(--laranja);color:#2A1602}
+  table.soma tbody th{text-align:left;font-weight:700;background:var(--cartao);
+        font-family:"Barlow Condensed",sans-serif;font-size:16px}
+  table.soma td{font-variant-numeric:tabular-nums;font-weight:600}
+  table.soma td.z{color:var(--suave);font-weight:400}
+  table.soma td.tot{background:var(--laranja-tint);font-weight:700}
+  table.soma tfoot th,table.soma tfoot td{background:var(--azul);color:#fff;font-weight:700;border-color:var(--azul-2)}
+  table.soma tfoot td.tot{background:var(--laranja);color:#2A1602}
+
+  .acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+  .btn{appearance:none;border:1px solid var(--borda-forte);background:var(--cartao);color:var(--tinta);
+       font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;letter-spacing:.08em;
+       text-transform:uppercase;padding:9px 18px;border-radius:3px;cursor:pointer}
+  .btn:hover{border-color:var(--azul);color:var(--azul)}
+  .btn.pri{background:var(--laranja);border-color:var(--laranja);color:#2A1602}
+  .btn.pri:hover{background:var(--laranja-2);border-color:var(--laranja-2);color:#2A1602}
+  .btn.sec{background:var(--azul);border-color:var(--azul);color:var(--contra)}
+  .btn.gr{font-size:19px;padding:12px 26px}
+  .recado{font-size:13px;font-weight:700;color:var(--ok)}
+
+  /* prévia da impressão */
+  .previaBox{position:fixed;inset:0;z-index:60;background:rgba(8,14,24,.78);display:flex;flex-direction:column}
+  .previaBarra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--cartao);
+        border-bottom:1px solid var(--borda);padding:10px 14px;
+        padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .previaBarra h2{margin:0;font-size:19px;font-weight:700;text-transform:uppercase;color:var(--azul)}
+  .previaBarra .info{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+        color:var(--suave);flex:1 1 180px}
+  .previaRolo{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;
+        padding:20px 16px calc(28px + env(safe-area-inset-bottom,0px))}
+  #previa{max-width:794px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+  #previa .folha{background:#fff;color:#000;box-shadow:0 8px 30px rgba(0,0,0,.4);
+        width:100%;aspect-ratio:210/297;padding:12mm;overflow:hidden}
+
+  /* blocos de papel */
+  .so-papel{display:none}
+  .papelmem h3{margin:14px 0 4px;font-size:17px;text-transform:uppercase;color:#000;
+        border-bottom:2px solid #F28C28;padding-bottom:2px}
+  .papelmem table{border-collapse:collapse;width:100%;max-width:420px;font-size:11px;margin-bottom:4px}
+  .papelmem td{border:1px solid #999;padding:3px 6px}
+  .papelmem td.q{text-align:right;width:70px;font-variant-numeric:tabular-nums}
+  .papelmem tr.tt td{background:#EEE;font-weight:700}
+  .papelmem .bloco{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
+
+  @media (max-width:980px){
+    .ficha{grid-template-columns:1fr 1fr}
+    .ficha > div:first-child{grid-column:1/-1}
+  }
+  @media (max-width:760px){
+    .linha{flex-wrap:wrap}
+    .linha .nm{flex:1 1 60%}
+    .trilho .vaomem{margin-left:0;width:100%;text-align:left}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  @media print{
+    :root{--papel:#fff;--cartao:#fff;--tinta:#000;--suave:#444;--borda:#999}
+    body{background:#fff;font-size:11px}
+    .topo{margin:0;padding:0 0 8px;background:#fff;color:#000;border-bottom:3px solid #F28C28}
+    .marca h1,.placar .n{color:#000}.marca p,.placar .l{color:#444}
+    .nao-papel{display:none!important}
+    .so-papel{display:block}
+    body[data-print="memorias"] .placar{display:none}
+    .cartao{border:0;box-shadow:none;margin-top:10px}
+    .cartao > h2{background:#fff;color:#000;padding:0 0 6px;font-size:14px;border-bottom:2px solid #F28C28}
+    table.soma thead th{background:#1F3A6E!important;color:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.soma thead th.tot,table.soma tfoot td.tot{background:#F28C28!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.soma tfoot th,table.soma tfoot td{background:#1F3A6E!important;color:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    @page{size:landscape;margin:12mm}
+    body[data-print="memorias"]{--pagina:portrait}
+  }
+</style>
+
+<div class="topo">
+  <div class="topo-in">
+    <div class="marca">
+      <span class="barras" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div>
+        <h1>Quantificação de Treliça</h1>
+        <p>Q30 &middot; Grupo Tendas Plenart</p>
+      </div>
+    </div>
+    <div class="placar">
+      <div class="n num" id="placarTotal">0</div>
+      <div class="l">Peças no total</div>
+    </div>
+  </div>
+</div>
+
+<datalist id="sugestoes"></datalist>
+
+<div class="previaBox nao-papel" id="previaBox" hidden role="dialog" aria-label="Prévia da impressão">
+  <div class="previaBarra">
+    <h2>Prévia da impressão</h2>
+    <span class="info" id="previaInfo"></span>
+    <button class="btn pri" type="button" id="pvImprimir">Imprimir</button>
+    <button class="btn" type="button" id="pvPdf">Salvar PDF</button>
+    <button class="btn" type="button" id="pvFechar">Fechar</button>
+    <span class="recado" id="pvRecado" hidden style="flex-basis:100%"></span>
+  </div>
+  <div class="previaRolo" id="previaRolo">
+    <style id="previaEstilo"></style>
+    <div id="previa"></div>
+  </div>
+</div>
+
+<div class="previaBox nao-papel" id="envBox" hidden role="dialog" aria-label="Enviar para a Central de Conferência">
+  <div class="previaBarra">
+    <h2>Enviar para a Central</h2>
+    <span class="info" id="envInfo"></span>
+    <button class="btn" type="button" id="envFechar">Fechar</button>
+  </div>
+  <div class="previaRolo">
+    <div id="envMiolo" style="max-width:640px;margin:0 auto;background:var(--cartao);border:1px solid var(--borda);border-radius:4px;overflow:hidden"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="abasEv nao-papel" id="abasEventos" role="tablist" aria-label="Eventos"></div>
+
+  <div class="ficha nao-papel" id="blocoFicha">
+    <div><label class="cap" for="fEvento">Evento</label><input type="text" id="fEvento" placeholder="NOME DO EVENTO"></div>
+    <div><label class="cap" for="fOs">O.S.</label><input type="text" id="fOs" placeholder="0000"></div>
+    <div><label class="cap" for="fData">Data da montagem</label><input type="date" id="fData"></div>
+    <div><label class="cap" for="fCaminhao">Caminhão</label><input type="text" id="fCaminhao" placeholder="PLACA / MOTORISTA"></div>
+  </div>
+
+  <div class="aviso nao-papel" id="aviso" hidden>
+    <strong>DADOS DE EXEMPLO.</strong> <span>Clique em LIMPAR pra fazer o seu, ou abra uma aba nova.</span>
+    <button class="btn" type="button" id="btnZeroEx" style="padding:4px 12px;font-size:14px">Limpar</button>
+  </div>
+
+  <div class="trilho nao-papel">
+    <button class="etapa on" type="button" id="e1"><b>1</b> Montar as áreas</button>
+    <span class="seta" aria-hidden="true">&rarr;</span>
+    <button class="etapa" type="button" id="e2"><b>2</b> Somar tudo</button>
+    <button class="vaomem" type="button" id="irMem">Memórias salvas</button>
+  </div>
+
+  <!-- ETAPA 1A -->
+  <div id="telaAreas" class="nao-papel">
+    <div class="cartao">
+      <h2>Áreas montadas</h2>
+      <div class="montadas" id="listaMontadas"></div>
+      <div class="fecho"><span>Total já montado</span><strong class="num" id="totalMontado">0</strong></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Montar a próxima área</h2>
+      <div class="nova">
+        <input type="text" id="fNovaArea" placeholder="DIGITE O NOME DA ÁREA" aria-label="Nome da área">
+        <button class="btn sec" type="button" id="btnNovaArea">Montar</button>
+      </div>
+    </div>
+
+    <div class="acoes">
+      <button class="btn pri gr" type="button" id="btnSomar">Somar tudo</button>
+      <button class="btn" type="button" id="btnZero">Limpar este evento</button>
+    </div>
+  </div>
+
+  <!-- ETAPA 1B: montar área -->
+  <div id="telaMontar" class="nao-papel" hidden>
+    <div class="cartao">
+      <div class="barra-area">
+        <h3 id="tituloArea">Palco</h3>
+        <div class="rep">
+          <label for="fRep">Estruturas iguais</label>
+          <input type="number" id="fRep" min="1" step="1" value="1">
+        </div>
+      </div>
+      <div class="folha">
+        <table class="planilha">
+          <thead><tr><th class="g"></th><th>Peça</th><th class="q">Qtd</th><th class="x"></th></tr></thead>
+          <tbody id="linhasArea"></tbody>
+          <tfoot><tr><td class="g"></td><td>Total da estrutura</td><td class="q num" id="somaArea">0</td><td class="x"></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="dica">
+        <button class="mini" type="button" id="btnLinhaA">+ Linha</button>
+        <button class="mini" type="button" id="btnPadraoA">Puxar lista Q30</button>
+        <span>Digite o nome da peça e a quantidade. ENTER pula pra linha de baixo.</span>
+      </div>
+      <div class="fecho"><span>Peças desta área</span><strong class="num" id="subtotalArea">0</strong></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Aplicar uma memória
+        <button class="mini claro" type="button" id="verTodasMem">Ver todas</button>
+      </h2>
+      <div class="mem">
+        <div id="listaMem" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1 1 320px"></div>
+      </div>
+    </div>
+
+    <div class="acoes">
+      <button class="btn sec gr" type="button" id="btnFecharArea">Fechar área</button>
+      <button class="btn" type="button" id="btnGuardarMem">Guardar como memória</button>
+      <button class="btn" type="button" id="btnZerarArea">Zerar</button>
+      <button class="btn" type="button" id="btnApagarArea">Apagar área</button>
+    </div>
+  </div>
+
+  <!-- MEMÓRIAS: lista -->
+  <div id="telaMemorias" hidden>
+    <div class="cartao nao-papel">
+      <h2>Memórias salvas
+        <button class="mini claro" type="button" id="btnNovaMem">+ Nova memória</button>
+      </h2>
+      <div class="gradeMem" id="gradeMem"></div>
+    </div>
+
+    <div class="so-papel papelmem" id="papelMem"></div>
+
+    <div class="acoes nao-papel">
+      <button class="btn pri" type="button" id="btnPreviaMem">Prévia da impressão</button>
+      <button class="btn" type="button" id="btnVoltarMem">Voltar às áreas</button>
+    </div>
+  </div>
+
+  <!-- MEMÓRIA: editar uma -->
+  <div id="telaMemoria" class="nao-papel" hidden>
+    <div class="cartao">
+      <div class="barra-area">
+        <input type="text" id="fNomeMem" class="nomemem" placeholder="NOME DA MEMÓRIA" aria-label="Nome da memória">
+      </div>
+      <div class="folha">
+        <table class="planilha">
+          <thead><tr><th class="g"></th><th>Peça</th><th class="q">Qtd</th><th class="x"></th></tr></thead>
+          <tbody id="linhasMem"></tbody>
+          <tfoot><tr><td class="g"></td><td>Total da memória</td><td class="q num" id="somaMem">0</td><td class="x"></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="dica">
+        <button class="mini" type="button" id="btnLinhaM">+ Linha</button>
+        <button class="mini" type="button" id="btnPadraoM">Puxar lista Q30</button>
+        <span>É a receita da estrutura. Depois é só chamar ela em qualquer área.</span>
+      </div>
+    </div>
+    <div class="acoes">
+      <button class="btn sec gr" type="button" id="btnSalvarMem">Salvar memória</button>
+      <button class="btn" type="button" id="btnApagarMem">Apagar memória</button>
+    </div>
+  </div>
+
+  <!-- ETAPA 2 -->
+  <div id="telaTotal" hidden>
+    <div class="cartao">
+      <h2>Total de material enviado</h2>
+      <div class="so-papel" id="cabecoPapel"></div>
+      <div class="rolo" id="rolo"></div>
+    </div>
+    <div class="acoes nao-papel">
+      <button class="btn sec gr" type="button" id="btnEnviarCentral">Enviar p/ Central de Conferência</button>
+      <button class="btn pri" type="button" id="btnPrevia">Prévia da impressão</button>
+      <button class="btn" type="button" id="btnCopiar">Copiar lista</button>
+      <button class="btn" type="button" id="btnVoltar">Voltar às áreas</button>
+      <span class="recado" id="recado" hidden>Copiado</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var PADRAO = ["5CM","10CM","20CM","40CM","50CM","70CM","80CM","83CM","1M","1,5M","2M","3M","4M","5M",
+                "GRAU","GRAU DE MEIO","CUBO","CUMEEIRA RETA","CUMEEIRA ANGULADA"];
+  var CHAVE = "plenart_q30_v3", CHAVE_MEM = "plenart_q30_memorias_v2";
+
+  /* ---------- Supabase: o mesmo banco da Central de Conferência ---------- */
+  var SUPABASE_URL  = "https://cllylcuhpmwnyebmlelf.supabase.co";
+  var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E";
+  /* a barra da Vercel quebra os cabeçalhos das chamadas; este fetch conserta (igual à Central) */
+  function fetchLimpo(recurso, opcoes){
+    opcoes = opcoes || {};
+    try{
+      if(opcoes.headers && typeof Headers !== "undefined" && opcoes.headers instanceof Headers){
+        var simples = {};
+        opcoes.headers.forEach(function(v,k){ simples[k]=v; });
+        var copia = {};
+        Object.keys(opcoes).forEach(function(k){ copia[k]=opcoes[k]; });
+        copia.headers = simples;
+        opcoes = copia;
+      }
+    }catch(e){}
+    return fetch(recurso, opcoes);
+  }
+  var nuvem = null;
+  try{
+    if(window.supabase && window.supabase.createClient){
+      nuvem = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global:{ fetch: fetchLimpo } });
+    }
+  }catch(e){}
+  function idNovo(){
+    try{ return crypto.randomUUID(); }catch(e){}
+    return "m" + Date.now().toString(36) + Math.random().toString(36).slice(2,10);
+  }
+  var memApagadas = [], memTimer = null;
+
+  var st, edit = null, editMem = null, voltaDe = "areas";
+
+  function $(id){ return document.getElementById(id); }
+  function el(t,c,x){ var n=document.createElement(t); if(c)n.className=c; if(x!==undefined&&x!==null)n.textContent=x; return n; }
+  function lim(s){ return (s||"").trim().toUpperCase(); }
+
+  function novaArea(nome){ return { nome:nome, rep:1, itens:[] }; }
+  function copia(its){ return (its||[]).map(function(i){ return { n:i.n, q:i.q }; }); }
+  function validos(its){ return (its||[]).filter(function(i){ return lim(i.n) && i.q; }); }
+  function somaItens(its){ return (its||[]).reduce(function(t,i){ return lim(i.n) ? t+(i.q||0) : t; }, 0); }
+  function enviadoArea(a){ return somaItens(a.itens) * (a.rep||1); }
+  function totalGeral(){ return st.areas.reduce(function(t,a){ return t+enviadoArea(a); }, 0); }
+  function placar(){ $("placarTotal").textContent = totalGeral(); }
+
+  function memorias(){
+    try{ var c=localStorage.getItem(CHAVE_MEM); if(c){ var m=JSON.parse(c); if(m&&m.length) return m; } }catch(e){}
+    return [];
+  }
+  function gravaMem(){
+    try{ localStorage.setItem(CHAVE_MEM, JSON.stringify(st.memorias||[])); }catch(e){}
+    if(!nuvem) return;
+    clearTimeout(memTimer);
+    memTimer = setTimeout(subirMem, 900);
+  }
+  /* memórias COMPARTILHADAS: sobe as atuais e apaga as removidas */
+  function subirMem(){
+    if(!nuvem) return;
+    var linhas = (st.memorias||[]).map(function(m){
+      if(!m.id) m.id = idNovo();
+      return { id:m.id, nome: lim(m.nome)||"MEMÓRIA", itens: validos(m.itens) };
+    });
+    var passos = [];
+    if(linhas.length) passos.push(nuvem.from("q30_memorias").upsert(linhas));
+    if(memApagadas.length){
+      passos.push(nuvem.from("q30_memorias").delete().in("id", memApagadas.slice()));
+    }
+    Promise.all(passos).then(function(rs){
+      var erro = rs.some(function(r){ return r && r.error; });
+      if(!erro) memApagadas = [];
+      else console.error("memórias: não sincronizou", rs);
+    }).catch(function(e){ console.error("memórias", e); });
+  }
+  function baixarMemNuvem(){
+    if(!nuvem) return;
+    nuvem.from("q30_memorias").select("id,nome,itens").order("nome")
+      .then(function(r){
+        if(r.error || !r.data) return;
+        st.memorias = r.data.map(function(m){
+          return { id:m.id, nome:m.nome, itens:(m.itens||[]) };
+        });
+        try{ localStorage.setItem(CHAVE_MEM, JSON.stringify(st.memorias)); }catch(e){}
+        sugestoes(); desenhaGradeMem();
+        if(edit !== null) tirasMem();
+      })
+      .catch(function(e){ console.error("memórias", e); });
+  }
+  function novoEv(nome){ return { nome:nome||"", os:"", data:"", caminhao:"", areas:[] }; }
+  function vazio(){
+    return { evento:"", os:"", data:"", caminhao:"", exemplo:false, memorias:memorias(),
+             areas:[], eventos:[novoEv("")], atual:0 };
+  }
+
+  // o evento aberto fica nos campos de trabalho (st.evento/os/data/areas);
+  // guardaAtual() devolve pro seu lugar na lista antes de salvar ou trocar de aba
+  function guardaAtual(){
+    if(!st.eventos || !st.eventos[st.atual]) return;
+    var e = st.eventos[st.atual];
+    e.nome = st.evento; e.os = st.os; e.data = st.data; e.caminhao = st.caminhao; e.areas = st.areas;
+  }
+  function abreEvento(i){
+    guardaAtual();
+    st.atual = Math.max(0, Math.min(i, st.eventos.length-1));
+    var e = st.eventos[st.atual];
+    st.evento = e.nome||""; st.os = e.os||""; st.data = e.data||"";
+    st.caminhao = e.caminhao||""; st.areas = e.areas||[];
+    edit = null; editMem = null;
+    ficha(); desenhaAbas(); desenhaMontadas(); sugestoes(); mostra("areas"); window.scrollTo(0,0);
+  }
+  function rotuloEv(e, i){ return lim(e.nome) || ("EVENTO " + (i+1)); }
+  function pecasEv(e){
+    return (e.areas||[]).reduce(function(t,a){ return t + somaItens(a.itens)*(a.rep||1); }, 0);
+  }
+
+  function desenhaAbas(){
+    var box = $("abasEventos");
+    box.textContent = "";
+    guardaAtual();
+    st.eventos.forEach(function(e,i){
+      var b = el("div","abaEv" + (i === st.atual ? " on" : ""));
+      b.setAttribute("role","tab");
+      b.setAttribute("aria-selected", i === st.atual ? "true" : "false");
+      b.setAttribute("tabindex","0");
+      var rot = el("span","rot", rotuloEv(e,i));
+      b.appendChild(rot);
+      var q = pecasEv(e);
+      b.appendChild(el("span","n", q ? String(q) : "–"));
+      function ir(){ if(i !== st.atual) abreEvento(i); }
+      b.addEventListener("click", ir);
+      b.addEventListener("keydown", function(ev){
+        if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); ir(); }
+      });
+      if(st.eventos.length > 1){
+        var x = el("button","x","✕"); x.type="button";
+        x.setAttribute("aria-label","Fechar " + rotuloEv(e,i));
+        x.addEventListener("click", function(ev){
+          ev.stopPropagation();
+          st.eventos.splice(i,1);
+          if(st.atual >= st.eventos.length) st.atual = st.eventos.length-1;
+          else if(i < st.atual) st.atual--;
+          st.exemplo = false;
+          var a = st.eventos[st.atual];
+          st.evento = a.nome||""; st.os = a.os||""; st.data = a.data||"";
+          st.caminhao = a.caminhao||""; st.areas = a.areas||[];
+          edit = null; ficha(); desenhaAbas(); desenhaMontadas(); salvar(); mostra("areas");
+        });
+        b.appendChild(x);
+      }
+      box.appendChild(b);
+    });
+    var mais = el("button","maisEv","+ Novo evento"); mais.type = "button";
+    mais.addEventListener("click", function(){
+      guardaAtual();
+      st.eventos.push(novoEv(""));
+      st.exemplo = false; $("aviso").hidden = true;
+      abreEvento(st.eventos.length-1);
+      salvar();
+      $("fEvento").focus();
+    });
+    box.appendChild(mais);
+  }
+
+  function exemplo(){
+    var s = vazio(); s.exemplo = true; s.evento = "EXEMPLO — ARENA"; s.os = "4499";
+    var a = novaArea("PALCO");
+    a.itens = [{n:"5M",q:8},{n:"4M",q:4},{n:"2M",q:6},{n:"1M",q:4},{n:"CUBO",q:8},{n:"CUMEEIRA RETA",q:2},{n:"GRAU",q:4}];
+    var b = novaArea("TORRE DE COMUNICAÇÃO"); b.rep = 4;
+    b.itens = [{n:"3M",q:4},{n:"1M",q:2},{n:"CUBO",q:4},{n:"50CM",q:2}];
+    s.areas = [a,b];
+    s.eventos = [{ nome:s.evento, os:s.os, data:s.data, areas:s.areas }];
+    s.atual = 0;
+    return s;
+  }
+  function carregar(){
+    try{
+      var c = localStorage.getItem(CHAVE);
+      if(c){
+        var s = JSON.parse(c);
+        if(s && (s.eventos || s.areas)){
+          s.exemplo = false; s.memorias = memorias();
+          if(!s.eventos || !s.eventos.length){
+            s.eventos = [{ nome:s.evento||"", os:s.os||"", data:s.data||"",
+                           caminhao:s.caminhao||"", areas:s.areas||[] }];
+          }
+          if(typeof s.atual !== "number" || s.atual >= s.eventos.length) s.atual = 0;
+          var e = s.eventos[s.atual];
+          s.evento = e.nome||""; s.os = e.os||""; s.data = e.data||"";
+          s.caminhao = e.caminhao||""; s.areas = e.areas||[];
+          return s;
+        }
+      }
+    }catch(e){}
+    return exemplo();
+  }
+  function salvar(){
+    try{ guardaAtual(); localStorage.setItem(CHAVE, JSON.stringify(st)); return true; }catch(e){ return false; }
+  }
+  function sujo(){ if(st.exemplo){ st.exemplo=false; $("aviso").hidden=true; } salvar(); }
+
+  // ---------- planilha reaproveitável ----------
+  function limpaFim(its){
+    while(its.length && !lim(its[its.length-1].n) && !its[its.length-1].q) its.pop();
+    its.push({ n:"", q:0 });
+  }
+  function foca(tbody, i, col){
+    var alvo = tbody.querySelector('[data-cel="'+col+'"][data-lin="'+i+'"]');
+    if(alvo){ alvo.focus(); if(alvo.select) alvo.select(); }
+  }
+  function planilha(tbody, its, mudou){
+    tbody.textContent = "";
+    its.forEach(function(item, i){
+      var tr = document.createElement("tr");
+      if(item.q) tr.className = "tem";
+      tr.appendChild(el("td","g", String(i+1)));
+
+      var tdN = el("td"), inN = document.createElement("input");
+      inN.type="text"; inN.value=item.n||"";
+      inN.placeholder = (i === its.length-1) ? "DIGITE A PEÇA…" : "";
+      inN.setAttribute("list","sugestoes"); inN.setAttribute("aria-label","Peça da linha "+(i+1));
+      inN.setAttribute("data-cel","n"); inN.setAttribute("data-lin", String(i));
+      inN.addEventListener("input", function(){ item.n = inN.value; mudou(); });
+      inN.addEventListener("blur", function(){
+        item.n = lim(inN.value); inN.value = item.n;
+        if(i === its.length-1 && item.n){ limpaFim(its); planilha(tbody, its, mudou); foca(tbody, i, "q"); }
+        mudou();
+      });
+      tdN.appendChild(inN); tr.appendChild(tdN);
+
+      var tdQ = el("td","q"), inQ = document.createElement("input");
+      inQ.type="number"; inQ.min="0"; inQ.step="1"; inQ.value = item.q || ""; inQ.placeholder="0";
+      inQ.setAttribute("inputmode","numeric"); inQ.setAttribute("aria-label","Quantidade da linha "+(i+1));
+      inQ.setAttribute("data-cel","q"); inQ.setAttribute("data-lin", String(i));
+      inQ.addEventListener("input", function(){
+        item.q = Math.max(0, Math.floor(parseInt(inQ.value,10)||0));
+        tr.className = item.q ? "tem" : ""; mudou();
+      });
+      tdQ.appendChild(inQ); tr.appendChild(tdQ);
+
+      var tdX = el("td","x");
+      if(i < its.length-1){
+        var x = el("button","apagalinha","✕"); x.type="button";
+        x.setAttribute("aria-label","Apagar linha "+(i+1));
+        x.addEventListener("click", function(){ its.splice(i,1); planilha(tbody, its, mudou); mudou(); });
+        tdX.appendChild(x);
+      }
+      tr.appendChild(tdX);
+
+      [inN, inQ].forEach(function(campo){
+        campo.addEventListener("keydown", function(e){
+          var col = campo.getAttribute("data-cel");
+          if(e.key === "Enter"){
+            e.preventDefault(); campo.blur();
+            if(i === its.length-1){ limpaFim(its); planilha(tbody, its, mudou); }
+            foca(tbody, i+1, col);
+          } else if(e.key === "ArrowDown"){ e.preventDefault(); foca(tbody, i+1, col); }
+          else if(e.key === "ArrowUp"){ e.preventDefault(); foca(tbody, i-1, col); }
+        });
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ---------- área ----------
+  function totaisArea(){
+    var a = st.areas[edit];
+    $("somaArea").textContent = somaItens(a.itens);
+    $("subtotalArea").textContent = enviadoArea(a);
+    placar(); sujo();
+  }
+  function desenhaArea(){
+    planilha($("linhasArea"), st.areas[edit].itens, totaisArea);
+  }
+  function abreArea(i){
+    edit = i; editMem = null;
+    $("tituloArea").textContent = st.areas[i].nome;
+    $("fRep").value = st.areas[i].rep || 1;
+    limpaFim(st.areas[i].itens);
+    desenhaArea(); tirasMem();
+    $("somaArea").textContent = somaItens(st.areas[i].itens);
+    $("subtotalArea").textContent = enviadoArea(st.areas[i]);
+    mostra("montar"); window.scrollTo(0,0);
+  }
+  function fechaArea(){
+    if(edit !== null){
+      st.areas[edit].itens = validos(st.areas[edit].itens);
+      salvar();
+    }
+    edit = null; desenhaMontadas(); mostra("areas"); window.scrollTo(0,0);
+  }
+
+  function aplicaMem(m){
+    var a = st.areas[edit];
+    validos(m.itens).forEach(function(it){
+      var achou = null, n = lim(it.n);
+      for(var k=0;k<a.itens.length;k++){ if(lim(a.itens[k].n) === n){ achou = a.itens[k]; break; } }
+      if(achou) achou.q = (achou.q||0) + (it.q||0);
+      else a.itens.splice(a.itens.length-1, 0, { n:n, q:it.q||0 });
+    });
+    limpaFim(a.itens); desenhaArea(); totaisArea();
+  }
+
+  function tirasMem(){
+    var box = $("listaMem"); box.textContent = "";
+    var ms = st.memorias || [];
+    if(!ms.length){
+      box.appendChild(el("div","nada","Nenhuma memória guardada ainda. Cadastre em MEMÓRIAS SALVAS."));
+      return;
+    }
+    ms.forEach(function(m){
+      var b = el("button","usar"); b.type="button";
+      b.appendChild(document.createTextNode(m.nome + " "));
+      b.appendChild(el("span", null, "+" + somaItens(m.itens)));
+      b.addEventListener("click", function(){ aplicaMem(m); });
+      box.appendChild(b);
+    });
+  }
+
+  // ---------- memórias ----------
+  function desenhaGradeMem(){
+    var box = $("gradeMem"); box.textContent = "";
+    var ms = st.memorias || [];
+    if(!ms.length){
+      box.appendChild(el("div","nada","Nenhuma memória cadastrada. Clique em + NOVA MEMÓRIA e monte a receita da estrutura."));
+    }
+    ms.forEach(function(m,i){
+      var c = el("div","cardmem");
+      var top = el("div","cm-top");
+      top.appendChild(el("b", null, m.nome));
+      top.appendChild(el("span", null, somaItens(m.itens) + " peças · " + validos(m.itens).length + " itens"));
+      c.appendChild(top);
+      var ul = el("ul","cm-itens");
+      validos(m.itens).forEach(function(it){
+        var li = document.createElement("li");
+        li.appendChild(el("span", null, lim(it.n)));
+        li.appendChild(el("b", null, String(it.q)));
+        ul.appendChild(li);
+      });
+      c.appendChild(ul);
+      var bot = el("div","cm-bot");
+      var ed = el("button","mini","Editar"); ed.type="button";
+      ed.addEventListener("click", function(){ abreMem(i); });
+      var mt = el("button","mini","Montar área"); mt.type="button";
+      mt.addEventListener("click", function(){
+        var a = novaArea(nomeLivre(m.nome));
+        a.itens = copia(validos(m.itens));
+        st.areas.push(a); sujo(); abreArea(st.areas.length-1);
+      });
+      var x = el("button","mini x","✕"); x.type="button"; x.setAttribute("aria-label","Apagar memória "+m.nome);
+      x.addEventListener("click", function(){ if(m.id) memApagadas.push(m.id); st.memorias.splice(i,1); gravaMem(); desenhaGradeMem(); papelMem(); });
+      bot.appendChild(ed); bot.appendChild(mt); bot.appendChild(x);
+      c.appendChild(bot);
+      box.appendChild(c);
+    });
+    papelMem();
+  }
+
+  function papelMem(){
+    var box = $("papelMem"); box.textContent = "";
+    box.appendChild(el("h3", null, "Memórias de cálculo — treliça Q30"));
+    (st.memorias||[]).forEach(function(m){
+      var b = el("div","bloco");
+      b.appendChild(el("h3", null, m.nome));
+      var t = document.createElement("table"), tb = document.createElement("tbody");
+      validos(m.itens).forEach(function(it){
+        var tr = document.createElement("tr");
+        tr.appendChild(el("td", null, lim(it.n)));
+        tr.appendChild(el("td","q", String(it.q)));
+        tb.appendChild(tr);
+      });
+      var tt = document.createElement("tr"); tt.className = "tt";
+      tt.appendChild(el("td", null, "TOTAL DE PEÇAS"));
+      tt.appendChild(el("td","q", String(somaItens(m.itens))));
+      tb.appendChild(tt); t.appendChild(tb); b.appendChild(t);
+      box.appendChild(b);
+    });
+  }
+
+  function abreMem(i){
+    editMem = i;
+    var m = st.memorias[i];
+    $("fNomeMem").value = m.nome || "";
+    limpaFim(m.itens);
+    planilha($("linhasMem"), m.itens, totaisMem);
+    $("somaMem").textContent = somaItens(m.itens);
+    mostra("memoria"); window.scrollTo(0,0);
+  }
+  function totaisMem(){
+    var m = st.memorias[editMem];
+    $("somaMem").textContent = somaItens(m.itens);
+    gravaMem();
+  }
+  function fechaMem(){
+    if(editMem !== null){
+      var m = st.memorias[editMem];
+      m.nome = lim($("fNomeMem").value) || "MEMÓRIA " + (editMem+1);
+      m.itens = validos(m.itens);
+      gravaMem();
+    }
+    editMem = null; desenhaGradeMem(); sugestoes(); mostra("memorias"); window.scrollTo(0,0);
+  }
+
+  // ---------- lista de áreas ----------
+  function desenhaMontadas(){
+    var box = $("listaMontadas"); box.textContent = "";
+    if(!st.areas.length){
+      box.appendChild(el("div","nada","Nenhuma área montada ainda. Escolha uma embaixo pra começar."));
+    } else {
+      st.areas.forEach(function(a,i){
+        var l = el("div","linha");
+        l.appendChild(el("span","ord num", (i+1)+"."));
+        var nm = el("div","nm");
+        nm.appendChild(el("b", null, a.nome + ((a.rep||1)>1 ? "  ×"+a.rep : "")));
+        var det = somaItens(a.itens) + " peças por estrutura";
+        if((a.rep||1)>1) det += " · " + a.rep + " estruturas iguais";
+        nm.appendChild(el("small", null, det));
+        l.appendChild(nm);
+        var qt = el("div","qt");
+        qt.appendChild(document.createTextNode(String(enviadoArea(a))));
+        qt.appendChild(el("s",null,"peças"));
+        l.appendChild(qt);
+        var ed = el("button","mini","Editar"); ed.type="button";
+        ed.addEventListener("click", function(){ abreArea(i); });
+        var x = el("button","mini x","✕"); x.type="button"; x.setAttribute("aria-label","Apagar "+a.nome);
+        x.addEventListener("click", function(){ st.areas.splice(i,1); sujo(); desenhaMontadas(); placar(); });
+        l.appendChild(ed); l.appendChild(x);
+        box.appendChild(l);
+      });
+    }
+    $("totalMontado").textContent = totalGeral();
+    $("btnSomar").disabled = !st.areas.length;
+    $("btnSomar").style.opacity = st.areas.length ? "1" : ".45";
+    desenhaAbas();
+  }
+  function nomeLivre(base){
+    var n = 1, nome = base;
+    while(st.areas.some(function(a){ return a.nome === nome; })){ n++; nome = base + " " + n; }
+    return nome;
+  }
+  function cria(base){ st.areas.push(novaArea(nomeLivre(base))); sujo(); abreArea(st.areas.length-1); }
+
+  // ---------- soma ----------
+  function usadas(){ return st.areas.filter(function(a){ return enviadoArea(a) > 0; }); }
+  function ordemPecas(us){
+    var vistas = [], ordem = [];
+    us.forEach(function(a){ a.itens.forEach(function(i){
+      var n = lim(i.n); if(n && i.q && vistas.indexOf(n) < 0) vistas.push(n);
+    }); });
+    PADRAO.forEach(function(p){ if(vistas.indexOf(p) >= 0) ordem.push(p); });
+    vistas.forEach(function(v){ if(ordem.indexOf(v) < 0) ordem.push(v); });
+    return ordem;
+  }
+  function qtdPeca(a, nome){
+    var t = 0;
+    a.itens.forEach(function(i){ if(lim(i.n) === nome) t += i.q||0; });
+    return t * (a.rep||1);
+  }
+  function desenhaTotal(){
+    var cab = $("cabecoPapel"); cab.textContent = "";
+    var l = [];
+    if(st.evento) l.push("EVENTO: " + st.evento);
+    if(st.os) l.push("O.S.: " + st.os);
+    if(st.data) l.push("MONTAGEM: " + st.data.split("-").reverse().join("/"));
+    if(l.length) cab.appendChild(el("div","cond", l.join("   |   ")));
+
+    var rolo = $("rolo"); rolo.textContent = "";
+    var us = usadas();
+    if(!us.length){ rolo.appendChild(el("div","nada","Nenhuma peça lançada ainda.")); return; }
+
+    var tb = document.createElement("table"); tb.className = "soma";
+    var thead = document.createElement("thead"), tr = document.createElement("tr");
+    tr.appendChild(el("th",null,"Peça"));
+    us.forEach(function(a){ tr.appendChild(el("th",null, a.nome + ((a.rep||1)>1 ? " (×"+a.rep+")" : ""))); });
+    tr.appendChild(el("th","tot","Total"));
+    thead.appendChild(tr); tb.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    ordemPecas(us).forEach(function(p){
+      var s = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
+      if(!s) return;
+      var r = document.createElement("tr");
+      r.appendChild(el("th",null,p));
+      us.forEach(function(a){ var v = qtdPeca(a,p); r.appendChild(el("td", v?null:"z", v?String(v):"–")); });
+      r.appendChild(el("td","tot",String(s)));
+      tbody.appendChild(r);
+    });
+    tb.appendChild(tbody);
+
+    var tfoot = document.createElement("tfoot"), fr = document.createElement("tr");
+    fr.appendChild(el("th",null,"Total de peças"));
+    us.forEach(function(a){ fr.appendChild(el("td",null,String(enviadoArea(a)))); });
+    fr.appendChild(el("td","tot",String(totalGeral())));
+    tfoot.appendChild(fr); tb.appendChild(tfoot);
+    rolo.appendChild(tb);
+  }
+  function texto(){
+    var l = [], us = usadas();
+    if(st.evento) l.push("EVENTO: " + st.evento);
+    if(st.os) l.push("O.S.: " + st.os);
+    if(st.data) l.push("MONTAGEM: " + st.data.split("-").reverse().join("/"));
+    l.push("TRELIÇA Q30 — TOTAL DE MATERIAL ENVIADO","");
+    ordemPecas(us).forEach(function(p){
+      var s = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
+      if(s) l.push(p + " = " + s);
+    });
+    l.push("", "TOTAL DE PEÇAS = " + totalGeral(), "");
+    us.forEach(function(a){
+      l.push("— " + a.nome + ((a.rep||1)>1 ? " (×"+a.rep+")" : "") + ": " + enviadoArea(a) + " peças");
+    });
+    return l.join("\n");
+  }
+
+  // ---------- motor de PDF ----------
+  var LARG_N = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,
+    556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,
+    1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,
+    667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,
+    333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,
+    556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+  var LARG_B = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,
+    556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,
+    975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,
+    667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,
+    333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,
+    611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+  var BASE = {"Á":"A","À":"A","Â":"A","Ã":"A","Ä":"A","É":"E","È":"E","Ê":"E","Í":"I","Î":"I",
+    "Ó":"O","Ô":"O","Õ":"O","Ö":"O","Ú":"U","Ü":"U","Ç":"C","Ñ":"N",
+    "á":"a","à":"a","â":"a","ã":"a","é":"e","ê":"e","í":"i","ó":"o","ô":"o","õ":"o","ú":"u","ç":"c"};
+
+  function ansi(s){
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/[–—]/g,"-").replace(/[‘’]/g,"'")
+      .replace(/[“”]/g,'"').replace(/•/g,"-").replace(/ /g," ")
+      .replace(/…/g, String.fromCharCode(133));
+  }
+  function larguraTxt(txt, tam, bold){
+    var t = ansi(txt), tab = bold ? LARG_B : LARG_N, soma = 0;
+    for(var i=0;i<t.length;i++){
+      var ch = t.charAt(i);
+      if(BASE[ch]) ch = BASE[ch];
+      var c = ch.charCodeAt(0);
+      if(c === 215){ soma += 584; continue; }        // ×
+      if(c === 183){ soma += 278; continue; }        // ·
+      soma += (c >= 32 && c <= 126) ? tab[c-32] : 556;
+    }
+    return soma * tam / 1000;
+  }
+  function corta(txt, larg, tam, bold){
+    var t = ansi(txt);
+    if(larguraTxt(t,tam,bold) <= larg) return t;
+    var re = String.fromCharCode(133);
+    while(t.length > 1 && larguraTxt(t+re,tam,bold) > larg) t = t.slice(0,-1);
+    return t + re;
+  }
+
+  function novoPdf(paisagem){
+    var W = paisagem ? 842 : 595, H = paisagem ? 595 : 842;
+    var pags = [], atual = [];
+    pags.push(atual);
+    function nn(v){ return (Math.round(v*100)/100).toString(); }
+    function esc(s){
+      var t = ansi(s), out = "";
+      for(var i=0;i<t.length;i++){
+        var c = t.charCodeAt(i), ch = t.charAt(i);
+        if(c > 255){ out += "?"; continue; }
+        if(ch === "(" || ch === ")" || ch === "\\") out += "\\";
+        out += ch;
+      }
+      return out;
+    }
+    var api = {
+      W: W, H: H,
+      pagina: function(){ atual = []; pags.push(atual); },
+      ret: function(x,y,w,h,cor){
+        atual.push(nn(cor[0])+" "+nn(cor[1])+" "+nn(cor[2])+" rg "+
+                   nn(x)+" "+nn(H-y-h)+" "+nn(w)+" "+nn(h)+" re f");
+      },
+      linha: function(x1,y1,x2,y2,cor,esp){
+        atual.push(nn(cor[0])+" "+nn(cor[1])+" "+nn(cor[2])+" RG "+nn(esp||0.5)+" w "+
+                   nn(x1)+" "+nn(H-y1)+" m "+nn(x2)+" "+nn(H-y2)+" l S");
+      },
+      texto: function(x,y,txt,op){
+        op = op || {};
+        var tam = op.tam || 10, bold = !!op.bold, cor = op.cor || [0,0,0];
+        var t = ansi(txt), px = x;
+        if(op.max) t = corta(t, op.max, tam, bold);
+        if(op.dir === "d") px = x - larguraTxt(t,tam,bold);
+        else if(op.dir === "c") px = x - larguraTxt(t,tam,bold)/2;
+        atual.push("BT "+nn(cor[0])+" "+nn(cor[1])+" "+nn(cor[2])+" rg "+(bold?"/F2":"/F1")+" "+
+                   nn(tam)+" Tf 1 0 0 1 "+nn(px)+" "+nn(H-y)+" Tm ("+esc(t)+") Tj ET");
+      },
+      blob: function(){
+        var nPag = pags.length, kids = [], i;
+        for(i=0;i<nPag;i++) kids.push((6+2*i)+" 0 R");
+        var out = "%PDF-1.4\n", off = [];
+        function obj(num, corpo){
+          off[num] = out.length;
+          out += num+" 0 obj\n"+corpo+"\nendobj\n";
+        }
+        obj(1,"<< /Type /Catalog /Pages 2 0 R >>");
+        obj(2,"<< /Type /Pages /Kids ["+kids.join(" ")+"] /Count "+nPag+" >>");
+        obj(3,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        obj(4,"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+        for(i=0;i<nPag;i++){
+          var fluxo = pags[i].join("\n");
+          obj(5+2*i,"<< /Length "+fluxo.length+" >>\nstream\n"+fluxo+"\nendstream");
+          obj(6+2*i,"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+W+" "+H+"] "+
+                    "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents "+(5+2*i)+" 0 R >>");
+        }
+        var total = 4 + 2*nPag, xref = out.length;
+        out += "xref\n0 "+(total+1)+"\n0000000000 65535 f \n";
+        for(i=1;i<=total;i++){
+          var o = String(off[i]);
+          while(o.length < 10) o = "0"+o;
+          out += o+" 00000 n \n";
+        }
+        out += "trailer\n<< /Size "+(total+1)+" /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF";
+        var bytes = new Uint8Array(out.length);
+        for(i=0;i<out.length;i++) bytes[i] = out.charCodeAt(i) & 0xFF;
+        return new Blob([bytes], { type:"application/pdf" });
+      }
+    };
+    return api;
+  }
+
+  var AZ = [0.12,0.23,0.43], LR = [0.95,0.55,0.16], PT = [0,0,0],
+      CZ = [0.42,0.47,0.54], LN = [0.78,0.82,0.88], LRT = [0.99,0.94,0.89];
+
+  function cabecalhoPdf(d, titulo, sub){
+    var m = 32;
+    d.ret(m, 30, 4, 16, LR);
+    d.texto(m+11, 43, "GRUPO TENDAS PLENART", { tam:13, bold:true, cor:AZ });
+    d.texto(d.W-m, 43, titulo, { tam:13, bold:true, cor:PT, dir:"d" });
+    d.linha(m, 52, d.W-m, 52, LR, 2);
+    if(sub) d.texto(m, 68, sub, { tam:9, cor:CZ });
+    return sub ? 82 : 68;
+  }
+  function rodapePdf(d, pag, marca){
+    var m = 32, y = d.H - 22;
+    d.linha(m, y-10, d.W-m, y-10, LN, 0.5);
+    d.texto(m, y, "Gerado em " + hojeBr() + (marca ? "   |   " + marca : ""), { tam:8, cor:CZ });
+    d.texto(d.W-m, y, "Folha " + pag, { tam:8, cor:CZ, dir:"d" });
+  }
+
+  function alturaBloco(n){ return 20 + n*13 + 16; }
+  function blocoLista(d, x, y, w, titulo, itens, total){
+    d.ret(x, y, w, 20, AZ);
+    d.texto(x+7, y+13.5, titulo, { tam:10, bold:true, cor:[1,1,1], max:w-14 });
+    y += 20;
+    itens.forEach(function(it,i){
+      if(i % 2 === 1) d.ret(x, y, w, 13, [0.965,0.975,0.99]);
+      d.texto(x+7, y+9.2, lim(it.n), { tam:8.5, max:w-52 });
+      d.texto(x+w-7, y+9.2, String(it.q), { tam:8.5, bold:true, dir:"d" });
+      y += 13;
+    });
+    d.ret(x, y, w, 16, LRT);
+    d.texto(x+7, y+11, "TOTAL DE PEÇAS", { tam:8.5, bold:true, cor:AZ });
+    d.texto(x+w-7, y+11, String(total), { tam:9, bold:true, dir:"d", cor:AZ });
+    d.linha(x, y+16, x+w, y+16, LR, 1.2);
+    return y + 16;
+  }
+
+  function itensEnviados(a){
+    var r = [];
+    validos(a.itens).forEach(function(it){ r.push({ n:lim(it.n), q:(it.q||0)*(a.rep||1) }); });
+    return r;
+  }
+  function tituloArea(a){ return a.nome + ((a.rep||1) > 1 ? "  (x" + a.rep + " IGUAIS)" : ""); }
+  function hojeBr(){
+    var h = new Date(), z = function(v){ return (v<10?"0":"")+v; };
+    return z(h.getDate())+"/"+z(h.getMonth()+1)+"/"+h.getFullYear()+" "+z(h.getHours())+":"+z(h.getMinutes());
+  }
+  function nomeArquivo(base){
+    var e = ansi(st.evento||"").replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"");
+    var o = ansi(st.os||"").replace(/[^A-Za-z0-9]+/g,"");
+    return (base + (o ? "_OS" + o : "") + (e ? "_" + e : "")).slice(0,90) + ".pdf";
+  }
+
+  // ---------- PDF: folha 1 total, folha 2 por área ----------
+  function montaPdfTotal(){
+    var us = usadas(), d = novoPdf(false), m = 40, larg = d.W - 2*m;
+    var sub = [];
+    if(st.evento) sub.push("EVENTO: " + st.evento);
+    if(st.os) sub.push("O.S.: " + st.os);
+    if(st.data) sub.push("MONTAGEM: " + st.data.split("-").reverse().join("/"));
+    if(st.caminhao) sub.push("CAMINHÃO: " + st.caminhao);
+    var marca = ansi((st.evento ? st.evento : "") + (st.os ? "  O.S. " + st.os : "") +
+                     (st.caminhao ? "  CAMINHÃO " + st.caminhao : ""));
+    var pag = 1, y = 0;
+
+    // ---- FOLHA 1: total de peças ----
+    function cabLista(){
+      d.ret(m, y, larg, 21, AZ);
+      d.texto(m+9, y+14.5, "PEÇA", { tam:9, bold:true, cor:[1,1,1] });
+      d.texto(m+larg-9, y+14.5, "QUANTIDADE", { tam:9, bold:true, cor:[1,1,1], dir:"d" });
+      y += 21;
+    }
+    y = cabecalhoPdf(d, "TOTAL DE PEÇAS", sub.join("     |     "));
+    cabLista();
+
+    var linhas = [];
+    ordemPecas(us).forEach(function(p){
+      var s = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
+      if(s) linhas.push({ p:p, s:s });
+    });
+    linhas.forEach(function(L, i){
+      if(y + 18 > d.H - 46){
+        rodapePdf(d, pag, marca); d.pagina(); pag++;
+        y = cabecalhoPdf(d, "TOTAL DE PEÇAS (continuação)", sub.join("     |     "));
+        cabLista();
+      }
+      if(i % 2 === 1) d.ret(m, y, larg, 18, [0.965,0.975,0.99]);
+      d.texto(m+9, y+12.5, L.p, { tam:10, bold:true, max:larg-110 });
+      d.texto(m+larg-9, y+12.5, String(L.s), { tam:11, bold:true, dir:"d" });
+      d.linha(m, y+18, m+larg, y+18, LN, 0.4);
+      y += 18;
+    });
+    d.ret(m, y, larg, 24, LR);
+    d.texto(m+9, y+16, "TOTAL DE PEÇAS", { tam:10.5, bold:true, cor:PT });
+    d.texto(m+larg-9, y+16, String(totalGeral()), { tam:13, bold:true, dir:"d", cor:PT });
+    y += 24;
+    d.texto(m, y+16, us.length + (us.length > 1 ? " áreas montadas" : " área montada") +
+            (us.length > 1 ? " — detalhamento na folha seguinte" : ""), { tam:8.5, cor:CZ });
+
+    // ---- FOLHA 2: separado por área ----
+    if(us.length >= 2){
+      rodapePdf(d, pag, marca); d.pagina(); pag++;
+      var gut = 18, colL = (larg - gut) / 2, xs = [m, m + colL + gut], col = 0;
+      var topo = cabecalhoPdf(d, "SEPARADO POR ÁREA", sub.join("     |     "));
+      y = topo;
+      us.forEach(function(a){
+        var its = itensEnviados(a), alt = alturaBloco(its.length) + 14;
+        if(y + alt > d.H - 46){
+          if(col === 0){ col = 1; y = topo; }
+          else {
+            rodapePdf(d, pag, marca); d.pagina(); pag++;
+            topo = cabecalhoPdf(d, "SEPARADO POR ÁREA (continuação)", sub.join("     |     "));
+            col = 0; y = topo;
+          }
+        }
+        y = blocoLista(d, xs[col], y, colL, tituloArea(a), its, enviadoArea(a)) + 14;
+      });
+    }
+    rodapePdf(d, pag, marca);
+    return d.blob();
+  }
+
+  // ---------- PDF: memórias ----------
+  function montaPdfMemorias(){
+    var d = novoPdf(false), m = 40, gut = 18;
+    var colL = (d.W - 2*m - gut) / 2;
+    var xs = [m, m + colL + gut], col = 0, pag = 1, topo = 0, y = 0;
+
+    function novaPag(primeira){
+      if(!primeira){ d.pagina(); pag++; }
+      topo = cabecalhoPdf(d, "MEMÓRIAS DE CÁLCULO", "TRELIÇA Q30 — RECEITA DE MATERIAL POR ESTRUTURA");
+      col = 0; y = topo;
+    }
+    novaPag(true);
+
+    var ms = (st.memorias || []).slice();
+    if(!ms.length) ms = [];
+    ms.forEach(function(mem){
+      var its = validos(mem.itens);
+      var altura = 22 + its.length*13 + 17 + 14;
+      if(y + altura > d.H - 46){
+        if(col === 0){ col = 1; y = topo; }
+        else { rodapePdf(d, pag, 0); novaPag(false); }
+      }
+      var x = xs[col];
+      d.ret(x, y, colL, 20, AZ);
+      d.texto(x+7, y+13.5, mem.nome, { tam:10, bold:true, cor:[1,1,1], max:colL-14 });
+      y += 20;
+      its.forEach(function(it, i){
+        if(i % 2 === 1) d.ret(x, y, colL, 13, [0.965,0.975,0.99]);
+        d.texto(x+7, y+9.2, lim(it.n), { tam:8.5, max:colL-52 });
+        d.texto(x+colL-7, y+9.2, String(it.q), { tam:8.5, bold:true, dir:"d" });
+        y += 13;
+      });
+      d.ret(x, y, colL, 16, LRT);
+      d.texto(x+7, y+11, "TOTAL DE PEÇAS", { tam:8.5, bold:true, cor:AZ });
+      d.texto(x+colL-7, y+11, String(somaItens(mem.itens)), { tam:9, bold:true, dir:"d", cor:AZ });
+      d.linha(x, y+16, x+colL, y+16, LR, 1.2);
+      y += 16 + 14;
+    });
+    rodapePdf(d, pag, pag);
+    return d.blob();
+  }
+
+  // ---------- impressão em janela própria ----------
+  function eh(s){
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  // regras usadas tanto na prévia (com prefixo) quanto na janela de impressão
+  var REGRAS = [
+    ["*","box-sizing:border-box"],
+    ["body","margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#000;background:#fff;" +
+            "-webkit-print-color-adjust:exact;print-color-adjust:exact"],
+    [".folha","color:#000;background:#fff;font-family:Arial,Helvetica,sans-serif"],
+    [".topo","display:flex;justify-content:space-between;align-items:flex-end;gap:12px;" +
+             "background:transparent;color:#000;border:0;border-radius:0;margin:0 0 8px;padding:0 0 6px;" +
+             "border-bottom:3px solid #F28C28"],
+    [".topo b","font-size:15px;color:#1F3A6E;letter-spacing:.04em;border-left:5px solid #F28C28;" +
+               "padding-left:8px;font-family:Arial,Helvetica,sans-serif"],
+    [".topo span","font-size:14px;font-weight:bold;text-align:right;color:#000"],
+    [".sub","margin:0 0 10px;font-size:10px;color:#555;letter-spacing:.04em"],
+    ["table.t","border-collapse:collapse;width:100%"],
+    ["table.t th,table.t td","border:1px solid #9AA6B8;padding:5px 8px;text-align:right;white-space:nowrap"],
+    ["table.t th.l,table.t td.l","text-align:left"],
+    ["table.t thead th","background:#1F3A6E;color:#fff;font-size:10px;letter-spacing:.04em"],
+    ["table.t tbody th","background:#fff;font-size:11.5px;padding:6px 8px"],
+    ["table.t tbody tr:nth-child(even) th,table.t tbody tr:nth-child(even) td","background:#F4F7FB"],
+    ["table.t td.big","font-size:13px;font-weight:bold;width:130px"],
+    ["table.t tfoot th,table.t tfoot td","background:#1F3A6E;color:#fff;font-weight:bold"],
+    ["table.t tfoot td.tt","background:#F28C28;color:#000;font-size:14px"],
+    ["thead","display:table-header-group"],
+    [".nota","margin:8px 0 0;font-size:10px;color:#555"],
+    [".cols","column-count:2;column-gap:16px"],
+    [".bloco","break-inside:avoid;page-break-inside:avoid;margin-bottom:12px"],
+    [".bloco h4","margin:0;background:#1F3A6E;color:#fff;font-size:11px;padding:5px 8px;letter-spacing:.04em;" +
+                 "font-family:Arial,Helvetica,sans-serif;font-weight:bold"],
+    ["table.m","border-collapse:collapse;width:100%;border:1px solid #9AA6B8;border-top:0"],
+    ["table.m td","border-bottom:1px solid #DCE2ED;padding:3px 8px"],
+    ["table.m td.q","text-align:right;font-weight:bold;width:60px"],
+    ["table.m tr.tt td","background:#FDEEDF;font-weight:bold;border-top:1px solid #F28C28"]
+  ];
+  function estilosFolha(p){
+    return REGRAS.map(function(r){
+      if(r[0] === "body") return (p || "body") + "{" + r[1] + "}";
+      return (p ? p + " " : "") + r[0] + "{" + r[1] + "}";
+    }).join("");
+  }
+
+  function subLinha(){
+    var sub = [];
+    if(st.evento) sub.push("EVENTO: " + eh(st.evento));
+    if(st.os) sub.push("O.S.: " + eh(st.os));
+    if(st.data) sub.push("MONTAGEM: " + st.data.split("-").reverse().join("/"));
+    if(st.caminhao) sub.push("CAMINHÃO: " + eh(st.caminhao));
+    return sub.join(" &nbsp;|&nbsp; ");
+  }
+
+  function tabelaTotalHtml(){
+    var us = usadas(), h = "";
+    h += '<table class="t"><thead><tr><th class="l">PEÇA</th><th>QUANTIDADE</th></tr></thead><tbody>';
+    ordemPecas(us).forEach(function(p){
+      var s = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
+      if(!s) return;
+      h += '<tr><th class="l">' + eh(p) + '</th><td class="big">' + s + '</td></tr>';
+    });
+    h += '</tbody><tfoot><tr><th class="l">TOTAL DE PEÇAS</th>' +
+         '<td class="tt">' + totalGeral() + '</td></tr></tfoot></table>';
+    if(us.length >= 2) h += '<p class="nota">' + us.length + ' áreas montadas — detalhamento na folha 2.</p>';
+    return h;
+  }
+  function blocosAreasHtml(){
+    var h = '<div class="cols">';
+    usadas().forEach(function(a){
+      h += '<div class="bloco"><h4>' + eh(a.nome) +
+           ((a.rep||1)>1 ? " (×"+a.rep+" IGUAIS)" : "") + '</h4><table class="m">';
+      itensEnviados(a).forEach(function(it){
+        h += '<tr><td>' + eh(it.n) + '</td><td class="q">' + it.q + '</td></tr>';
+      });
+      h += '<tr class="tt"><td>TOTAL DE PEÇAS</td><td class="q">' + enviadoArea(a) + '</td></tr>';
+      h += '</table></div>';
+    });
+    return h + '</div>';
+  }
+  function blocosMemHtml(){
+    var h = '<div class="cols">';
+    (st.memorias||[]).forEach(function(m){
+      h += '<div class="bloco"><h4>' + eh(m.nome) + '</h4><table class="m">';
+      validos(m.itens).forEach(function(it){
+        h += '<tr><td>' + eh(lim(it.n)) + '</td><td class="q">' + it.q + '</td></tr>';
+      });
+      h += '<tr class="tt"><td>TOTAL DE PEÇAS</td><td class="q">' + somaItens(m.itens) + '</td></tr>';
+      h += '</table></div>';
+    });
+    return h + '</div>';
+  }
+
+  // folha 1 = total de peças · folha 2 = separado por área (2 áreas ou mais)
+  function folhas(qual){
+    if(qual === "memorias"){
+      return [{ t:"MEMÓRIAS DE CÁLCULO", s:"TRELIÇA Q30 — RECEITA DE MATERIAL POR ESTRUTURA", c:blocosMemHtml() }];
+    }
+    var out = [{ t:"TOTAL DE PEÇAS", s:subLinha(), c:tabelaTotalHtml() }];
+    if(usadas().length >= 2) out.push({ t:"SEPARADO POR ÁREA", s:subLinha(), c:blocosAreasHtml() });
+    return out;
+  }
+  function folhaWrap(f){
+    return '<section class="folha"><div class="topo"><b>GRUPO TENDAS PLENART</b>' +
+           '<span>' + eh(f.t) + '</span></div>' +
+           (f.s ? '<p class="sub">' + f.s + '</p>' : "") + f.c + '</section>';
+  }
+
+  function paginaImpressao(qual){
+    var fs = folhas(qual);
+    return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+      '<title>' + eh(fs[0].t) + '</title><style>' +
+      '@page{size:A4 portrait;margin:12mm}' +
+      estilosFolha("") +
+      '.folha + .folha{break-before:page;page-break-before:always;padding-top:4px}' +
+      '@media screen{body{padding:24px;max-width:900px;margin:0 auto}' +
+      '.folha + .folha{margin-top:26px;border-top:2px dashed #BBB;padding-top:20px}}' +
+      '</style></head><body>' +
+      fs.map(folhaWrap).join("") +
+      '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},150)}</scr' + 'ipt>' +
+      '</body></html>';
+  }
+
+  // ---------- prévia na tela ----------
+  var previaQual = "total";
+  function abrePrevia(qual){
+    previaQual = qual;
+    var fs = folhas(qual);
+    $("previaEstilo").textContent = estilosFolha("#previa");
+    $("previa").innerHTML = fs.map(folhaWrap).join("");
+    $("previaInfo").textContent = fs.length > 1
+      ? fs.length + " folhas — " + fs.map(function(f){ return f.t; }).join(" · ")
+      : "1 folha — " + fs[0].t;
+    $("previaBox").hidden = false;
+    $("previaRolo").scrollTop = 0;
+    document.addEventListener("keydown", escFecha);
+  }
+  function fechaPrevia(){
+    $("previaBox").hidden = true;
+    document.removeEventListener("keydown", escFecha);
+  }
+  function escFecha(e){ if(e.key === "Escape") fechaPrevia(); }
+
+  function imprimir(qual, avisoId){
+    var n = $(avisoId);
+    function diz(txt, erro){
+      n.textContent = txt;
+      n.style.color = erro ? "var(--laranja-2)" : "var(--ok)";
+      n.hidden = false;
+      setTimeout(function(){ n.hidden = true; }, 7000);
+    }
+    var jan = null;
+    try{ jan = window.open("", "_blank"); }catch(e){}
+    if(!jan){
+      diz("O navegador bloqueou a janela. Salvando em PDF…", true);
+      setTimeout(function(){
+        if(qual === "memorias") baixar(montaPdfMemorias(), "Memorias_Trelica_Q30.pdf", avisoId);
+        else baixar(montaPdfTotal(), nomeArquivo("Trelica_Q30"), avisoId);
+      }, 900);
+      return;
+    }
+    try{
+      jan.document.open();
+      jan.document.write(paginaImpressao(qual));
+      jan.document.close();
+      jan.focus();
+      setTimeout(function(){ try{ jan.print(); }catch(e){} }, 400);
+      diz("Abri a janela de impressão.", false);
+    }catch(e){
+      try{ jan.close(); }catch(e2){}
+      diz("Não deu pra abrir a impressão. Use o botão PDF.", true);
+    }
+  }
+
+  // ---------- entrega ----------
+  function baixar(blob, nome, avisoId){
+    var n = $(avisoId);
+    function diz(txt, erro){
+      n.textContent = txt;
+      n.style.color = erro ? "var(--laranja-2)" : "var(--ok)";
+      n.hidden = false;
+      setTimeout(function(){ n.hidden = true; }, 6000);
+    }
+    if(window.claude && window.claude.use){
+      diz("Gerando o PDF…", false);
+      window.claude.use("downloads").then(function(dl){
+        if(!dl){ diz("Download não disponível nesta tela.", true); return; }
+        return dl.save({ filename: nome, data: blob }).then(function(){
+          diz("PDF salvo: " + nome, false);
+        });
+      }).catch(function(e){
+        var c = e && e.code;
+        if(c === "declined") diz("Download cancelado.", true);
+        else if(c === "rate_limited") diz("Espere um instante e clique de novo.", true);
+        else diz("Não deu pra salvar o PDF agora.", true);
+      });
+      return;
+    }
+    try{
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = nome;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      diz("PDF salvo: " + nome, false);
+    }catch(e){ diz("Não deu pra salvar o PDF agora.", true); }
+  }
+
+  // ---------- navegação ----------
+  function mostra(qual){
+    $("telaAreas").hidden    = qual !== "areas";
+    $("telaMontar").hidden   = qual !== "montar";
+    $("telaMemorias").hidden = qual !== "memorias";
+    $("telaMemoria").hidden  = qual !== "memoria";
+    $("telaTotal").hidden    = qual !== "total";
+    var memTela = (qual === "memorias" || qual === "memoria");
+    $("blocoFicha").hidden = memTela;
+    $("abasEventos").hidden = memTela;
+    $("e1").className = "etapa" + (qual === "areas" || qual === "montar" ? " on" : "");
+    $("e2").className = "etapa" + (qual === "total" ? " on" : "");
+    placar();
+  }
+  function ficha(){
+    $("fEvento").value = st.evento||""; $("fOs").value = st.os||"";
+    $("fData").value = st.data||""; $("fCaminhao").value = st.caminhao||"";
+    $("aviso").hidden = !st.exemplo;
+  }
+  function recomeca(){
+    st.exemplo = false;
+    st.evento = ""; st.os = ""; st.data = ""; st.caminhao = ""; st.areas = [];
+    st.eventos[st.atual] = { nome:"", os:"", data:"", caminhao:"", areas:st.areas };
+    edit = null; ficha(); desenhaAbas(); desenhaMontadas(); salvar();
+    mostra("areas"); $("fEvento").focus();
+  }
+
+  function sugestoes(){
+    var dl = $("sugestoes"), vistos = PADRAO.slice();
+    function pega(its){ (its||[]).forEach(function(i){ var n = lim(i.n); if(n && vistos.indexOf(n) < 0) vistos.push(n); }); }
+    st.areas.forEach(function(a){ pega(a.itens); });
+    (st.memorias||[]).forEach(function(m){ pega(m.itens); });
+    dl.textContent = "";
+    vistos.forEach(function(v){ var o = document.createElement("option"); o.value = v; dl.appendChild(o); });
+  }
+
+  // ---------- ligações ----------
+  $("fEvento").addEventListener("input", function(){ st.evento=this.value; sujo(); desenhaAbas(); });
+  $("fOs").addEventListener("input", function(){ st.os=this.value; sujo(); });
+  $("fData").addEventListener("input", function(){ st.data=this.value; sujo(); });
+  $("fCaminhao").addEventListener("input", function(){ st.caminhao=this.value; sujo(); });
+  $("fRep").addEventListener("input", function(){
+    st.areas[edit].rep = Math.max(1, Math.floor(parseInt(this.value,10)||1)); totaisArea();
+  });
+
+  $("btnLinhaA").addEventListener("click", function(){
+    var its = st.areas[edit].itens; its.push({n:"",q:0});
+    desenhaArea(); foca($("linhasArea"), its.length-1, "n");
+  });
+  $("btnPadraoA").addEventListener("click", function(){
+    var its = st.areas[edit].itens;
+    PADRAO.forEach(function(p){
+      if(!its.some(function(i){ return lim(i.n) === p; })) its.splice(its.length-1, 0, {n:p,q:0});
+    });
+    limpaFim(its); desenhaArea(); totaisArea();
+  });
+  $("btnLinhaM").addEventListener("click", function(){
+    var its = st.memorias[editMem].itens; its.push({n:"",q:0});
+    planilha($("linhasMem"), its, totaisMem); foca($("linhasMem"), its.length-1, "n");
+  });
+  $("btnPadraoM").addEventListener("click", function(){
+    var its = st.memorias[editMem].itens;
+    PADRAO.forEach(function(p){
+      if(!its.some(function(i){ return lim(i.n) === p; })) its.splice(its.length-1, 0, {n:p,q:0});
+    });
+    limpaFim(its); planilha($("linhasMem"), its, totaisMem); totaisMem();
+  });
+
+  $("btnNovaArea").addEventListener("click", function(){
+    var c = $("fNovaArea"), nome = lim(c.value);
+    if(!nome){ c.focus(); return; }
+    c.value = ""; cria(nome);
+  });
+  $("fNovaArea").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); $("btnNovaArea").click(); }
+  });
+
+  $("btnFecharArea").addEventListener("click", fechaArea);
+  $("btnZerarArea").addEventListener("click", function(){
+    st.areas[edit].itens = []; st.areas[edit].rep = 1; $("fRep").value = 1;
+    limpaFim(st.areas[edit].itens); desenhaArea(); totaisArea();
+  });
+  $("btnApagarArea").addEventListener("click", function(){
+    st.areas.splice(edit,1); edit = null; sujo(); desenhaMontadas(); mostra("areas");
+  });
+  $("btnGuardarMem").addEventListener("click", function(){
+    var a = st.areas[edit], its = validos(a.itens);
+    if(!its.length) return;
+    st.memorias = st.memorias || [];
+    st.memorias.push({ nome: nomeMemLivre(a.nome), itens: copia(its) });
+    gravaMem(); sugestoes(); abreMem(st.memorias.length-1);
+  });
+  function nomeMemLivre(base){
+    var n = 1, nome = base;
+    while((st.memorias||[]).some(function(m){ return m.nome === nome; })){ n++; nome = base + " " + n; }
+    return nome;
+  }
+
+  $("irMem").addEventListener("click", function(){
+    if(edit !== null){ st.areas[edit].itens = validos(st.areas[edit].itens); salvar(); edit = null; desenhaMontadas(); }
+    desenhaGradeMem(); mostra("memorias"); window.scrollTo(0,0);
+  });
+  $("verTodasMem").addEventListener("click", function(){ $("irMem").click(); });
+  $("btnVoltarMem").addEventListener("click", function(){ desenhaMontadas(); mostra("areas"); window.scrollTo(0,0); });
+  $("btnNovaMem").addEventListener("click", function(){
+    st.memorias = st.memorias || [];
+    st.memorias.push({ nome: nomeMemLivre("NOVA MEMÓRIA"), itens: [] });
+    gravaMem(); abreMem(st.memorias.length-1); $("fNomeMem").focus(); $("fNomeMem").select();
+  });
+  $("fNomeMem").addEventListener("input", function(){
+    if(editMem !== null){ st.memorias[editMem].nome = this.value.toUpperCase(); gravaMem(); }
+  });
+  $("btnSalvarMem").addEventListener("click", fechaMem);
+  $("btnApagarMem").addEventListener("click", function(){
+    var mAp = st.memorias[editMem];
+    if(mAp && mAp.id) memApagadas.push(mAp.id);
+    st.memorias.splice(editMem,1); editMem = null; gravaMem();
+    desenhaGradeMem(); mostra("memorias");
+  });
+
+  $("e1").addEventListener("click", function(){
+    if(edit !== null) fechaArea(); else { desenhaMontadas(); mostra("areas"); }
+  });
+  $("e2").addEventListener("click", function(){ $("btnSomar").click(); });
+  $("btnSomar").addEventListener("click", function(){
+    if(!st.areas.length) return;
+    if(edit !== null){ st.areas[edit].itens = validos(st.areas[edit].itens); edit = null; salvar(); }
+    desenhaTotal(); mostra("total"); window.scrollTo(0,0);
+  });
+  $("btnVoltar").addEventListener("click", function(){ desenhaMontadas(); mostra("areas"); window.scrollTo(0,0); });
+  $("btnZero").addEventListener("click", recomeca);
+  $("btnZeroEx").addEventListener("click", recomeca);
+  $("btnPrevia").addEventListener("click", function(){
+    if(!usadas().length) return;
+    abrePrevia("total");
+  });
+  $("btnPreviaMem").addEventListener("click", function(){
+    if(!(st.memorias||[]).length) return;
+    abrePrevia("memorias");
+  });
+  $("pvFechar").addEventListener("click", fechaPrevia);
+  $("previaBox").addEventListener("click", function(e){ if(e.target === this) fechaPrevia(); });
+  $("pvImprimir").addEventListener("click", function(){ imprimir(previaQual, "pvRecado"); });
+  $("pvPdf").addEventListener("click", function(){
+    if(previaQual === "memorias") baixar(montaPdfMemorias(), "Memorias_Trelica_Q30.pdf", "pvRecado");
+    else baixar(montaPdfTotal(), nomeArquivo("Trelica_Q30"), "pvRecado");
+  });
+  $("btnCopiar").addEventListener("click", function(){
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(texto()).then(function(){
+        var n = $("recado"); n.hidden = false; setTimeout(function(){ n.hidden = true; }, 2200);
+      }, function(){});
+    }
+  });
+
+  // ---------- enviar para a Central de Conferência ----------
+  function chaveNome(n){ return String(n||"").trim().replace(/\s+/g," ").toUpperCase(); }
+  function listaEnvio(){
+    var us = usadas(), out = [];
+    ordemPecas(us).forEach(function(p){
+      var q = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
+      if(q) out.push({ nome: "TRELIÇA Q30 " + p, qtd: q });
+    });
+    return out;
+  }
+  function envDiz(txt, erro){
+    var n = $("envInfo");
+    n.textContent = txt;
+    n.style.color = erro ? "var(--laranja-2)" : "var(--suave)";
+  }
+  function fechaEnvio(){ $("envBox").hidden = true; }
+
+  function abreEnvio(){
+    if(!nuvem){ return; }
+    var lista = listaEnvio();
+    if(!lista.length) return;
+    $("envBox").hidden = false;
+    envDiz(lista.length + " itens · " + totalGeral() + " peças" + (st.evento ? " · " + st.evento : ""));
+    var box = $("envMiolo");
+    box.innerHTML = '<div class="nada">Buscando os eventos da Central…</div>';
+    nuvem.from("eventos").select("id,nome,cliente,data,status").order("created_at",{ascending:false}).limit(60)
+      .then(function(r){
+        if(r.error) throw r.error;
+        var evs = (r.data||[]).filter(function(e){
+          return e.status !== "Finalizado" && e.status !== "Com divergência";
+        });
+        desenhaEnvio(evs, lista);
+      })
+      .catch(function(e){
+        console.error(e);
+        box.innerHTML = '<div class="nada">Não consegui falar com a Central. Verifique a internet e tente de novo.</div>';
+      });
+  }
+
+  function desenhaEnvio(evs, lista){
+    var box = $("envMiolo");
+    box.textContent = "";
+
+    var cab = el("div", null);
+    cab.style.cssText = "padding:12px 14px;border-bottom:1px solid var(--borda);font-weight:600;font-size:13.5px";
+    cab.textContent = "A soma da treliça vira CHECKLIST do evento escolhido. Se o evento já tiver checklist, as quantidades SOMAM no que está lá.";
+    box.appendChild(cab);
+
+    if(st.evento){
+      var novo = el("button","usar");
+      novo.type = "button";
+      novo.style.cssText = "display:block;width:calc(100% - 28px);margin:12px 14px 0;text-align:left;padding:10px 12px";
+      novo.appendChild(el("b", null, "➕ CRIAR EVENTO NOVO: " + lim(st.evento)));
+      novo.appendChild(el("span", null, "  (O.S. " + (st.os||"—") + ")"));
+      novo.addEventListener("click", function(){
+        novo.disabled = true;
+        envDiz("Criando o evento…");
+        nuvem.from("eventos").insert({
+          nome: lim(st.evento), cliente: "", local: "",
+          data: st.data || new Date().toISOString().slice(0,10),
+          conferente_id: null, status: "Aguardando conferência"
+        }).select().then(function(r){
+          if(r.error || !(r.data||[])[0]) throw (r.error || new Error("sem retorno"));
+          enviarPara(r.data[0].id, lim(st.evento), lista);
+        }).catch(function(e){
+          console.error(e); novo.disabled = false;
+          envDiz("Não consegui criar o evento. Tente de novo.", true);
+        });
+      });
+      box.appendChild(novo);
+    }
+
+    var tit = el("div", null, "OU ESCOLHA UM EVENTO QUE JÁ EXISTE NA CENTRAL:");
+    tit.style.cssText = "padding:14px 14px 6px;font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--suave)";
+    box.appendChild(tit);
+
+    if(!evs.length){
+      box.appendChild(el("div","nada","Nenhum evento aberto na Central."));
+      return;
+    }
+    evs.forEach(function(e){
+      var b = el("button","usar");
+      b.type = "button";
+      b.style.cssText = "display:block;width:calc(100% - 28px);margin:0 14px 8px;text-align:left;padding:10px 12px";
+      b.appendChild(el("b", null, e.nome));
+      var det = [];
+      if(e.cliente) det.push(e.cliente);
+      if(e.data) det.push(String(e.data).slice(0,10).split("-").reverse().join("/"));
+      if(e.status) det.push(e.status);
+      b.appendChild(el("span", null, "  " + det.join(" · ")));
+      b.addEventListener("click", function(){
+        b.disabled = true;
+        enviarPara(e.id, e.nome, lista);
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function areasEnvio(){
+    return usadas().map(function(a){
+      return { nome: tituloArea(a), itens: itensEnviados(a), total: enviadoArea(a) };
+    });
+  }
+  /* o SEPARADO POR ÁREA fica gravado no evento e aparece na página do produtor */
+  function gravaAreas(eventoId){
+    return nuvem.from("q30_areas").select("id,dados").eq("evento_id", eventoId)
+      .then(function(r){
+        if(r.error) throw r.error;
+        var linha = (r.data||[])[0];
+        if(linha){
+          return nuvem.from("q30_areas")
+            .update({ dados: (linha.dados||[]).concat(areasEnvio()), atualizado_em: new Date().toISOString() })
+            .eq("id", linha.id)
+            .then(function(r2){ if(r2.error) throw r2.error; });
+        }
+        return nuvem.from("q30_areas").insert({ evento_id: eventoId, dados: areasEnvio() })
+          .then(function(r2){ if(r2.error) throw r2.error; });
+      });
+  }
+
+  /* mesmo comportamento do anexo de checklist da Central: nome igual SOMA, nome novo CRIA */
+  function enviarPara(eventoId, nomeEv, lista){
+    envDiz("Enviando o checklist…");
+    gravaAreas(eventoId)
+      .catch(function(e){
+        console.error(e);
+        var m = (e && e.message) || "";
+        if(/does not exist|schema cache|Could not find the table/i.test(m)){
+          throw new Error("Falta criar a tabela q30_areas no Supabase — rode o arquivo quantificacao-q30.sql e tente de novo.");
+        }
+        throw e;
+      })
+      .then(function(){ return nuvem.from("produtos").select("id,nome,quantidade_prevista").eq("evento_id", eventoId); })
+      .then(function(r){
+        if(r.error) throw r.error;
+        var porChave = {};
+        (r.data||[]).forEach(function(p){ porChave[chaveNome(p.nome)] = p; });
+        var novos = [], passos = [];
+        lista.forEach(function(item){
+          var jaTem = porChave[chaveNome(item.nome)];
+          if(jaTem){
+            passos.push(nuvem.from("produtos")
+              .update({ quantidade_prevista: (Number(jaTem.quantidade_prevista)||0) + item.qtd })
+              .eq("id", jaTem.id)
+              .then(function(r2){ if(r2.error) throw r2.error; }));
+          } else {
+            novos.push({ evento_id: eventoId, nome: item.nome, quantidade_prevista: item.qtd,
+                         unidade: "UN", terceirizado: false });
+          }
+        });
+        if(novos.length){
+          passos.push(nuvem.from("produtos").insert(novos)
+            .then(function(r2){ if(r2.error) throw r2.error; }));
+        }
+        return Promise.all(passos);
+      })
+      .then(function(){
+        var box = $("envMiolo");
+        box.innerHTML = "";
+        var ok = el("div","nada");
+        ok.style.color = "var(--ok)";
+        ok.style.fontSize = "16px";
+        ok.textContent = "✓ Enviado para \"" + nomeEv + "\": checklist com " +
+          listaEnvio().length + " itens (" + totalGeral() + " peças) e o separado por área (" +
+          areasEnvio().length + " áreas) já aparece na página do produtor.";
+        box.appendChild(ok);
+        envDiz("Enviado.");
+      })
+      .catch(function(e){
+        console.error(e);
+        envDiz((e && e.message && e.message.indexOf("q30_areas") >= 0)
+          ? e.message
+          : "Não consegui enviar. Verifique a internet e tente de novo.", true);
+      });
+  }
+
+  if(!nuvem) $("btnEnviarCentral").hidden = true;
+  $("btnEnviarCentral").addEventListener("click", abreEnvio);
+  $("envFechar").addEventListener("click", fechaEnvio);
+  $("envBox").addEventListener("click", function(e){ if(e.target === this) fechaEnvio(); });
+
+  // ---------- partida ----------
+  function inicia(d){
+    st = (d && d.st) ? d.st : carregar();
+    if(!st.memorias) st.memorias = memorias();
+    if(!st.eventos || !st.eventos.length){
+      st.eventos = [{ nome:st.evento||"", os:st.os||"", data:st.data||"", areas:st.areas||[] }];
+      st.atual = 0;
+    }
+    st.eventos.forEach(function(e){ if(!e.areas) e.areas = []; });
+    st.areas.forEach(function(a){ if(!a.itens) a.itens = []; });
+    (st.memorias||[]).forEach(function(m){ if(!m.itens) m.itens = []; });
+    edit = (d && typeof d.edit === "number" && d.edit < st.areas.length) ? d.edit : null;
+    ficha(); sugestoes(); desenhaAbas(); desenhaMontadas(); desenhaGradeMem();
+    if(edit === null) mostra("areas"); else abreArea(edit);
+    baixarMemNuvem();
+  }
+  if(window.claude && window.claude.hot){
+    window.claude.hot.snapshot(function(){ return { st:st, edit:edit }; });
+    window.claude.hot.ready ? window.claude.hot.ready(inicia) : inicia(window.claude.hot.data);
+  } else { inicia(null); }
+})();
+</script>
+
+</body></html>
