@@ -1617,7 +1617,7 @@
     var us = usadas(), out = [];
     ordemPecas(us).forEach(function(p){
       var q = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
-      if(q) out.push({ nome: "TRELIÇA Q30 " + p, qtd: q });
+      if(q) out.push({ nome: p, qtd: q });   /* o nome vai do jeito que foi digitado, sem prefixo */
     });
     return out;
   }
