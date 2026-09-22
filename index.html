@@ -9551,14 +9551,45 @@ function TelaRelatorios() {
     function abaCarregamentos() {
       exportTitulo = 'Carregamentos';
       exportLinhas = [['Evento', 'Carreg.', 'Nome', 'Sentido', 'Caminhão', 'Status', 'Itens no checklist']];
-      var h = '';
+      var rotPeriodo = (periodoDe || periodoAte)
+        ? (periodoDe ? U.fmtData(periodoDe) : 'início') + ' a ' + (periodoAte ? U.fmtData(periodoAte) : 'hoje')
+        : 'todo o histórico';
+      exportLinhas.unshift(['Período', rotPeriodo]);
+
+      /* barra do período: mesma da aba de saídas (os botões já funcionam) */
+      var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
+        '<span class="peq mut" style="flex:none">📅 Período</span>' +
+        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<span class="peq mut" style="flex:none">até</span>' +
+        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
+      '</div></div>';
+
+      var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      var grupos = {}, totalEv = 0, totalCg = 0;
       App.eventos.forEach(function (ev) {
         var cgs = (cgPorEvento[ev.id] || []).filter(function () { return casaBusca(ev.nome + ' ' + (ev.cliente || '')); });
         if (!cgs.length) return;
-        h += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
+        var d = String(ev.data || ev.created_at || '').slice(0, 10);
+        if (periodoDe && (!d || d < periodoDe)) return;
+        if (periodoAte && (!d || d > periodoAte)) return;
+        var chave = d && d.length >= 7 ? d.slice(0, 7) : '0000-00';
+        (grupos[chave] = grupos[chave] || []).push({ ev: ev, cgs: cgs, d: d });
+        totalEv++; totalCg += cgs.length;
+      });
+
+      h += '<p class="peq mut" style="margin:0 0 10px"><b>' + totalEv + '</b> evento(s) · <b>' + totalCg +
+        '</b> carregamento(s) · ' + U.esc(rotPeriodo) + '. Toque no evento para abrir os caminhões.</p>';
+
+      function cartaoEv(item) {
+        var ev = item.ev, cgs = item.cgs;
+        return '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
           '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
           U.esc(ev.nome) + '</h3>' +
-          '<span class="mut peq">' + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo" hidden>' +
+          '<span class="mut peq">' + (item.d ? U.fmtData(item.d) + ' · ' : '') + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo" hidden>' +
           cgs.map(function (cg) {
             var conf = Calculo.confDe(App.conferencias, cg.id, cg.sentido === 'retorno' ? 'retorno' : 'saida');
             var qtdItens = todosPlanos.filter(function (pl) { return pl.carregamento_id === cg.id; }).length;
@@ -9569,9 +9600,27 @@ function TelaRelatorios() {
                 (cg.nome ? ' · <b>' + U.esc(cg.nome) + '</b>' : '') + ' · ' + U.esc(nomeCam(cg.caminhao_id, cg.cavalo_id)) + '</span>' +
               '<span>' + (conf ? U.esc(conf.status) : '<span class="mut">não iniciada</span>') +
                 (qtdItens ? ' · ' + qtdItens + ' itens' : '') + '</span></div>';
-          }).join('') + '</div></div>';
-      });
-      return h || '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento</h3></div>';
+          }).join('') +
+          '<button class="btn btn--branco btn--bloco btn--peq js-rel-abrir" data-id="' + ev.id + '" style="margin-top:10px">ABRIR O EVENTO</button>' +
+          '</div></div>';
+      }
+
+      var meses = Object.keys(grupos).sort().reverse();
+      if (!meses.length) {
+        return h + '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento neste período</h3>' +
+          '<p>Mude as datas acima ou toque em <b>Tudo</b> para ver o histórico completo.</p></div>';
+      }
+      h += meses.map(function (ch) {
+        var partes = ch.split('-');
+        var titulo = ch === '0000-00' ? 'Sem data' : (MESES[Number(partes[1]) - 1] || '') + ' de ' + partes[0];
+        var lista = grupos[ch].slice().sort(function (a, b) { return (b.d || '').localeCompare(a.d || ''); });
+        var nCg = 0;
+        lista.forEach(function (x) { nCg += x.cgs.length; });
+        return '<h2 class="secao__tit" style="margin-top:20px">📅 ' + U.esc(titulo) +
+          ' <span class="n">' + lista.length + ' evento(s) · ' + nCg + ' carreg.</span></h2>' +
+          lista.map(cartaoEv).join('');
+      }).join('');
+      return h;
     }
 
     function abaPerdas() {
