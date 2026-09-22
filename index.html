@@ -9529,6 +9529,23 @@ function TelaRelatorios() {
         (itensPorConf[i.conferencia_id] = itensPorConf[i.conferencia_id] || []).push(i);
       });
 
+      /* onde a peça está HOJE: saiu x voltou por evento+item, no histórico todo
+         (sem o filtro do período, senão a conta de "ainda no evento" engana) */
+      var vida = {};   /* evento_id -> chave do item -> {saiu, voltou} */
+      App.conferencias.forEach(function (c) {
+        if (!c.finalizada_em || (c.tipo !== 'saida' && c.tipo !== 'retorno')) return;
+        (itensPorConf[c.id] || []).forEach(function (i) {
+          var p = prodPorId[i.produto_id];
+          if (!p) return;
+          var q = U.num(i.quantidade) + U.num(i.qtd_danificada);
+          if (!(q > 0)) return;
+          var ch = Estoque.chave(p.nome);
+          var bEv = vida[c.evento_id] || (vida[c.evento_id] = {});
+          var b = bEv[ch] || (bEv[ch] = { saiu: 0, voltou: 0 });
+          if (c.tipo === 'saida') b.saiu += q; else b.voltou += q;
+        });
+      });
+
       var mapa = {}, porEvento = {}, totalPecas = 0, nConfs = 0;
       App.conferencias.forEach(function (c) {
         if (c.tipo !== 'saida' || !c.finalizada_em) return;
@@ -9546,9 +9563,9 @@ function TelaRelatorios() {
           if (!casaBusca(p.nome + ' ' + (ev ? ev.nome : ''))) return;
           contou = true;
           var ch = Estoque.chave(p.nome);
-          var m = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', saiu: 0, evs: {} });
+          var m = mapa[ch] || (mapa[ch] = { ch: ch, nome: p.nome, unidade: p.unidade || 'UN', saiu: 0, evs: {} });
           m.saiu += q;
-          m.evs[c.evento_id] = true;
+          m.evs[c.evento_id] = (m.evs[c.evento_id] || 0) + q;
           totalPecas += q;
           var pe = porEvento[c.evento_id] ||
             (porEvento[c.evento_id] = { id: c.evento_id, nome: ev ? ev.nome : 'Evento apagado', data: d, qtd: 0 });
@@ -9590,20 +9607,56 @@ function TelaRelatorios() {
           '<p>Mude as datas acima ou toque em <b>Tudo</b> para ver o histórico completo.</p></div>';
       }
 
+      /* detalhe de UM item: em quais eventos ele está e o que já voltou */
+      function detalheItem(m) {
+        var linhasEv = Object.keys(m.evs).map(function (evId) {
+          var ev = evPorId[evId];
+          var v = (vida[evId] || {})[m.ch] || { saiu: 0, voltou: 0 };
+          var fora = Math.max(0, v.saiu - v.voltou);
+          var fechado = ev && (ev.status === 'Finalizado' || ev.status === 'Com divergência');
+          return { id: evId, nome: ev ? ev.nome : 'Evento apagado', data: ev ? ev.data : '',
+            noPeriodo: m.evs[evId], fora: fora, fechado: fechado, semEv: !ev };
+        }).sort(function (a, b) { return b.fora - a.fora || b.noPeriodo - a.noPeriodo; });
+
+        return linhasEv.map(function (e) {
+          var onde = e.fora > 0
+            ? (e.fechado
+              ? '<b style="color:var(--vermelho)">✖ ' + U.fmt(e.fora) + ' não voltou (evento encerrado)</b>'
+              : '<b style="color:var(--laranja)">📍 ainda no evento: ' + U.fmt(e.fora) + ' ' + U.esc(m.unidade) + '</b>')
+            : '<b style="color:var(--verde)">✓ tudo voltou para o galpão</b>';
+          return '<div class="peq' + (e.semEv ? '' : ' js-rel-abrir') + '" data-id="' + e.id + '" ' +
+            'style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;' +
+            'border-bottom:1px solid var(--linha);cursor:pointer;background:var(--branco);border-radius:8px;margin-top:4px">' +
+            '<span style="flex:1;min-width:160px">' + U.esc(e.nome) +
+              (e.data ? ' <span class="mut">· ' + U.fmtData(e.data) + '</span>' : '') +
+              '<span class="mut" style="display:block">saiu ' + U.fmt(e.noPeriodo) + ' ' + U.esc(m.unidade) + ' no período</span></span>' +
+            '<span style="flex:none;text-align:right">' + onde + (e.semEv ? '' : '<span class="mut" style="display:block">abrir evento ›</span>') + '</span>' +
+          '</div>';
+        }).join('');
+      }
+
       var max = ranking[0].saiu || 1;
       h += '<div class="cartao"><div class="cartao__topo"><h3>🏆 O que mais saiu no período</h3>' +
-        '<span class="mut peq">' + ranking.length + ' item(ns)</span></div>' +
+        '<span class="mut peq">' + ranking.length + ' item(ns) · toque para ver onde está</span></div>' +
         '<div class="cartao__corpo" style="max-height:56vh;overflow:auto">' +
         ranking.map(function (m, i) {
           exportLinhas.push([m.nome, m.unidade, m.saiu, m.eventos]);
-          return '<div style="padding:6px 0;border-bottom:1px solid var(--linha)">' +
+          var foraTotal = 0;
+          Object.keys(m.evs).forEach(function (evId) {
+            var v = (vida[evId] || {})[m.ch] || { saiu: 0, voltou: 0 };
+            foraTotal += Math.max(0, v.saiu - v.voltou);
+          });
+          return '<div class="js-sp-item" data-i="' + i + '" style="padding:6px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
             '<div class="peq" style="display:flex;justify-content:space-between;gap:10px">' +
-              '<span>' + (i + 1) + 'º ' + U.esc(m.nome) + '</span>' +
+              '<span>' + (i + 1) + 'º ' + U.esc(m.nome) +
+                (foraTotal > 0 ? ' <b style="color:var(--laranja)">· 📍 ' + U.fmt(foraTotal) + ' na rua</b>' : '') + '</span>' +
               '<b style="flex:none">' + U.fmt(m.saiu) + ' ' + U.esc(m.unidade) +
-                ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s)</span></b></div>' +
+                ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s) ▾</span></b></div>' +
             '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:4px">' +
               '<div style="height:6px;border-radius:4px;background:var(--laranja);width:' +
                 Math.max(2, Math.round(m.saiu / max * 100)) + '%"></div></div>' +
+            '<div class="js-sp-det" hidden style="background:var(--fundo);border-radius:10px;padding:4px 6px 8px;margin:8px 0 4px">' +
+              detalheItem(m) + '</div>' +
           '</div>';
         }).join('') +
       '</div></div>';
@@ -9696,6 +9749,15 @@ function TelaRelatorios() {
           if (seta) seta.style.transform = corpo.hidden ? '' : 'rotate(90deg)';
         });
       });
+      /* 📤 ranking de saídas: toque no item abre onde cada peça está */
+      U.$$('.js-sp-item', tela).forEach(function (linha) {
+        linha.addEventListener('click', function (e) {
+          if (e.target.closest('.js-rel-abrir')) return;   /* toque no evento: só abre o evento */
+          var det = linha.querySelector('.js-sp-det');
+          if (det) det.hidden = !det.hidden;
+        });
+      });
+
       U.$$('.js-rel-abrir', tela).forEach(function (c) {
         c.addEventListener('click', function () { App.abrir(TelaEvento, c.dataset.id); });
       });
