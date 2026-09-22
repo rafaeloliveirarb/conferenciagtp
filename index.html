@@ -9293,6 +9293,7 @@ function TelaRelatorios() {
     /* ---------- as cinco abas ---------- */
     var exportLinhas = [];   /* preenchido por cada aba para o Excel/imprimir */
     var exportTitulo = '';
+    var dadosSaidas = null;  /* snapshot da aba de saídas para o relatório impresso */
 
     function abaMaterial() {
       exportTitulo = 'Material na rua';
@@ -9583,6 +9584,10 @@ function TelaRelatorios() {
       var eventosLista = Object.keys(porEvento).map(function (k) { return porEvento[k]; })
         .sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
 
+      /* guarda tudo para o relatório impresso da diretoria */
+      dadosSaidas = { rotPeriodo: rotPeriodo, ranking: ranking, eventosLista: eventosLista,
+        vida: vida, totalPecas: totalPecas, nConfs: nConfs, evPorId: evPorId };
+
       var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
         '<span class="peq mut" style="flex:none">📅 Período</span>' +
         '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
@@ -9824,25 +9829,162 @@ function TelaRelatorios() {
       U.aviso('📗 Planilha baixada — abre direto no Excel.', 'ok', 4000);
     }
 
-    /* 🖨️ Imprimir: PDF simples da aba atual */
-    function imprimir() {
-      if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
-        return U.aviso('O gerador de PDF ainda está carregando — tente de novo em instantes.', 'erro', 5000);
-      }
-      var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
-      doc.setFont(undefined, 'bold'); doc.setFontSize(13);
-      doc.text('GRUPO TENDAS PLENART — ' + exportTitulo.toUpperCase(), 12, 16);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(8);
-      doc.text('Gerado em ' + U.fmtDataHora(new Date().toISOString()), 12, 21);
-      var y = 30;
-      exportLinhas.forEach(function (l, i) {
-        if (y > 285) { doc.addPage(); y = 14; }
-        doc.setFont(undefined, i === 0 ? 'bold' : 'normal');
-        doc.setFontSize(7.5);
-        doc.text(l.map(String).join('  |  ').slice(0, 130), 12, y);
-        y += 4.2;
+    /* 🖨️ Imprimir: relatório com a cara da empresa, pronto para a diretoria.
+       Abre a janela de impressão do navegador — de lá dá para imprimir
+       ou salvar em PDF. */
+    function paginaImpressao(tituloRel, corpo) {
+      var quem = Sessao.atual ? Sessao.atual.nome : '';
+      return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>' + U.esc(tituloRel) + '</title><style>' +
+        '@page{size:A4;margin:13mm 12mm}' +
+        '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+        'body{margin:0;font:11px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+        '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+          'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:16px}' +
+        '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;letter-spacing:.5px;white-space:nowrap}' +
+        '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px;margin-top:1px}' +
+        '.topo .info{text-align:right}' +
+        '.topo .info b{display:block;font-size:13px;color:#0B4F9E;text-transform:uppercase}' +
+        '.topo .info span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+        '.kpis{display:flex;gap:8px;margin-bottom:16px}' +
+        '.kpi{flex:1;border:1px solid #DCE3ED;border-top:4px solid #0B4F9E;border-radius:8px;padding:9px 10px;text-align:center}' +
+        '.kpi.lar{border-top-color:#F57C00}' +
+        '.kpi .n{font-size:21px;font-weight:900;color:#0B4F9E;line-height:1.1}' +
+        '.kpi.lar .n{color:#F57C00}' +
+        '.kpi .r{font-size:8.5px;color:#5A6B7D;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}' +
+        'h2{font-size:13px;color:#0B4F9E;margin:18px 0 2px;text-transform:uppercase;letter-spacing:.4px}' +
+        'h2+.fil{height:2px;width:52px;background:#F57C00;border:0;margin:0 0 8px;border-radius:2px}' +
+        'table{width:100%;border-collapse:collapse;font-size:10px}' +
+        'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:5px 7px;font-size:9px;' +
+          'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+        'td{padding:4.5px 7px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+        'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+        '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+        '.mut{color:#8695A6;font-weight:400}' +
+        '.lar{color:#D96A00}.verm{color:#C62828}.verd{color:#1B8A4B}' +
+        '.barra{height:6px;background:#EEF2F7;border-radius:3px;min-width:70px}' +
+        '.barra i{display:block;height:6px;border-radius:3px;background:#F57C00}' +
+        '.sec{break-inside:avoid}' +
+        '.evcab td{background:#0B4F9E !important;color:#fff;font-weight:800;font-size:10.5px;padding:6px 8px}' +
+        '.evcab td small{font-weight:400;opacity:.85}' +
+        '.rodape{margin-top:22px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;' +
+          'justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+        '</style></head><body>' +
+        '<div class="topo">' +
+          '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFERÊNCIA</small></div>' +
+          '<div class="info"><b>' + U.esc(tituloRel) + '</b>' +
+            (abaAtiva === 'saidas' && dadosSaidas ? '<span style="font-size:10.5px;color:#17202B;font-weight:700">Período: ' + U.esc(dadosSaidas.rotPeriodo) + '</span>' : '') +
+            '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+        '</div>' +
+        corpo +
+        '<div class="rodape"><span>Grupo Tendas Plenart · Central de Conferência</span>' +
+          '<span>Documento gerado pelo sistema · ' + U.fmtDataHora(new Date().toISOString()) + '</span></div>' +
+        '</body></html>';
+    }
+
+    /* corpo padrão: a tabela da aba atual, arrumada */
+    function corpoTabela() {
+      if (!exportLinhas.length) return '<p>Nada para mostrar nesta aba.</p>';
+      var cab = exportLinhas[0], linhas = exportLinhas.slice(1);
+      return '<table><thead><tr>' + cab.map(function (c) { return '<th>' + U.esc(c) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + linhas.map(function (l) {
+          return '<tr>' + l.map(function (c) {
+            var ehNum = typeof c === 'number';
+            return '<td' + (ehNum ? ' class="num"' : '') + '>' + (ehNum ? U.fmt(c) : U.esc(c)) + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    /* corpo do relatório de SAÍDAS: resumo, ranking e o detalhe por evento */
+    function corpoSaidas() {
+      var D = dadosSaidas;
+      var foraDe = function (evId, ch) {
+        var v = (D.vida[evId] || {})[ch] || { saiu: 0, voltou: 0 };
+        return Math.max(0, v.saiu - v.voltou);
+      };
+      var naRua = 0;
+      D.ranking.forEach(function (m) {
+        Object.keys(m.evs).forEach(function (evId) { naRua += foraDe(evId, m.ch); });
       });
-      doc.save('relatorio-' + exportTitulo.toLowerCase().replace(/\s+/g, '-') + '.pdf');
+
+      var h = '<div class="kpis">' +
+        '<div class="kpi lar"><div class="n">' + U.fmt(D.totalPecas) + '</div><div class="r">Peças saíram</div></div>' +
+        '<div class="kpi"><div class="n">' + D.eventosLista.length + '</div><div class="r">Eventos atendidos</div></div>' +
+        '<div class="kpi"><div class="n">' + D.nConfs + '</div><div class="r">Caminhões de saída</div></div>' +
+        '<div class="kpi"><div class="n">' + D.ranking.length + '</div><div class="r">Itens diferentes</div></div>' +
+        '<div class="kpi lar"><div class="n">' + U.fmt(naRua) + '</div><div class="r">Peças ainda na rua</div></div>' +
+      '</div>' +
+      '<p style="font-size:10px;color:#5A6B7D;margin:0 0 4px"><b>Período:</b> ' + U.esc(D.rotPeriodo) +
+        ' · "Ainda na rua" considera o histórico completo de saídas e retornos de cada evento, não só o período.</p>';
+
+      /* eventos atendidos */
+      h += '<div class="sec"><h2>Eventos atendidos no período</h2><hr class="fil">' +
+        '<table><thead><tr><th>Evento</th><th>Cliente</th><th>Data</th><th>Situação</th>' +
+          '<th style="text-align:right">Peças saídas</th></tr></thead><tbody>' +
+        D.eventosLista.map(function (e) {
+          var ev = D.evPorId[e.id];
+          return '<tr><td><b>' + U.esc(e.nome) + '</b></td>' +
+            '<td>' + U.esc(ev && ev.cliente || '—') + '</td>' +
+            '<td>' + U.fmtData(e.data) + '</td>' +
+            '<td>' + U.esc(ev && ev.status || '—') + '</td>' +
+            '<td class="num">' + U.fmt(e.qtd) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+
+      /* ranking */
+      var max = D.ranking.length ? (D.ranking[0].saiu || 1) : 1;
+      h += '<h2>O que mais saiu no período</h2><hr class="fil">' +
+        '<table><thead><tr><th style="width:22px">#</th><th>Item</th><th style="width:90px"></th>' +
+          '<th style="text-align:right">Saiu</th><th style="text-align:right">Eventos</th>' +
+          '<th style="text-align:right">Ainda na rua</th></tr></thead><tbody>' +
+        D.ranking.map(function (m, i) {
+          var fora = 0;
+          Object.keys(m.evs).forEach(function (evId) { fora += foraDe(evId, m.ch); });
+          return '<tr><td class="mut">' + (i + 1) + 'º</td>' +
+            '<td>' + U.esc(m.nome) + '</td>' +
+            '<td><div class="barra"><i style="width:' + Math.max(2, Math.round(m.saiu / max * 100)) + '%"></i></div></td>' +
+            '<td class="num">' + U.fmt(m.saiu) + ' <span class="mut">' + U.esc(m.unidade) + '</span></td>' +
+            '<td class="num" style="font-weight:400">' + m.eventos + '</td>' +
+            '<td class="num ' + (fora > 0 ? 'lar' : 'verd') + '">' + (fora > 0 ? U.fmt(fora) : '✓ voltou') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      /* detalhe por evento */
+      h += '<h2>Detalhe por evento — onde cada peça está</h2><hr class="fil">' +
+        '<table><thead><tr><th>Item</th><th style="text-align:right">Saiu no período</th>' +
+          '<th style="text-align:right">Voltou</th><th style="text-align:right">Ainda no evento</th></tr></thead><tbody>' +
+        D.eventosLista.map(function (e) {
+          var ev = D.evPorId[e.id];
+          var fechado = ev && (ev.status === 'Finalizado' || ev.status === 'Com divergência');
+          var itens = D.ranking.filter(function (m) { return m.evs[e.id]; })
+            .sort(function (a, b) { return (b.evs[e.id] || 0) - (a.evs[e.id] || 0); });
+          return '<tr class="evcab"><td colspan="4">' + U.esc(e.nome) +
+              ' <small>· ' + U.fmtData(e.data) + (ev && ev.cliente ? ' · ' + U.esc(ev.cliente) : '') +
+              ' · ' + U.esc(ev && ev.status || '') + '</small></td></tr>' +
+            itens.map(function (m) {
+              var v = (D.vida[e.id] || {})[m.ch] || { saiu: 0, voltou: 0 };
+              var fora = Math.max(0, v.saiu - v.voltou);
+              var celFora = fora > 0
+                ? '<td class="num ' + (fechado ? 'verm' : 'lar') + '">' + U.fmt(fora) +
+                  (fechado ? ' <span class="mut">(não voltou)</span>' : '') + '</td>'
+                : '<td class="num verd">✓</td>';
+              return '<tr><td>' + U.esc(m.nome) + '</td>' +
+                '<td class="num" style="font-weight:400">' + U.fmt(m.evs[e.id]) + ' ' + U.esc(m.unidade) + '</td>' +
+                '<td class="num" style="font-weight:400">' + U.fmt(Math.min(v.voltou, v.saiu)) + '</td>' +
+                celFora + '</tr>';
+            }).join('');
+        }).join('') + '</tbody></table>';
+
+      return h;
+    }
+
+    function imprimir() {
+      var ehSaidas = abaAtiva === 'saidas' && dadosSaidas;
+      var titulo = ehSaidas ? 'Relatório de Saídas de Material' : exportTitulo;
+      var corpo = ehSaidas ? corpoSaidas() : corpoTabela();
+      var jan = window.open('', '_blank');
+      if (!jan) return U.aviso('O navegador bloqueou a janela do relatório. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+      jan.document.write(paginaImpressao(titulo, corpo));
+      jan.document.close();
+      jan.focus();
+      setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
     }
 
     desenhar();
