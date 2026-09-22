@@ -3046,6 +3046,17 @@ function imprimirChecklistTotal(p) {
   setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
 }
 
+/* desmontagem tem começo e fim (às vezes vários dias) */
+function fimDesmontagem(ev) {
+  return String(ev.data_desmontagem_fim || ev.data_desmontagem || '').slice(0, 10);
+}
+function rotuloDesmontagem(ev) {
+  if (!ev.data_desmontagem) return '';
+  var ini = String(ev.data_desmontagem).slice(0, 10);
+  var fim = String(ev.data_desmontagem_fim || '').slice(0, 10);
+  return U.fmtData(ini) + (fim && fim !== ini ? ' a ' + U.fmtData(fim) : '');
+}
+
 /* ============================================================
    🔍 DISPONIBILIDADE — o checklist deste evento cabe no galpão,
    contando o que outros eventos das MESMAS DATAS ainda vão levar
@@ -3062,13 +3073,13 @@ function verificarDisponibilidade(p) {
   var corpo = m.querySelector('.modal__corpo');
 
   var ini = String(ev.data || '').slice(0, 10);
-  var fim = String(ev.data_desmontagem || ev.data || '').slice(0, 10);
+  var fim = fimDesmontagem(ev) || String(ev.data || '').slice(0, 10);
   var outros = App.eventos.filter(function (e) {
     if (e.id === ev.id) return false;
     if (e.status === 'Finalizado' || e.status === 'Com divergência') return false;
     if (!e.data) return true;   /* sem data: por segurança conta como possível conflito */
     var i2 = String(e.data).slice(0, 10);
-    var f2 = String(e.data_desmontagem || e.data).slice(0, 10);
+    var f2 = fimDesmontagem(e) || String(e.data).slice(0, 10);
     if (!ini) return true;
     return ini <= f2 && i2 <= fim;
   });
@@ -3437,13 +3448,13 @@ function TelaPainel() {
     /* ⏰ retornos atrasados: desmontagem passou e o retorno não fechou */
     var atrasados = App.eventos.filter(function (ev) {
       if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
-      if (!ev.data_desmontagem || String(ev.data_desmontagem).slice(0, 10) >= U.hojeISO()) return false;
+      if (!ev.data_desmontagem || fimDesmontagem(ev) >= U.hojeISO()) return false;
       var totalItens = App.qtdChecklist(ev.id) || 0;
       if (totalItens > 0 && faseProgresso(ev.id) === 'retorno' && itensRetornados(ev.id) >= totalItens) return false;
       return true;
-    }).sort(function (a, b) { return String(a.data_desmontagem).localeCompare(String(b.data_desmontagem)); });
+    }).sort(function (a, b) { return fimDesmontagem(a).localeCompare(fimDesmontagem(b)); });
     function diasAtraso(ev) {
-      return Math.max(1, Math.floor((Date.now() - new Date(String(ev.data_desmontagem).slice(0, 10) + 'T12:00:00').getTime()) / 86400000));
+      return Math.max(1, Math.floor((Date.now() - new Date(fimDesmontagem(ev) + 'T12:00:00').getTime()) / 86400000));
     }
 
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
@@ -3494,7 +3505,7 @@ function TelaPainel() {
           '<b>' + atrasados.length + ' evento(s) com RETORNO ATRASADO:</b>' +
           atrasados.slice(0, 6).map(function (ev) {
             return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
-              '<span style="flex:1;min-width:200px">' + U.esc(ev.nome) + ' — desmontou ' + U.fmtData(ev.data_desmontagem) +
+              '<span style="flex:1;min-width:200px">' + U.esc(ev.nome) + ' — desmontagem ' + rotuloDesmontagem(ev) +
                 ' · <b>há ' + diasAtraso(ev) + ' dia(s)</b></span>' +
               '<button class="btn btn--branco btn--peq js-abrir-atr" data-id="' + ev.id + '">ABRIR</button>' +
             '</div>';
@@ -5285,7 +5296,7 @@ function TelaNovoEvento() {
 
   App.topo('NOVO EVENTO', 'Preencha os dados — o caminhão e o checklist vêm em seguida');
 
-  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), data_desmontagem: '', conferente_id: '' };
+  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), data_desmontagem: '', data_desmontagem_fim: '', conferente_id: '' };
   var produtos = [];   /* o checklist agora é anexado POR CARREGAMENTO, depois */
 
   desenhar();
@@ -5304,8 +5315,10 @@ function TelaNovoEvento() {
         '<div class="dupla">' +
           '<label class="campo"><span class="campo__rot">Data</span>' +
             '<input class="entrada js-d" data-k="data" type="date" value="' + U.esc(dados.data) + '"></label>' +
-          '<label class="campo"><span class="campo__rot">Desmontagem (retorno previsto)</span>' +
+          '<label class="campo"><span class="campo__rot">Desmontagem — começa</span>' +
             '<input class="entrada js-d" data-k="data_desmontagem" type="date" value="' + U.esc(dados.data_desmontagem) + '"></label>' +
+          '<label class="campo"><span class="campo__rot">Desmontagem — termina</span>' +
+            '<input class="entrada js-d" data-k="data_desmontagem_fim" type="date" value="' + U.esc(dados.data_desmontagem_fim) + '"></label>' +
           '<label class="campo"><span class="campo__rot">Conferente</span>' +
             '<select class="entrada js-d" data-k="conferente_id">' +
               '<option value="">Deixar em aberto</option>' +
@@ -5366,6 +5379,7 @@ function TelaNovoEvento() {
       local: dados.local.trim(),
       data: dados.data || U.hojeISO(),
       data_desmontagem: dados.data_desmontagem || null,
+      data_desmontagem_fim: dados.data_desmontagem_fim || dados.data_desmontagem || null,
       conferente_id: dados.conferente_id || null,
       status: 'Aguardando conferência'
     }).then(function (criado) {
@@ -5727,7 +5741,7 @@ function TelaEvento(eventoId) {
         '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
         '<dt>Local</dt><dd>' + U.esc(ev.local || '—') + '</dd>' +
         '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
-        '<dt>Desmontagem</dt><dd>' + (ev.data_desmontagem ? U.fmtData(ev.data_desmontagem) : '<span class="mut">não informada</span>') +
+        '<dt>Desmontagem</dt><dd>' + (ev.data_desmontagem ? rotuloDesmontagem(ev) : '<span class="mut">não informada</span>') +
           (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência'
             ? ' <button class="btn btn--branco btn--peq" id="btn-desmontagem" style="margin-left:6px;padding:2px 10px;min-height:30px">✏️</button>'
             : '') + '</dd>' +
@@ -5743,12 +5757,12 @@ function TelaEvento(eventoId) {
 
     /* ⏰ retorno atrasado: passou a desmontagem e o material não voltou todo */
     var evAberto = ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
-    if (evAberto && ev.data_desmontagem && String(ev.data_desmontagem).slice(0, 10) < U.hojeISO() &&
+    if (evAberto && ev.data_desmontagem && fimDesmontagem(ev) < U.hojeISO() &&
         (pctEvento === null || pctEvento < 100)) {
-      var diasAtr = Math.floor((Date.now() - new Date(String(ev.data_desmontagem).slice(0, 10) + 'T12:00:00').getTime()) / 86400000);
+      var diasAtr = Math.max(1, Math.floor((Date.now() - new Date(fimDesmontagem(ev) + 'T12:00:00').getTime()) / 86400000));
       h += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⏰</span><div>' +
         '<b>RETORNO ATRASADO há ' + diasAtr + ' dia' + (diasAtr > 1 ? 's' : '') + '.</b>' +
-        'A desmontagem era ' + U.fmtData(ev.data_desmontagem) + ' e o material ainda não voltou todo. ' +
+        'A desmontagem era ' + rotuloDesmontagem(ev) + ' e o material ainda não voltou todo. ' +
         'Cobre o retorno e registre quando o caminhão chegar.</div></div>';
     }
 
@@ -7287,10 +7301,13 @@ function TelaEvento(eventoId) {
     var btnDesm = U.$('#btn-desmontagem', tela);
     if (btnDesm) btnDesm.addEventListener('click', function () {
       var m = U.modal({
-        titulo: '⏰ Data da desmontagem',
-        html: '<p class="mut peq" style="margin-bottom:10px">Quando o evento desmonta e o material deve voltar. ' +
-          'Passou dessa data sem retorno completo, o evento fica marcado como <b>RETORNO ATRASADO</b> no painel.</p>' +
-          '<input class="entrada" id="desm-data" type="date" value="' + U.esc(String(ev.data_desmontagem || '').slice(0, 10)) + '">',
+        titulo: '⏰ Período da desmontagem',
+        html: '<p class="mut peq" style="margin-bottom:10px">Quando o evento desmonta e o material volta — pode levar vários dias. ' +
+          'Passou do FIM sem retorno completo, o evento fica marcado como <b>RETORNO ATRASADO</b> no painel.</p>' +
+          '<label class="campo"><span class="campo__rot">Começa</span>' +
+            '<input class="entrada" id="desm-data" type="date" value="' + U.esc(String(ev.data_desmontagem || '').slice(0, 10)) + '"></label>' +
+          '<label class="campo" style="margin-top:8px"><span class="campo__rot">Termina</span>' +
+            '<input class="entrada" id="desm-fim" type="date" value="' + U.esc(String(ev.data_desmontagem_fim || ev.data_desmontagem || '').slice(0, 10)) + '"></label>',
         pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
             '<button class="btn btn--verde" data-ok>SALVAR</button>',
         travado: true
@@ -7298,8 +7315,14 @@ function TelaEvento(eventoId) {
       m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
       m.querySelector('[data-ok]').addEventListener('click', function () {
         var v = m.querySelector('#desm-data').value || null;
-        Banco.atualizarEvento(eventoId, { data_desmontagem: v })
-          .then(function () { m.fechar(); U.aviso('⏰ Desmontagem ' + (v ? 'marcada para ' + U.fmtData(v) : 'removida') + '.', 'ok'); App.recarregar(); })
+        var vf = m.querySelector('#desm-fim').value || v;
+        if (v && vf && vf < v) { var x = v; v = vf; vf = x; }   /* trocou as datas: arruma sozinho */
+        Banco.atualizarEvento(eventoId, { data_desmontagem: v, data_desmontagem_fim: v ? vf : null })
+          .then(function () {
+            m.fechar();
+            U.aviso('⏰ Desmontagem ' + (v ? 'marcada: ' + U.fmtData(v) + (vf && vf !== v ? ' a ' + U.fmtData(vf) : '') : 'removida') + '.', 'ok');
+            App.recarregar();
+          })
           .catch(App.falhou);
       });
     });
