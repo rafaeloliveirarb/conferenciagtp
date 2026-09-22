@@ -2838,6 +2838,214 @@ function nomeCaminhao(caminhoes, id, cavaloId) {
   return txt;
 }
 
+/* ============================================================
+   🖨️ ROMANEIO DO CARREGAMENTO — folha formatada para imprimir
+   ou salvar em PDF (papel do coordenador, vai junto com o caminhão)
+   ============================================================ */
+function imprimirCarregamento(p, cg) {
+  var ev = p.evento;
+  var linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido)
+    .filter(function (l) { return l.prevista > 0 || l.saida !== null; })
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+  var temConf = linhas.some(function (l) { return l.saida !== null; });
+  var cS = Calculo.confDe(p.conferencias, cg.id, 'saida');
+  var totPrev = 0, totSaiu = 0;
+  linhas.forEach(function (l) { totPrev += l.prevista; totSaiu += l.saida || 0; });
+
+  var corpo = '<table><thead><tr><th style="width:26px">#</th><th>Item</th>' +
+      '<th style="text-align:right;width:90px">Quantidade</th>' +
+      '<th style="text-align:right;width:110px">' + (temConf ? 'Carregado' : 'Carregado (✔)') + '</th></tr></thead><tbody>' +
+    linhas.map(function (l, i) {
+      var dif = temConf && l.saida !== null && U.num(l.saida) !== U.num(l.prevista);
+      return '<tr><td class="mut">' + (i + 1) + '</td>' +
+        '<td>' + U.esc(l.nome) + (l.produto && l.produto.terceirizado ? ' <b style="color:#5B3A99">🔗 TERC.</b>' : '') + '</td>' +
+        '<td class="num">' + U.fmt(l.prevista) + ' <span class="mut">' + U.esc(l.unidade) + '</span></td>' +
+        (temConf
+          ? '<td class="num' + (dif ? ' lar' : '') + '">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>'
+          : '<td style="border-bottom:1px solid #C3CDDD">&nbsp;</td>') +
+      '</tr>';
+    }).join('') +
+    '</tbody><tfoot><tr class="tt"><td></td><td><b>TOTAL</b></td>' +
+      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td>' +
+      '<td class="num"><b>' + (temConf ? U.fmt(totSaiu) : '&nbsp;') + '</b></td></tr></tfoot></table>' +
+    ((cg.observacoes || '').trim()
+      ? '<div class="obs"><b>📝 OBSERVAÇÕES DO COORDENADOR:</b><br>' +
+        U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div>'
+      : '') +
+    (temConf && cS
+      ? '<p class="peq-note">Conferência de saída: ' + U.esc(cS.status || '') +
+        ' · ' + U.esc(App.nomeUsuario(cS.conferente_id)) +
+        (cS.finalizada_em ? ' · ' + U.fmtDataHora(cS.finalizada_em) : '') + '</p>'
+      : '<p class="peq-note">Marque a coluna CARREGADO conforme o material sobe no caminhão.</p>') +
+    '<div class="asss">' +
+      '<div class="ass"><span></span>CONFERENTE</div>' +
+      '<div class="ass"><span></span>MOTORISTA</div>' +
+      '<div class="ass"><span></span>COORDENADOR</div>' +
+    '</div>';
+
+  var sub = [];
+  sub.push('<b>Evento:</b> ' + U.esc(ev.nome));
+  if (ev.cliente) sub.push('<b>Cliente:</b> ' + U.esc(ev.cliente));
+  if (ev.local) sub.push('<b>Local:</b> ' + U.esc(ev.local));
+  sub.push('<b>Data:</b> ' + U.fmtData(ev.data));
+  sub.push('<b>Caminhão:</b> ' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)));
+
+  var quem = Sessao.atual ? Sessao.atual.nome : '';
+  var titulo = 'ROMANEIO DE CARGA — CARREG. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '');
+  var pagina = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Carregamento ' + cg.numero + ' — ' + U.esc(ev.nome) + '</title><style>' +
+    '@page{size:A4;margin:13mm 12mm}' +
+    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'body{margin:0;font:11.5px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+    '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+      'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:12px}' +
+    '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;white-space:nowrap}' +
+    '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px}' +
+    '.topo .tit{text-align:right}' +
+    '.topo .tit b{display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase}' +
+    '.topo .tit span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+    '.dados{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;margin-bottom:12px;' +
+      'border:1px solid #DCE3ED;border-radius:8px;padding:9px 12px;background:#F8FAFD}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px}' +
+    'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:6px 8px;font-size:9.5px;' +
+      'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+    'thead{display:table-header-group}' +
+    'td{padding:6px 8px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+    'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+    'tfoot td{background:#0B4F9E;color:#fff;padding:7px 8px}' +
+    '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+    '.mut{color:#8695A6;font-weight:400}.lar{color:#D96A00}' +
+    '.obs{margin-top:12px;border-left:4px solid #F57C00;background:#FFF6EA;padding:9px 12px;font-size:11px;break-inside:avoid}' +
+    '.peq-note{font-size:9.5px;color:#8695A6;margin:8px 0 0}' +
+    '.asss{display:flex;gap:26px;margin-top:44px;break-inside:avoid}' +
+    '.ass{flex:1;text-align:center;font-size:9.5px;font-weight:700;color:#5A6B7D;letter-spacing:.6px}' +
+    '.ass span{display:block;border-top:1px solid #17202B;margin-bottom:5px;padding-top:0;height:0}' +
+    '.rodape{margin-top:26px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+    '</style></head><body>' +
+    '<div class="topo">' +
+      '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFER\u00CANCIA</small></div>' +
+      '<div class="tit"><b>' + titulo + '</b>' +
+        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas</span>' +
+        '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+    '</div>' +
+    '<div class="dados">' + sub.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    corpo +
+    '<div class="rodape"><span>Grupo Tendas Plenart \u00B7 Central de Confer\u00EAncia</span>' +
+      '<span>Romaneio do carregamento ' + cg.numero + ' \u00B7 ' + U.esc(ev.nome) + '</span></div>' +
+    '</body></html>';
+
+  var jan = window.open('', '_blank');
+  if (!jan) return U.aviso('O navegador bloqueou a janela do romaneio. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+  jan.document.write(pagina);
+  jan.document.close();
+  jan.focus();
+  setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+}
+
+/* 🖨️ CHECKLIST TOTAL do evento — folha para imprimir ou salvar em PDF */
+function imprimirChecklistTotal(p) {
+  var ev = p.evento;
+  var linhas = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos)
+    .filter(function (l) { return l.prevista > 0 || l.saida !== null; })
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+  var temSaida = linhas.some(function (l) { return l.saida !== null; });
+  var totPrev = 0, totSaiu = 0, totTerc = 0;
+  linhas.forEach(function (l) {
+    totPrev += l.prevista;
+    totSaiu += (l.saida || 0) + (l.composta || 0);
+    if (l.produto && l.produto.terceirizado) totTerc++;
+  });
+
+  var corpo = '<table><thead><tr><th style="width:26px">#</th><th>Item</th>' +
+      '<th style="width:44px">Un.</th>' +
+      '<th style="text-align:right;width:80px">Previsto</th>' +
+      (temSaida
+        ? '<th style="text-align:right;width:80px">Saiu</th><th style="text-align:right;width:80px">Diferen\u00E7a</th>'
+        : '<th style="text-align:right;width:100px">Separado (\u2714)</th>') +
+    '</tr></thead><tbody>' +
+    linhas.map(function (l, i) {
+      var saiu = (l.saida === null ? null : U.num(l.saida) + (l.composta || 0));
+      var dif = temSaida && saiu !== null ? saiu - l.prevista : null;
+      return '<tr><td class="mut">' + (i + 1) + '</td>' +
+        '<td>' + U.esc(l.nome) +
+          (l.produto && l.produto.terceirizado ? ' <b style="color:#5B3A99">\uD83D\uDD17 TERC.</b>' : '') + '</td>' +
+        '<td class="mut">' + U.esc(l.unidade) + '</td>' +
+        '<td class="num">' + U.fmt(l.prevista) + '</td>' +
+        (temSaida
+          ? '<td class="num" style="font-weight:400">' + (saiu === null ? '\u2014' : U.fmt(saiu)) + '</td>' +
+            '<td class="num ' + (dif === null || dif === 0 ? 'verd' : 'lar') + '">' +
+              (dif === null ? '\u2014' : dif === 0 ? 'OK' : (dif > 0 ? '+' : '') + U.fmt(dif)) + '</td>'
+          : '<td style="border-bottom:1px solid #C3CDDD">&nbsp;</td>') +
+      '</tr>';
+    }).join('') +
+    '</tbody><tfoot><tr><td></td><td><b>TOTAL \u00B7 ' + linhas.length + ' itens' +
+      (totTerc ? ' (' + totTerc + ' terceirizados)' : '') + '</b></td><td></td>' +
+      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td>' +
+      (temSaida ? '<td class="num"><b>' + U.fmt(totSaiu) + '</b></td><td></td>' : '<td></td>') +
+    '</tr></tfoot></table>' +
+    (temSaida
+      ? '<p class="peq-note">"Saiu" soma todas as confer\u00EAncias de sa\u00EDda finalizadas ou em andamento do evento.</p>'
+      : '<p class="peq-note">Use a coluna SEPARADO para marcar o material conforme for separado no galp\u00E3o.</p>') +
+    '<div class="asss">' +
+      '<div class="ass"><span></span>CONFERENTE</div>' +
+      '<div class="ass"><span></span>COORDENADOR</div>' +
+    '</div>';
+
+  var sub = ['<b>Evento:</b> ' + U.esc(ev.nome)];
+  if (ev.cliente) sub.push('<b>Cliente:</b> ' + U.esc(ev.cliente));
+  if (ev.local) sub.push('<b>Local:</b> ' + U.esc(ev.local));
+  sub.push('<b>Data:</b> ' + U.fmtData(ev.data));
+  sub.push('<b>Situa\u00E7\u00E3o:</b> ' + U.esc(ev.status || '\u2014'));
+
+  var quem = Sessao.atual ? Sessao.atual.nome : '';
+  var pagina = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Checklist \u2014 ' + U.esc(ev.nome) + '</title><style>' +
+    '@page{size:A4;margin:13mm 12mm}' +
+    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'body{margin:0;font:11.5px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+    '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+      'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:12px}' +
+    '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;white-space:nowrap}' +
+    '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px}' +
+    '.topo .tit{text-align:right}' +
+    '.topo .tit b{display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase}' +
+    '.topo .tit span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+    '.dados{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;margin-bottom:12px;' +
+      'border:1px solid #DCE3ED;border-radius:8px;padding:9px 12px;background:#F8FAFD}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px}' +
+    'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:6px 8px;font-size:9.5px;' +
+      'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+    'thead{display:table-header-group}' +
+    'td{padding:5.5px 8px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+    'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+    'tfoot td{background:#0B4F9E;color:#fff;padding:7px 8px}' +
+    '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+    '.mut{color:#8695A6;font-weight:400}.lar{color:#D96A00}.verd{color:#1B8A4B}' +
+    'tfoot .num,tfoot .lar,tfoot .verd{color:#fff}' +
+    '.peq-note{font-size:9.5px;color:#8695A6;margin:8px 0 0}' +
+    '.asss{display:flex;gap:26px;margin-top:44px;max-width:440px;break-inside:avoid}' +
+    '.ass{flex:1;text-align:center;font-size:9.5px;font-weight:700;color:#5A6B7D;letter-spacing:.6px}' +
+    '.ass span{display:block;border-top:1px solid #17202B;margin-bottom:5px;height:0}' +
+    '.rodape{margin-top:26px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+    '</style></head><body>' +
+    '<div class="topo">' +
+      '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFER\u00CANCIA</small></div>' +
+      '<div class="tit"><b>CHECKLIST TOTAL DO EVENTO</b>' +
+        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas</span>' +
+        '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+    '</div>' +
+    '<div class="dados">' + sub.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    corpo +
+    '<div class="rodape"><span>Grupo Tendas Plenart \u00B7 Central de Confer\u00EAncia</span>' +
+      '<span>Checklist total \u00B7 ' + U.esc(ev.nome) + '</span></div>' +
+    '</body></html>';
+
+  var jan = window.open('', '_blank');
+  if (!jan) return U.aviso('O navegador bloqueou a janela do checklist. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+  jan.document.write(pagina);
+  jan.document.close();
+  jan.focus();
+  setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+}
+
 /* Pede a senha do coordenador e devolve Promise<boolean>.
    Usada para desbloquear conferências finalizadas. */
 function pedirSenhaCoordenador(titulo, texto) {
@@ -5294,7 +5502,10 @@ function TelaEvento(eventoId) {
 
       h += '<div class="cartao"><div class="cartao__topo"><h3>' +
           (eventoPorCaminhao ? '📋 Checklist total do evento' : 'Produtos do checklist') + '</h3>' +
-        '<span class="mut peq">' + p.produtos.length + ' itens</span></div>' +
+        '<span style="display:flex;gap:8px;align-items:center">' +
+          '<span class="mut peq">' + p.produtos.length + ' itens</span>' +
+          '<button class="btn btn--branco btn--peq" id="btn-imp-checklist">🖨️ Imprimir / PDF</button>' +
+        '</span></div>' +
         (eventoPorCaminhao
           ? '<div class="aviso aviso--azul" style="margin:12px 14px 0"><span class="aviso__ico">🔒</span><div>' +
             '<b>Soma dos checklists de todos os carregamentos</b> — só para consulta. ' +
@@ -5461,6 +5672,7 @@ function TelaEvento(eventoId) {
                 '<button class="btn btn--branco btn--peq js-mais-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">📎 + Checklist</button>' +
                 '<button class="btn btn--branco btn--peq js-digitar-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">✏️ + Digitar item</button>'
               : '') +
+            (ehCoord ? '<button class="btn btn--branco btn--peq js-imp-cg" data-cg="' + cg.id + '">🖨️ Imprimir</button>' : '') +
             (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
@@ -6625,6 +6837,9 @@ function TelaEvento(eventoId) {
       });
     });
 
+    var impCk = U.$('#btn-imp-checklist', tela);
+    if (impCk) impCk.addEventListener('click', function () { imprimirChecklistTotal(p); });
+
     var excluirCk = U.$('#btn-excluir-checklist', tela);
     if (excluirCk) excluirCk.addEventListener('click', function () {
       var temContagem = p.conferencias.length > 0;
@@ -6739,6 +6954,13 @@ function TelaEvento(eventoId) {
         App.abrir(TelaConferencia, { eventoId: eventoId, carregamentoId: b.dataset.cg, tipo: b.dataset.tipo });
       });
     });
+    U.$$('.js-imp-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cg = p.carregamentos.filter(function (c) { return c.id === b.dataset.cg; })[0];
+        if (cg) imprimirCarregamento(p, cg);
+      });
+    });
+
     U.$$('.js-pdf', tela).forEach(function (b) {
       b.addEventListener('click', function () { Relatorio.conferencia(p, b.dataset.cg, b.dataset.tipo); });
     });
