@@ -475,6 +475,29 @@ table.tab{width:100%;border-collapse:collapse}
   .folha__barra{display:none !important}
   .folha{max-width:none;padding:0}
 }
+
+/* ---------- 🤝 Conferências dos produtores ---------- */
+.cp-card{padding:0;overflow:hidden}
+.cp-card--av{border-left:5px solid var(--vermelho)}
+.cp-topo{display:flex;gap:12px;align-items:flex-start;width:100%;background:none;border:0;padding:16px 18px;
+  font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cp-topo:focus-visible{outline:3px solid var(--laranja);outline-offset:-3px}
+.cp-corpo{border-top:1px solid var(--linha);padding:12px 18px 16px;background:#FBFCFE}
+.cp-chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800;white-space:nowrap}
+.cp-chip--ok{background:var(--verde-clr);color:var(--verde)}
+.cp-chip--lar{background:var(--laranja-clr);color:var(--laranja-esc)}
+.cp-chip--av{background:var(--vermelho-clr);color:var(--vermelho)}
+.cp-chip--ex{background:var(--amarelo-clr);color:var(--amarelo)}
+.cp-chip--terc{background:#EDE7F6;color:#5B3A99}
+.cp-estr{display:block;color:#F5A300;font-size:20px;letter-spacing:1px;line-height:1}
+.cp-aval{background:var(--branco);border:1px solid var(--linha);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
+.cp-aval .cp-estr{display:inline-block;margin-right:8px;vertical-align:middle}
+.cp-item{padding:8px 0;border-bottom:1px solid var(--linha);font-size:14px}
+.cp-item:last-child{border-bottom:0}
+.cp-item__lin{display:flex;gap:10px;align-items:baseline}
+.cp-av{background:var(--vermelho-clr);border-radius:10px;padding:8px 10px;margin-top:6px;color:#8E1F1F;font-size:13px}
+.cp-fotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.cp-foto{width:76px;height:76px;object-fit:cover;border-radius:10px;border:2px solid #fff;cursor:zoom-in;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 </style>
 </head>
 <body>
@@ -736,7 +759,9 @@ const Banco = {
   _erro: function (erro) { throw new Error(Banco.explicar(erro)); },
 
   listarUsuarios: function () {
-    return this.cliente.from('usuarios').select('*').eq('ativo', true).order('nome')
+    /* traz também os inativos: o nome continua aparecendo nas conferências antigas,
+       mas quem está inativo não aparece para escolher nem para entrar */
+    return this.cliente.from('usuarios').select('*').order('nome')
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
@@ -2330,7 +2355,7 @@ const App = {
   conferentes: function () {
     /* avulsos (entraram pelo "Outro conferente") não aparecem na lista:
        o nome deles vale nas conferências, mas o cadastro fixo é só da equipe */
-    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso; });
+    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso && u.ativo !== false; });
   },
 
   /* Mostra o erro na tela sem apagar o que a pessoa estava fazendo. */
@@ -2625,6 +2650,80 @@ var Terceiros = {
     });
   },
 
+  /* Quanto de material terceirizado este evento levou e ainda NÃO foi dado
+     como devolvido ao fornecedor. Busca direto no banco (dado sempre fresco).
+     0 = pode excluir o evento. */
+  pendenteEvento: function (ev) {
+    if (!ev || ev.terceiros_devolvidos_em) return Promise.resolve(0);
+    var cli = Banco.cliente;
+    function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+    return Promise.all([
+      lista(cli.from('conferencias').select('id,tipo').eq('evento_id', ev.id)),
+      lista(cli.from('produtos').select('id,terceirizado').eq('evento_id', ev.id)),
+      lista(cli.from('movimentos_terceiros').select('tipo,quantidade').eq('evento_id', ev.id)).catch(function () { return []; })
+    ]).then(function (r) {
+      var saidas = r[0].filter(function (c) { return c.tipo === 'saida'; }).map(function (c) { return c.id; });
+      var terc100 = {};
+      r[1].forEach(function (p) { if (p.terceirizado) terc100[p.id] = true; });
+      var mov = 0;
+      r[2].forEach(function (m) { if (m.tipo === 'envio') mov += Math.abs(U.num(m.quantidade)); });
+      if (!saidas.length) return mov;
+      return lista(cli.from('itens_conferencia').select('produto_id,quantidade,qtd_terceirizada').in('conferencia_id', saidas))
+        .then(function (itens) {
+          var conf = 0;
+          itens.forEach(function (i) {
+            var t = U.num(i.qtd_terceirizada);
+            if (terc100[i.produto_id]) t = Math.max(t, U.num(i.quantidade));
+            conf += t;
+          });
+          return Math.max(conf, mov);
+        });
+    });
+  },
+
+  /* Antes de excluir um evento: se tem terceirizado sem devolução, trava.
+     Devolve uma promessa: true = pode seguir com a exclusão. */
+  liberaExclusao: function (ev) {
+    return Terceiros.pendenteEvento(ev).then(function (qtd) {
+      if (!qtd) return true;
+      return new Promise(function (resolve) {
+        var m = U.modal({
+          titulo: '🔗 Não dá para excluir este evento',
+          html: '<p>O evento <b>' + U.esc(ev.nome) + '</b> tem <b>' + U.fmt(qtd) + ' unid. de material terceirizado</b> ' +
+            'que ainda não foi devolvido ao fornecedor.</p>' +
+            '<p class="peq mut" style="margin-top:10px">Primeiro devolva o material e dê baixa em ' +
+            '<b>✔ DEVOLVIDO AO FORNECEDOR</b>. Depois disso o evento pode ser excluído.</p>',
+          pe: '<button class="btn btn--branco" data-nao>Voltar</button>' +
+              '<button class="btn btn--verde" data-dev>✔ JÁ DEVOLVI AO FORNECEDOR</button>',
+          travado: true
+        });
+        m.querySelector('[data-nao]').addEventListener('click', function () { m.fechar(); resolve(false); });
+        m.querySelector('[data-dev]').addEventListener('click', function () {
+          m.fechar();
+          U.confirmar('Dar baixa nos terceirizados?',
+            'Confirma que TODO o material terceirizado de "' + ev.nome + '" foi devolvido ao fornecedor?',
+            'SIM, DEVOLVIDO', 'btn--verde')
+            .then(function (ok) {
+              if (!ok) return resolve(false);
+              Banco.atualizarEvento(ev.id, {
+                terceiros_devolvidos_em: new Date().toISOString(),
+                terceiros_devolvidos_por: Sessao.atual ? Sessao.atual.nome : null
+              }).then(function () {
+                ev.terceiros_devolvidos_em = new Date().toISOString();
+                U.aviso('🔗 Devolução registrada. Agora o evento já pode ser excluído.', 'ok', 6000);
+                resolve(false);
+                App.recarregar();
+              }).catch(function (e) { App.falhou(e); resolve(false); });
+            });
+        });
+      });
+    }).catch(function (e) {
+      console.error(e);
+      U.aviso('Não consegui verificar o material terceirizado do evento. Tente de novo.', 'erro', 6000);
+      return false;
+    });
+  },
+
   rotulo: { chegada: '📥 Chegada do fornecedor', envio: '🚚 Enviado para evento', retorno: '↩️ Voltou do evento', devolucao: '📤 Devolvido ao fornecedor' }
 };
 
@@ -2882,6 +2981,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
+        '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
@@ -3100,6 +3200,9 @@ function TelaPainel() {
       U.$$('.js-del-ev', caixa).forEach(function (b) {
         b.addEventListener('click', function (e) {
           e.stopPropagation();
+          var evDel = App.eventos.filter(function (x) { return x.id === b.dataset.id; })[0];
+          Terceiros.liberaExclusao(evDel).then(function (livre) {
+          if (!livre) return;
           pedirSenhaCoordenador('Excluir evento',
             'Excluir "' + b.dataset.nome + '"? Apaga o checklist, os carregamentos e as conferências. Não dá para desfazer.')
             .then(function (ok) {
@@ -3109,6 +3212,7 @@ function TelaPainel() {
                 App.recarregar();
               }).catch(App.falhou);
             });
+          });
         });
       });
     }
@@ -3144,6 +3248,7 @@ function TelaPainel() {
     U.$('#btn-novo-evento').addEventListener('click', function () { App.abrir(TelaNovoEvento); });
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
+    U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
     U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
@@ -5087,43 +5192,28 @@ function TelaEvento(eventoId) {
                   return '<p class="peq mut" style="margin-top:8px">🚚 Carreg. ' + cg.numero +
                     (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ': <b>produtor ainda não conferiu</b></p>';
                 }
-                var difs = (c.itens || []).filter(function (i2) { return U.num(i2.qtd) !== U.num(i2.previsto); });
-                var tot = 0;
-                (c.itens || []).forEach(function (i2) { tot += U.num(i2.qtd); });
+                var tot = ConfProd.resumo(c).pecas, notaC = ConfProd.nota(c);
                 return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
-                  '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
-                    '🚚 Carreg. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' · ' + U.fmt(tot) + ' peças · ' +
-                    U.esc(c.responsavel || '—') + ' · ' + U.fmtData(c.finalizada_em) + '</div>' +
-                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
-                    (difs.length
-                      ? difs.map(function (i2) {
-                          return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                            '<span>' + U.esc(i2.nome) + '</span><b style="color:var(--laranja)">chegou ' +
-                            U.fmt(i2.qtd) + ' de ' + U.fmt(i2.previsto) + '</b></div>';
-                        }).join('')
-                      : '<p class="peq" style="color:var(--verde);font-weight:700;padding:8px 0">✓ Produtor confirmou tudo conforme enviado.</p>') +
-                  '</div>' +
-                  (c.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(c.observacao) + '</p>' : '') +
+                  '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+                    '<span style="flex:1">🚚 Carreg. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' · ' + U.fmt(tot) + ' peças · ' +
+                    U.esc(c.responsavel || '—') + ' · ' + U.fmtData(c.finalizada_em) + '</span>' +
+                    (notaC ? '<span style="color:#F5A300;font-size:16px;letter-spacing:1px">' + ConfProd.estrelas(notaC) + '</span>' : '') + '</div>' +
+                  '<div style="padding:8px 12px 0;display:flex;gap:6px;flex-wrap:wrap">' + ConfProd.chips(c) + '</div>' +
+                  '<div style="max-height:320px;overflow:auto;padding:6px 12px 10px">' + ConfProd.detalhe(c) + '</div>' +
                 '</div>';
               }).join('')
             : '<p class="peq mut" style="margin-top:8px">Nenhum carregamento criado ainda.</p>') +
 
           (sob
             ? (function () {
-                var itensSob = (sob.itens || []).filter(function (i2) { return U.num(i2.qtd) > 0; });
-                var totS = 0;
-                itensSob.forEach(function (i2) { totS += U.num(i2.qtd); });
+                var totS = ConfProd.resumo(sob).pecas;
                 return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
                   '<div class="peq" style="background:#FFF4E5;color:var(--laranja);font-weight:800;padding:6px 12px">' +
                     '📦 Sobra declarada · ' + U.fmt(totS) + ' peças · ' + U.esc(sob.responsavel || '—') +
                     ' · ' + U.fmtData(sob.finalizada_em) + '</div>' +
-                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
-                    (itensSob.map(function (i2) {
-                      return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                        '<span>' + U.esc(i2.nome) + '</span><b>' + U.fmt(i2.qtd) + ' ' + U.esc(i2.unidade || 'UN') + '</b></div>';
-                    }).join('') || '<p class="peq mut" style="padding:8px 0">Nenhuma sobra declarada.</p>') +
-                  '</div>' +
-                  (sob.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(sob.observacao) + '</p>' : '') +
+                  '<p class="peq mut" style="padding:6px 12px 0">ℹ️ Informativo: a sobra do produtor não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' +
+                  (ConfProd.chips(sob) ? '<div style="padding:8px 12px 0;display:flex;gap:6px;flex-wrap:wrap">' + ConfProd.chips(sob) + '</div>' : '') +
+                  '<div style="max-height:320px;overflow:auto;padding:6px 12px 10px">' + ConfProd.detalhe(sob) + '</div>' +
                 '</div>';
               })()
             : '<p class="peq mut" style="margin-top:8px">📦 Sobra: <b>ainda não declarada</b></p>') +
@@ -5628,6 +5718,7 @@ function TelaEvento(eventoId) {
     }
 
     /* 🔗 LINK DO PRODUTOR: página externa de chegada e sobra */
+    ConfProd.ligarFotos(tela);
     var btnProd = U.$('#btn-link-produtor', tela);
     if (btnProd) btnProd.addEventListener('click', function () {
       var gerar = ev.token_produtor
@@ -6512,6 +6603,8 @@ function TelaEvento(eventoId) {
     var excluirEv = U.$('#btn-excluir-evento', tela);
     if (excluirEv) excluirEv.addEventListener('click', function () {
       var nCg = p.carregamentos.length, nCf = p.conferencias.length;
+      Terceiros.liberaExclusao(ev).then(function (livre) {
+      if (!livre) return;
       pedirSenhaCoordenador('Excluir evento',
         'Isto apaga o evento "' + ev.nome + '" INTEIRO: checklist (' + p.produtos.length + ' produtos)' +
         (nCg ? ', ' + nCg + ' carregamento' + (nCg > 1 ? 's' : '') : '') +
@@ -6527,6 +6620,7 @@ function TelaEvento(eventoId) {
             })
             .catch(App.falhou);
         });
+      });
     });
 
     var excluirCk = U.$('#btn-excluir-checklist', tela);
@@ -9697,6 +9791,302 @@ function TelaRelatorios() {
    TELA: PENDÊNCIAS DE RETORNO — o que saiu e ainda não voltou,
    por evento e por item. A lista de cobrança pronta.
    ============================================================ */
+/* ============================================================
+   🤝 Conferências dos PRODUTORES (página externa produtor.html)
+   Chegada por caminhão (com avaria + foto e avaliação do
+   carregamento) e sobra do evento (com produtos acrescentados).
+   ============================================================ */
+var ConfProd = {
+  _RE: /⭐ AVALIAÇÃO DO CARREGAMENTO: (\d)\/5(?: — ([^\n]*))?\n?/,
+
+  nota: function (c) {
+    if (c && c.avaliacao && U.num(c.avaliacao.nota)) return U.num(c.avaliacao.nota);
+    var m = c && c.observacao ? String(c.observacao).match(ConfProd._RE) : null;
+    return m ? U.num(m[1]) : 0;
+  },
+  comentario: function (c) {
+    if (c && c.avaliacao && U.num(c.avaliacao.nota)) return c.avaliacao.comentario || '';
+    var m = c && c.observacao ? String(c.observacao).match(ConfProd._RE) : null;
+    return m ? (m[2] || '') : '';
+  },
+  /* observação sem a linha da avaliação (quando ela foi gravada ali) */
+  obs: function (c) {
+    return String((c && c.observacao) || '').replace(ConfProd._RE, '').trim();
+  },
+  estrelas: function (n) {
+    var s = '';
+    for (var k = 1; k <= 5; k++) s += k <= n ? '★' : '☆';
+    return s;
+  },
+  resumo: function (c) {
+    var r = { pecas: 0, difs: 0, avarias: 0, qtdAvariada: 0, extras: 0, fotos: 0, terc: 0, qtdTerc: 0 };
+    (c.itens || []).forEach(function (i) {
+      r.pecas += U.num(i.qtd);
+      if (i.terceirizado) { r.terc++; r.qtdTerc += U.num(i.qtd); }
+      if (i.extra) r.extras++;
+      else if (c.tipo !== 'sobra' && U.num(i.qtd) !== U.num(i.previsto)) r.difs++;
+      if (i.avaria && U.num(i.avaria.qtd) > 0) {
+        r.avarias++;
+        r.qtdAvariada += U.num(i.avaria.qtd);
+        r.fotos += (i.avaria.fotos || []).length;
+      }
+    });
+    return r;
+  },
+
+  chips: function (c) {
+    var r = ConfProd.resumo(c), h = '';
+    if (c.tipo !== 'sobra') {
+      h += r.difs
+        ? '<span class="cp-chip cp-chip--lar">' + r.difs + ' diferença' + (r.difs > 1 ? 's' : '') + '</span>'
+        : '<span class="cp-chip cp-chip--ok">✓ bateu com o enviado</span>';
+    }
+    if (r.avarias) h += '<span class="cp-chip cp-chip--av">⚠️ ' + U.fmt(r.qtdAvariada) + ' avariada' + (r.qtdAvariada > 1 ? 's' : '') + '</span>';
+    if (r.terc) h += '<span class="cp-chip cp-chip--terc">🔗 ' + U.fmt(r.qtdTerc) + ' terceirizado' + (r.qtdTerc > 1 ? 's' : '') + '</span>';
+    if (r.extras) h += '<span class="cp-chip cp-chip--ex">➕ ' + r.extras + ' acrescentado' + (r.extras > 1 ? 's' : '') + '</span>';
+    return h;
+  },
+
+  /* detalhe completo: itens, avarias com fotos, acrescentados, avaliação, observação */
+  detalhe: function (c) {
+    var chegada = c.tipo !== 'sobra';
+    var itens = (c.itens || []).filter(function (i) {
+      return chegada || U.num(i.qtd) > 0 || (i.avaria && U.num(i.avaria.qtd) > 0);
+    });
+    /* primeiro o que precisa de atenção: avaria, diferença, acrescentado */
+    function peso(i) {
+      if (i.avaria && U.num(i.avaria.qtd) > 0) return 0;
+      if (chegada && !i.extra && U.num(i.qtd) !== U.num(i.previsto)) return 1;
+      if (i.extra) return 2;
+      if (i.terceirizado) return 3;
+      return 4;
+    }
+    itens = itens.slice().sort(function (a, b) {
+      return peso(a) - peso(b) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
+    });
+    var nota = ConfProd.nota(c), com = ConfProd.comentario(c), obs = ConfProd.obs(c);
+    var h = '';
+    if (chegada) {
+      h += '<div class="cp-aval">' +
+        (nota
+          ? '<span class="cp-estr">' + ConfProd.estrelas(nota) + '</span><b>' + nota + '/5 · avaliação do carregamento</b>' +
+            (com ? '<p class="peq" style="margin:4px 0 0">💬 ' + U.esc(com) + '</p>' : '')
+          : '<span class="peq mut">Sem avaliação do carregamento (conferência enviada antes da avaliação existir).</span>') +
+      '</div>';
+    }
+    h += itens.length ? itens.map(function (i) {
+      var av = i.avaria && U.num(i.avaria.qtd) > 0 ? i.avaria : null;
+      var dif = chegada && !i.extra && U.num(i.qtd) !== U.num(i.previsto);
+      var lado = chegada && !i.extra
+        ? '<b style="white-space:nowrap;' + (dif ? 'color:var(--laranja)' : 'color:var(--verde)') + '">' +
+            (dif ? 'chegou ' + U.fmt(i.qtd) + ' de ' + U.fmt(i.previsto) : '✓ ' + U.fmt(i.qtd)) + ' ' + U.esc(i.unidade || 'UN') + '</b>'
+        : '<b style="white-space:nowrap">' + U.fmt(i.qtd) + ' ' + U.esc(i.unidade || 'UN') + '</b>';
+      return '<div class="cp-item">' +
+        '<div class="cp-item__lin"><span style="flex:1;min-width:0">' + U.esc(i.nome) +
+          (i.terceirizado ? ' <span class="cp-chip cp-chip--terc">🔗 terceirizado</span>' : '') +
+          (i.extra ? ' <span class="cp-chip cp-chip--ex">acrescentado pelo produtor</span>' : '') + '</span>' + lado + '</div>' +
+        (av
+          ? '<div class="cp-av"><b>⚠️ ' + U.fmt(av.qtd) + ' avariada' + (U.num(av.qtd) > 1 ? 's' : '') + '</b>' +
+              (av.descricao ? ' — ' + U.esc(av.descricao) : '') +
+              '<div class="cp-fotos">' + (av.fotos || []).map(function (f, k) {
+                return '<img class="cp-foto js-cp-foto" src="' + U.esc(f) + '" alt="Foto da avaria ' + (k + 1) + ' de ' + U.esc(i.nome) + '">';
+              }).join('') + '</div></div>'
+          : '') +
+      '</div>';
+    }).join('') : '<p class="peq mut" style="padding:8px 0">' + (chegada ? 'Nenhum item informado.' : 'Nenhuma sobra declarada.') + '</p>';
+    if (obs) h += '<p class="peq" style="margin-top:10px">📝 ' + U.esc(obs) + '</p>';
+    return h;
+  },
+
+  ligarFotos: function (ctx) {
+    U.$$('.js-cp-foto', ctx).forEach(function (img) {
+      if (img._ligada) return;
+      img._ligada = true;
+      img.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var m = U.modal({
+          titulo: '📷 Foto da avaria',
+          html: '<img src="' + U.esc(img.src) + '" alt="" style="width:100%;border-radius:12px;display:block">',
+          pe: '<button class="btn btn--branco" data-fechar>Fechar</button>'
+        });
+        m.querySelector('[data-fechar]').addEventListener('click', function () { m.fechar(); });
+      });
+    });
+  }
+};
+
+function TelaProdutores() {
+  App.topo('CONFERÊNCIAS DOS PRODUTORES', 'O que os produtores conferiram nos eventos');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando as conferências dos produtores...');
+
+  Promise.all([
+    App.carregarBase(),
+    Banco.cliente.from('conferencias_produtor').select('*').order('finalizada_em', { ascending: false })
+      .then(function (r) { if (r.error) throw r.error; return r.data || []; }),
+    Banco.listarCarregamentos().catch(function () { return []; }),
+    Banco.listarCaminhoes().catch(function () { return []; })
+  ]).then(function (rr) {
+    var cps = rr[1], cgs = rr[2], cams = rr[3];
+    var evPorId = {}, cgPorId = {};
+    App.eventos.forEach(function (e) { evPorId[e.id] = e; });
+    cgs.forEach(function (c) { cgPorId[c.id] = c; });
+    cps = cps.filter(function (c) { return evPorId[c.evento_id]; });   /* evento excluído some */
+
+    function nomeCam(cg) {
+      if (!cg) return '';
+      var c = cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+      if (!c) return '';
+      var t = (c.tipo || 'Caminhão') + (c.placa ? ' ' + c.placa : '');
+      var cav = cg.cavalo_id ? cams.filter(function (x) { return x.id === cg.cavalo_id; })[0] : null;
+      return cav ? t + ' + cavalo ' + cav.placa : t;
+    }
+
+    /* caminhões que já saíram (saída finalizada) e o produtor ainda não conferiu */
+    var chegFeita = {};
+    cps.forEach(function (c) { if (c.tipo !== 'sobra' && c.carregamento_id) chegFeita[c.carregamento_id] = true; });
+    var aguardando = cgs.filter(function (cg) {
+      var ev = evPorId[cg.evento_id];
+      if (!ev || !ev.token_produtor) return false;
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
+      if ((cg.sentido || 'saida') !== 'saida' || chegFeita[cg.id]) return false;
+      return App.conferencias.some(function (c) {
+        return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em;
+      });
+    });
+
+    var comAvaria = cps.filter(function (c) { return ConfProd.resumo(c).avarias > 0; });
+    var notas = cps.map(ConfProd.nota).filter(function (n) { return n > 0; });
+    var media = notas.length ? notas.reduce(function (a, b) { return a + b; }, 0) / notas.length : 0;
+
+    var h = '<div class="indicadores">' +
+        '<div class="ind"><p class="ind__num">' + cps.length + '</p><p class="ind__rot">Conferências recebidas</p></div>' +
+        '<div class="ind ind--vermelho"><p class="ind__num">' + comAvaria.length + '</p><p class="ind__rot">Com avaria</p></div>' +
+        '<div class="ind ind--laranja"><p class="ind__num">' + (media ? media.toFixed(1).replace('.', ',') : '—') + '</p>' +
+          '<p class="ind__rot">Nota média do carregamento' + (notas.length ? ' (' + notas.length + ')' : '') + '</p></div>' +
+        '<div class="ind ind--verde"><p class="ind__num">' + aguardando.length + '</p><p class="ind__rot">Caminhões aguardando o produtor</p></div>' +
+      '</div>' +
+      '<div class="abas" style="flex-wrap:wrap">' +
+        '<button class="aba is-ativa" data-aba="todas">📋 Todas<span class="n">' + cps.length + '</span></button>' +
+        '<button class="aba" data-aba="avaria">⚠️ Com avaria<span class="n">' + comAvaria.length + '</span></button>' +
+        '<button class="aba" data-aba="terc">🔗 Terceirizado<span class="n">' + cps.filter(function (c) { return ConfProd.resumo(c).terc > 0; }).length + '</span></button>' +
+        '<button class="aba" data-aba="sobra">📦 Sobras<span class="n">' + cps.filter(function (c) { return c.tipo === 'sobra'; }).length + '</span></button>' +
+        '<button class="aba" data-aba="aguardando">⏳ Aguardando<span class="n">' + aguardando.length + '</span></button>' +
+      '</div>' +
+      '<input class="entrada" id="busca-cp" placeholder="🔎 Buscar por evento, produtor, produto, caminhão..." style="min-height:48px;margin-bottom:14px">' +
+      '<div id="lista-cp"></div>';
+    tela.innerHTML = h;
+
+    var abaAt = 'todas', busca = '', abertos = {};
+
+    function casa(alvo) {
+      if (!busca) return true;
+      alvo = alvo.toLowerCase();
+      return busca.split(/\s+/).every(function (t) { return alvo.indexOf(t) >= 0; });
+    }
+
+    function cartao(c) {
+      var ev = evPorId[c.evento_id], cg = cgPorId[c.carregamento_id];
+      var sobra = c.tipo === 'sobra', nota = ConfProd.nota(c), aberto = !!abertos[c.id];
+      var titulo = sobra ? '📦 Sobra do evento'
+        : '🚚 Carregamento ' + (cg ? cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') : '') +
+          (nomeCam(cg) ? ' <span class="peq mut" style="font-weight:600">· ' + U.esc(nomeCam(cg)) + '</span>' : '');
+      return '<div class="evento cp-card' + (ConfProd.resumo(c).avarias ? ' cp-card--av' : '') + '">' +
+        '<button class="cp-topo js-cp-abrir" data-id="' + c.id + '" aria-expanded="' + aberto + '">' +
+          '<span style="flex:1;min-width:0;text-align:left">' +
+            '<span class="evento__nome" style="display:block;font-size:18px">' + U.esc(ev.nome) + '</span>' +
+            '<span style="display:block;font-weight:700;margin-top:2px">' + titulo + '</span>' +
+            '<span class="peq mut" style="display:block;margin-top:2px">👤 ' + U.esc(c.responsavel || '—') +
+              ' · ' + U.fmtDataHora(c.finalizada_em || c.created_at) +
+              (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</span>' +
+            '<span style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">' + ConfProd.chips(c) + '</span>' +
+          '</span>' +
+          '<span style="flex:none;text-align:right">' +
+            (!sobra ? (nota ? '<span class="cp-estr" title="' + nota + '/5">' + ConfProd.estrelas(nota) + '</span>'
+                            : '<span class="peq mut">sem nota</span>') : '') +
+            '<span class="peq" style="display:block;color:var(--azul);font-weight:800;margin-top:6px">' + (aberto ? 'FECHAR ▲' : 'VER ▼') + '</span>' +
+          '</span>' +
+        '</button>' +
+        (aberto
+          ? '<div class="cp-corpo">' +
+              (sobra ? '<p class="peq mut" style="margin-bottom:8px">ℹ️ Informativo: não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' : '') +
+              ConfProd.detalhe(c) +
+              '<button class="btn btn--branco btn--bloco btn--peq js-cp-ev" data-ev="' + c.evento_id + '" style="margin-top:12px">ABRIR O EVENTO</button>' +
+            '</div>'
+          : '') +
+      '</div>';
+    }
+
+    function desenharLista() {
+      var caixa = U.$('#lista-cp', tela);
+      if (abaAt === 'aguardando') {
+        var lista = aguardando.filter(function (cg) {
+          var ev = evPorId[cg.evento_id];
+          return casa([ev.nome, ev.cliente, nomeCam(cg), cg.nome].join(' '));
+        });
+        caixa.innerHTML = lista.length ? lista.map(function (cg) {
+          var ev = evPorId[cg.evento_id];
+          var saida = App.conferencias.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida'; })[0];
+          return '<div class="evento" style="padding:14px 18px">' +
+            '<p class="evento__nome" style="font-size:17px;margin:0">' + U.esc(ev.nome) + '</p>' +
+            '<p style="font-weight:700;margin:2px 0 0">🚚 Carregamento ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') +
+              (nomeCam(cg) ? ' <span class="peq mut">· ' + U.esc(nomeCam(cg)) + '</span>' : '') + '</p>' +
+            '<p class="peq mut" style="margin:2px 0 8px">Saiu do galpão em ' + U.fmtDataHora(saida && saida.finalizada_em) +
+              ' · produtor ainda não conferiu a chegada</p>' +
+            '<button class="btn btn--branco btn--peq js-cp-ev" data-ev="' + ev.id + '">ABRIR O EVENTO</button>' +
+          '</div>';
+        }).join('') : '<div class="vazio"><p class="vazio__ico">✅</p><h3>Nenhum caminhão aguardando</h3>' +
+          '<p>Todo caminhão que saiu (em evento com link do produtor) já foi conferido na chegada.</p></div>';
+      } else {
+        var itensLista = cps.filter(function (c) {
+          if (abaAt === 'avaria' && !ConfProd.resumo(c).avarias) return false;
+          if (abaAt === 'sobra' && c.tipo !== 'sobra') return false;
+          if (abaAt === 'terc' && !ConfProd.resumo(c).terc) return false;
+          var ev = evPorId[c.evento_id], cg = cgPorId[c.carregamento_id];
+          return casa([ev.nome, ev.cliente, ev.local, c.responsavel, nomeCam(cg),
+            (c.itens || []).map(function (i) { return i.nome; }).join(' ')].join(' '));
+        });
+        caixa.innerHTML = itensLista.length ? itensLista.map(cartao).join('')
+          : busca
+            ? '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3><p>Nenhuma conferência combina com "' + U.esc(busca) + '".</p></div>'
+            : '<div class="vazio"><p class="vazio__ico">🤝</p><h3>' +
+                (abaAt === 'avaria' ? 'Nenhuma avaria registrada' : abaAt === 'terc' ? 'Nenhum terceirizado conferido pelo produtor' : abaAt === 'sobra' ? 'Nenhuma sobra declarada' : 'Nenhuma conferência de produtor ainda') + '</h3>' +
+                '<p>Gere o link na tela do evento (🔗 LINK DO PRODUTOR) e mande para quem recebe o material. O que ele enviar aparece aqui.</p></div>';
+      }
+      U.$$('.js-cp-abrir', caixa).forEach(function (b) {
+        b.addEventListener('click', function () {
+          abertos[b.dataset.id] = !abertos[b.dataset.id];
+          desenharLista();
+        });
+      });
+      U.$$('.js-cp-ev', caixa).forEach(function (b) {
+        b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.ev); });
+      });
+      ConfProd.ligarFotos(caixa);
+    }
+
+    desenharLista();
+
+    U.$$('.aba', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        U.$$('.aba', tela).forEach(function (x) { x.classList.remove('is-ativa'); });
+        b.classList.add('is-ativa');
+        abaAt = b.dataset.aba;
+        desenharLista();
+      });
+    });
+    U.$('#busca-cp', tela).addEventListener('input', function () {
+      busca = this.value.trim().toLowerCase();
+      desenharLista();
+    });
+  }).catch(function (e) {
+    console.error(e);
+    tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      '<b>Não foi possível carregar as conferências dos produtores.</b>' + U.esc(e.message || '') + '</div></div>' +
+      '<button class="btn btn--bloco" onclick="App.recarregar()">Tentar de novo</button>';
+  });
+}
+
 function TelaPendencias() {
   App.topo('PENDÊNCIAS DE RETORNO', 'O que ainda não voltou para o galpão');
   var tela = U.$('#tela');
@@ -10530,7 +10920,7 @@ const Relatorio = {
           campo.focus();
           return;
         }
-        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador'; })[0];
+        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador' && u.ativo !== false; })[0];
         if (!coord) return U.aviso('O usuário coordenador não está cadastrado no Supabase. Rode o SQL de instalação.', 'erro', 7000);
         Sessao.entrar(coord);
         m.fechar();
@@ -10628,6 +11018,9 @@ const Relatorio = {
           var igual = App.usuarios.filter(function (u) {
             return u.nome.trim().toUpperCase() === nome.toUpperCase();
           })[0];
+          if (igual && igual.ativo === false) {
+            return U.aviso('Este nome não está mais ativo como conferente. Fale com o coordenador.', 'erro', 6000);
+          }
           if (igual) { m2.fechar(); return entrarComo(igual); }
 
           var botao = m2.querySelector('[data-ok]');
