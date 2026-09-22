@@ -2982,6 +2982,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
+        '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
@@ -3249,6 +3250,7 @@ function TelaPainel() {
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
+    U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
     U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
