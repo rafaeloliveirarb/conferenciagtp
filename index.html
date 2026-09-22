@@ -3046,6 +3046,260 @@ function imprimirChecklistTotal(p) {
   setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
 }
 
+/* ============================================================
+   🔍 DISPONIBILIDADE — o checklist deste evento cabe no galpão,
+   contando o que outros eventos das MESMAS DATAS ainda vão levar
+   e o que está na oficina?
+   ============================================================ */
+function verificarDisponibilidade(p) {
+  var ev = p.evento;
+  var m = U.modal({
+    titulo: '🔍 Disponibilidade do material',
+    html: '<p class="mut">Conferindo o estoque e os outros eventos nas mesmas datas…</p>',
+    pe: '<button class="btn btn--branco" data-x>Fechar</button>'
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  var corpo = m.querySelector('.modal__corpo');
+
+  var ini = String(ev.data || '').slice(0, 10);
+  var fim = String(ev.data_desmontagem || ev.data || '').slice(0, 10);
+  var outros = App.eventos.filter(function (e) {
+    if (e.id === ev.id) return false;
+    if (e.status === 'Finalizado' || e.status === 'Com divergência') return false;
+    if (!e.data) return true;   /* sem data: por segurança conta como possível conflito */
+    var i2 = String(e.data).slice(0, 10);
+    var f2 = String(e.data_desmontagem || e.data).slice(0, 10);
+    if (!ini) return true;
+    return ini <= f2 && i2 <= fim;
+  });
+  var ids = outros.map(function (e) { return e.id; });
+  var nomeOutro = {};
+  outros.forEach(function (e) { nomeOutro[e.id] = e.nome; });
+
+  function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+  Promise.all([
+    Banco.listarEstoque(),
+    lista(Banco.cliente.from('itens_conferencia').select('produto_id,qtd_danificada,manutencao_status').gt('qtd_danificada', 0)).catch(function () { return []; }),
+    lista(Banco.cliente.from('produtos').select('id,nome,evento_id,quantidade_prevista,terceirizado')),
+    ids.length ? lista(Banco.cliente.from('conferencias').select('id,evento_id,tipo').in('evento_id', ids)) : Promise.resolve([])
+  ]).then(function (rr) {
+    var estoque = rr[0] || [], danif = rr[1] || [], todosProd = rr[2] || [], confsOut = rr[3] || [];
+    var saidasOut = confsOut.filter(function (c) { return c.tipo === 'saida'; });
+    var confEv = {};
+    saidasOut.forEach(function (c) { confEv[c.id] = c.evento_id; });
+    var qIt = saidasOut.length
+      ? lista(Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada')
+          .in('conferencia_id', saidasOut.map(function (c) { return c.id; })))
+      : Promise.resolve([]);
+    return qIt.then(function (itensOut) {
+      var nomeProd = {}, prodInfo = {};
+      todosProd.forEach(function (x) { nomeProd[x.id] = x.nome; prodInfo[x.id] = x; });
+
+      var saldoCh = {}, unCh = {};
+      estoque.forEach(function (i) { saldoCh[Estoque.chave(i.nome)] = U.num(i.quantidade); unCh[Estoque.chave(i.nome)] = i.unidade || 'UN'; });
+      var oficinaCh = {};
+      danif.forEach(function (i) {
+        if ((i.manutencao_status || 'pendente') !== 'pendente') return;
+        var nm = nomeProd[i.produto_id]; if (!nm) return;
+        oficinaCh[Estoque.chave(nm)] = (oficinaCh[Estoque.chave(nm)] || 0) + U.num(i.qtd_danificada);
+      });
+
+      /* o que os OUTROS eventos ainda vão tirar do galpão: previsto − o que já saiu */
+      var saiuOut = {};   /* evento|chave -> qtd */
+      itensOut.forEach(function (i) {
+        var evId = confEv[i.conferencia_id]; if (!evId) return;
+        var nm = nomeProd[i.produto_id]; if (!nm) return;
+        var k = evId + '|' + Estoque.chave(nm);
+        saiuOut[k] = (saiuOut[k] || 0) + U.num(i.quantidade) + U.num(i.qtd_danificada);
+      });
+      var promCh = {}, quemCh = {};
+      todosProd.forEach(function (x) {
+        if (ids.indexOf(x.evento_id) < 0 || x.terceirizado) return;
+        var ch = Estoque.chave(x.nome);
+        var falta = Math.max(0, U.num(x.quantidade_prevista) - (saiuOut[x.evento_id + '|' + ch] || 0));
+        if (!(falta > 0)) return;
+        promCh[ch] = (promCh[ch] || 0) + falta;
+        (quemCh[ch] = quemCh[ch] || []).push(nomeOutro[x.evento_id] + ' (' + U.fmt(falta) + ')');
+      });
+
+      /* o que ESTE evento ainda vai tirar */
+      var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+      var conflitos = [], ok = 0, semCadastro = [];
+      linhasEv.forEach(function (l) {
+        if (l.produto && l.produto.terceirizado) return;
+        var falta = Math.max(0, l.prevista - ((l.saida === null ? 0 : l.saida) + (l.composta || 0)));
+        if (!(falta > 0)) return;
+        var ch = Estoque.chave(l.nome);
+        if (saldoCh[ch] === undefined) { semCadastro.push(l.nome); return; }
+        var disp = saldoCh[ch] - (oficinaCh[ch] || 0) - (promCh[ch] || 0);
+        if (falta > disp) {
+          conflitos.push({ nome: l.nome, un: l.unidade, falta: falta, saldo: saldoCh[ch],
+            ofi: oficinaCh[ch] || 0, prom: promCh[ch] || 0, quem: quemCh[ch] || [], deficit: falta - disp });
+        } else ok++;
+      });
+
+      var h2 = '<p class="peq mut" style="margin-bottom:10px">Datas deste evento: <b>' +
+        (ini ? U.fmtData(ini) : '—') + (fim && fim !== ini ? ' a ' + U.fmtData(fim) : '') + '</b> · ' +
+        (outros.length ? 'comparado com ' + outros.length + ' evento(s) aberto(s) nas mesmas datas.' : 'nenhum outro evento aberto nas mesmas datas.') + '</p>';
+      if (!conflitos.length) {
+        h2 += '<div class="aviso aviso--verde"><span class="aviso__ico">✓</span><div>' +
+          '<b>Tudo disponível.</b>O galpão cobre o que este evento ainda precisa levar' +
+          (ok ? ' (' + ok + ' iten(s) conferidos)' : '') + '.</div></div>';
+      } else {
+        h2 += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+          '<b>' + conflitos.length + ' item(ns) NÃO fecham a conta:</b></div></div>' +
+          conflitos.map(function (c) {
+            return '<div style="border:1px solid var(--linha);border-left:4px solid var(--vermelho);border-radius:10px;padding:9px 12px;margin-top:8px">' +
+              '<b>' + U.esc(c.nome) + '</b> — <b style="color:var(--vermelho)">faltam ' + U.fmt(c.deficit) + ' ' + U.esc(c.un || 'UN') + '</b>' +
+              '<span class="peq mut" style="display:block;margin-top:3px">precisa levar ' + U.fmt(c.falta) +
+                ' · no galpão ' + U.fmt(c.saldo) +
+                (c.ofi ? ' · na oficina ' + U.fmt(c.ofi) : '') +
+                (c.prom ? ' · prometido: ' + c.quem.map(U.esc).join(', ') : '') + '</span>' +
+            '</div>';
+          }).join('');
+      }
+      if (semCadastro.length) {
+        h2 += '<p class="peq mut" style="margin-top:10px">⚠ Sem cadastro no estoque (não deu para conferir): ' +
+          semCadastro.slice(0, 8).map(U.esc).join(', ') + (semCadastro.length > 8 ? '…' : '') + '</p>';
+      }
+      corpo.innerHTML = h2;
+    });
+  }).catch(function (e) {
+    console.error(e);
+    corpo.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      '<b>Não consegui verificar.</b>' + U.esc(e.message || '') + '</div></div>';
+  });
+}
+
+/* ============================================================
+   🔁 TRANSFERÊNCIA ENTRE EVENTOS — material que vai direto de um
+   evento pro outro, sem passar pelo galpão. Registra um RETORNO
+   finalizado na origem e uma SAÍDA finalizada no destino: os dois
+   eventos fecham a conta e o estoque não muda (entra e sai igual).
+   ============================================================ */
+function transferirMaterial(p) {
+  var ev = p.evento;
+  var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+  var naRua = linhasEv.filter(function (l) {
+    if (l.produto && l.produto.terceirizado) return false;
+    var fora = (l.saida === null ? 0 : l.saida) - (l.retorno === null ? 0 : l.retorno);
+    l._fora = Math.max(0, fora);
+    return l._fora > 0;
+  });
+  if (!naRua.length) {
+    return U.aviso('Nada para transferir: este evento não tem material próprio na rua (com saída finalizada).', 'erro', 7000);
+  }
+  var destinos = App.eventos.filter(function (e) {
+    return e.id !== ev.id && e.status !== 'Finalizado' && e.status !== 'Com divergência';
+  });
+  if (!destinos.length) return U.aviso('Nenhum outro evento aberto para receber o material.', 'erro', 6000);
+
+  var m = U.modal({
+    titulo: '🔁 Transferir material',
+    html: '<p class="mut peq" style="margin-bottom:10px">O material sai deste evento direto para o outro, sem voltar ao galpão. ' +
+        'Fica registrado como retorno aqui e saída lá — os relatórios dos dois fecham certinho.</p>' +
+      '<label class="campo"><span class="campo__rot">Evento de destino</span>' +
+        '<select class="entrada" id="tr-dest">' +
+          destinos.map(function (e) {
+            return '<option value="' + e.id + '">' + U.esc(e.nome) + (e.data ? ' — ' + U.fmtData(e.data) : '') + '</option>';
+          }).join('') + '</select></label>' +
+      '<p class="peq mut" style="margin:10px 0 4px">O que vai (máximo = o que está na rua deste evento):</p>' +
+      naRua.map(function (l, i) {
+        return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:6px 0">' +
+          '<span class="peq" style="flex:1;min-width:0">' + U.esc(l.nome) +
+            '<span class="mut" style="display:block">na rua: ' + U.fmt(l._fora) + ' ' + U.esc(l.unidade) + '</span></span>' +
+          '<input class="entrada js-tr-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" max="' + l._fora + '" ' +
+            'placeholder="0" style="width:92px;text-align:center;min-height:44px">' +
+        '</div>';
+      }).join(''),
+    pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+        '<button class="btn btn--laranja" data-ok>🔁 TRANSFERIR</button>',
+    travado: true
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  m.querySelector('[data-ok]').addEventListener('click', function () {
+    var destId = m.querySelector('#tr-dest').value;
+    var dest = destinos.filter(function (e) { return e.id === destId; })[0];
+    var itens = [];
+    U.$$('.js-tr-q', m).forEach(function (c) {
+      var l = naRua[Number(c.dataset.i)];
+      var q = Math.min(U.num(c.value), l._fora);
+      if (q > 0) itens.push({ produto: l.produto, nome: l.nome, unidade: l.unidade, qtd: q });
+    });
+    if (!itens.length) return U.aviso('Informe a quantidade de pelo menos um item.', 'erro', 5000);
+    var totTr = 0; itens.forEach(function (i) { totTr += i.qtd; });
+
+    U.confirmar('Confirmar a transferência?',
+      'Transferir ' + U.fmt(totTr) + ' peça(s) de "' + ev.nome + '" para "' + dest.nome + '"? ' +
+      'Fica registrado nos dois eventos. Não dá para desfazer daqui.', '🔁 SIM, TRANSFERIR', 'btn--laranja')
+      .then(function (sim) {
+        if (!sim) return;
+        var btn = m.querySelector('[data-ok]');
+        btn.disabled = true; btn.textContent = 'Transferindo...';
+        var agora = new Date().toISOString();
+        var obsO = 'TRANSFERÊNCIA de material para "' + dest.nome + '"';
+        var obsD = 'TRANSFERÊNCIA de material vinda de "' + ev.nome + '"';
+        var porChave = {};
+        itens.forEach(function (i) { porChave[Estoque.chave(i.nome)] = (porChave[Estoque.chave(i.nome)] || 0) + i.qtd; });
+        var numOri = 1;
+        p.carregamentos.forEach(function (c) { numOri = Math.max(numOri, U.num(c.numero) + 1); });
+
+        var confOri;
+        /* 1) origem: retorno finalizado (dá entrada no estoque) */
+        Banco.criarCarregamento({
+          evento_id: ev.id, numero: numOri, nome: '🔁 TRANSF. → ' + dest.nome,
+          sentido: 'retorno', status: 'Finalizado'
+        }).then(function (cg) {
+          return Banco.criarConferencia({
+            evento_id: ev.id, carregamento_id: cg.id, tipo: 'retorno', status: 'Finalizado',
+            conferente_id: Sessao.atual.id, finalizada_em: agora, observacao: obsO
+          });
+        }).then(function (c) {
+          confOri = c;
+          return Banco.salvarItens(c.id, itens.map(function (i) {
+            return { produto_id: i.produto.id, quantidade: i.qtd, observacao: obsO };
+          }));
+        }).then(function () {
+          return Banco.sincronizarEstoqueConferencia(confOri.id, ev.id, 'retorno', porChave, Sessao.atual.id, obsO);
+        })
+        /* 2) destino: entra no checklist e sai como saída finalizada */
+        .then(function () {
+          return Banco.acrescentarProdutos(destId, itens.map(function (i) {
+            return { nome: i.nome, quantidade_prevista: i.qtd, unidade: i.unidade, terceirizado: false };
+          }));
+        }).then(function (res) {
+          return Banco.listarCarregamentos(destId).then(function (cgsD) {
+            var numD = 1;
+            cgsD.forEach(function (c) { numD = Math.max(numD, U.num(c.numero) + 1); });
+            return Banco.criarCarregamento({
+              evento_id: destId, numero: numD, nome: '🔁 TRANSF. ← ' + ev.nome,
+              sentido: 'saida', status: 'Finalizado'
+            }).then(function (cgD) {
+              return Banco.criarConferencia({
+                evento_id: destId, carregamento_id: cgD.id, tipo: 'saida', status: 'Finalizado',
+                conferente_id: Sessao.atual.id, finalizada_em: agora, observacao: obsD
+              });
+            }).then(function (cD) {
+              return Banco.salvarItens(cD.id, itens.map(function (i) {
+                var prodD = res.porChave[Estoque.chave(i.nome)];
+                return { produto_id: prodD ? prodD.id : null, quantidade: i.qtd, observacao: obsD };
+              }).filter(function (x) { return x.produto_id; })).then(function () { return cD; });
+            }).then(function (cD) {
+              return Banco.sincronizarEstoqueConferencia(cD.id, destId, 'saida', porChave, Sessao.atual.id, obsD);
+            });
+          });
+        }).then(function () {
+          m.fechar();
+          U.aviso('🔁 ' + U.fmt(totTr) + ' peça(s) transferida(s) para "' + dest.nome + '".', 'ok', 7000);
+          App.recarregar();
+        }).catch(function (e) {
+          btn.disabled = false; btn.textContent = '🔁 TRANSFERIR';
+          App.falhou(e);
+        });
+      });
+  });
+}
+
 /* Pede a senha do coordenador e devolve Promise<boolean>.
    Usada para desbloquear conferências finalizadas. */
 function pedirSenhaCoordenador(titulo, texto) {
@@ -3108,12 +3362,21 @@ function TelaPainel() {
       Banco.listarCaminhoes().catch(function () { return []; }),
       Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_terceirizada')
         .then(function (r) { return r.error ? [] : (r.data || []); })
+        .catch(function () { return []; }),
+      /* ⚠ avarias dos produtores ainda não vistas (sem as fotos: consulta leve) */
+      Banco.cliente.from('conferencias_produtor')
+        .select('id,evento_id,carregamento_id,tipo,responsavel,finalizada_em,qtd_avarias')
+        .gt('qtd_avarias', 0).not('avaria_vista', 'is', true)
+        .then(function (r) { return r.error ? [] : (r.data || []); })
         .catch(function () { return []; })
     ]);
   }).then(function (extra) {
     var todosCarregamentos = extra[0];
     var todosCaminhoes = extra[1];
     var todosItensConf = extra[2];
+    var avariasProd = (extra[3] || []).filter(function (c) {
+      return App.eventos.some(function (e) { return e.id === c.evento_id; });
+    });
 
     /* itens já conferidos (saída) por evento: produto distinto conta 1 */
     var confPorId = {};
@@ -3171,6 +3434,18 @@ function TelaPainel() {
       return tercPorEvento[ev.id] > 0 && !ev.terceiros_devolvidos_em;
     });
 
+    /* ⏰ retornos atrasados: desmontagem passou e o retorno não fechou */
+    var atrasados = App.eventos.filter(function (ev) {
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
+      if (!ev.data_desmontagem || String(ev.data_desmontagem).slice(0, 10) >= U.hojeISO()) return false;
+      var totalItens = App.qtdChecklist(ev.id) || 0;
+      if (totalItens > 0 && faseProgresso(ev.id) === 'retorno' && itensRetornados(ev.id) >= totalItens) return false;
+      return true;
+    }).sort(function (a, b) { return String(a.data_desmontagem).localeCompare(String(b.data_desmontagem)); });
+    function diasAtraso(ev) {
+      return Math.max(1, Math.floor((Date.now() - new Date(String(ev.data_desmontagem).slice(0, 10) + 'T12:00:00').getTime()) / 86400000));
+    }
+
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
     var finalizadas = App.conferencias.filter(function (c) { return c.status === 'Finalizado' || c.status === 'Com divergência'; }).length;
     var divergencias = App.conferencias.filter(function (c) { return c.status === 'Com divergência'; }).length;
@@ -3195,6 +3470,37 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
+
+      (avariasProd.length
+        ? '<div class="aviso aviso--vermelho" style="margin-bottom:18px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Avaria registrada pelo produtor — ' + avariasProd.length + ' conferência(s):</b>' +
+          avariasProd.slice(0, 6).map(function (c) {
+            var evA = App.eventos.filter(function (e) { return e.id === c.evento_id; })[0];
+            var cgA = todosCarregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(evA ? evA.nome : '—') +
+                (c.tipo === 'sobra' ? ' · sobra' : cgA ? ' · Carreg. ' + cgA.numero : '') +
+                ' — <b>' + U.fmt(c.qtd_avarias) + ' peça(s) avariada(s)</b> por ' + U.esc(c.responsavel || '—') +
+                ' · ' + U.fmtData(c.finalizada_em) + '</span>' +
+              '<button class="btn btn--branco btn--peq js-av-abrir" data-id="' + c.evento_id + '">VER FOTOS</button>' +
+              '<button class="btn btn--verde btn--peq js-av-visto" data-id="' + c.id + '">✔ VISTO</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
+
+      (atrasados.length
+        ? '<div class="aviso aviso--vermelho" style="margin-bottom:18px"><span class="aviso__ico">⏰</span><div>' +
+          '<b>' + atrasados.length + ' evento(s) com RETORNO ATRASADO:</b>' +
+          atrasados.slice(0, 6).map(function (ev) {
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(ev.nome) + ' — desmontou ' + U.fmtData(ev.data_desmontagem) +
+                ' · <b>há ' + diasAtraso(ev) + ' dia(s)</b></span>' +
+              '<button class="btn btn--branco btn--peq js-abrir-atr" data-id="' + ev.id + '">ABRIR</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
 
       (tercPendentes.length
         ? '<div class="aviso aviso--amarelo" style="margin-bottom:18px"><span class="aviso__ico">🔗</span><div>' +
@@ -3319,6 +3625,9 @@ function TelaPainel() {
             pct + '%</div>' +
           '<div style="flex:1;min-width:0">' +
             '<p class="evento__nome" style="margin:0">' + U.esc(ev.nome) + '</p>' +
+            (ev.data_desmontagem && atrasados.indexOf(ev) >= 0
+              ? '<p class="peq" style="margin:3px 0 0;color:var(--vermelho);font-weight:800">⏰ RETORNO ATRASADO há ' + diasAtraso(ev) + ' dia(s)</p>'
+              : '') +
             '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
               (ev.conferente_id ? ' · 👤 ' + U.esc(App.nomeUsuario(ev.conferente_id)) : '') +
               (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</p>' +
@@ -3457,6 +3766,24 @@ function TelaPainel() {
     U.$('#btn-novo-evento').addEventListener('click', function () { App.abrir(TelaNovoEvento); });
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
+    U.$$('.js-abrir-atr', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
+    });
+    U.$$('.js-av-abrir', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
+    });
+    U.$$('.js-av-visto', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        Banco.cliente.from('conferencias_produtor').update({ avaria_vista: true }).eq('id', b.dataset.id)
+          .then(function (r) {
+            if (r.error) throw r.error;
+            U.aviso('✔ Avaria marcada como vista.', 'ok');
+            App.recarregar();
+          })
+          .catch(function (e) { b.disabled = false; App.falhou(e); });
+      });
+    });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
@@ -3595,10 +3922,31 @@ function TelaEstoque() {
   function entrarNoEstoque() {
   tela.innerHTML = U.carregando('Somando o estoque...');
   TelaEstoque._trocarSenha = function () { trocarSenhaEstoque(false); };
-  Promise.all([Banco.listarEstoque(), Banco.listarMovimentos(), App.carregarBase()])
+  Promise.all([Banco.listarEstoque(), Banco.listarMovimentos(), App.carregarBase(),
+    /* 🛠 o que está na oficina (danificado pendente) desconta do disponível */
+    Banco.cliente.from('itens_conferencia').select('produto_id,qtd_danificada,manutencao_status')
+      .gt('qtd_danificada', 0)
+      .then(function (r) { return r.error ? [] : (r.data || []); })
+      .catch(function () { return []; }),
+    Banco.cliente.from('produtos').select('id,nome')
+      .then(function (r) { return r.error ? [] : (r.data || []); })
+      .catch(function () { return []; })
+  ])
     .then(function (r) {
       var cadastro = r[0], movimentos = r[1];
       var saldos = Estoque.saldos(cadastro, movimentos);
+      var oficina = {};   /* chave do item -> qtd danificada esperando conserto */
+      (function () {
+        var nomeProd = {};
+        (r[4] || []).forEach(function (pr) { nomeProd[pr.id] = pr.nome; });
+        (r[3] || []).forEach(function (i) {
+          if ((i.manutencao_status || 'pendente') !== 'pendente') return;
+          var nm = nomeProd[i.produto_id];
+          if (!nm) return;
+          var ch = Estoque.chave(nm);
+          oficina[ch] = (oficina[ch] || 0) + U.num(i.qtd_danificada);
+        });
+      })();
       var emObra = {};   /* saiu e ainda não voltou, por item */
       movimentos.forEach(function (m) {
         if (!(m.estoque_id in emObra)) emObra[m.estoque_id] = 0;
@@ -3724,6 +4072,8 @@ function TelaEstoque() {
       function linhaPeca(i) {
           var saldo = saldos[i.id] || 0;
           var fora = Math.max(0, emObra[i.id] || 0);
+          var ofi = oficina[Estoque.chave(i.nome)] || 0;
+          var disp = saldo - ofi;
           return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '">' +
             '<div class="carga__cam"><span>📦</span>' +
               '<span><b>' + U.esc(i.nome) + '</b>' +
@@ -3738,6 +4088,8 @@ function TelaEstoque() {
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
                   (saldo < 0 ? ' (devendo — lance a quantidade real)' : '') +
                   (fora > 0 ? ' · Em evento: <b style="color:var(--laranja)">' + U.fmt(fora) + '</b>' : '') +
+                  (ofi > 0 ? ' · 🛠 Oficina: <b style="color:var(--vermelho)">' + U.fmt(ofi) + '</b>' +
+                    ' · Disponível de verdade: <b style="color:var(--azul)">' + U.fmt(disp) + '</b>' : '') +
                 '</span></span>' +
               '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
@@ -4933,7 +5285,7 @@ function TelaNovoEvento() {
 
   App.topo('NOVO EVENTO', 'Preencha os dados — o caminhão e o checklist vêm em seguida');
 
-  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), conferente_id: '' };
+  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), data_desmontagem: '', conferente_id: '' };
   var produtos = [];   /* o checklist agora é anexado POR CARREGAMENTO, depois */
 
   desenhar();
@@ -4952,6 +5304,8 @@ function TelaNovoEvento() {
         '<div class="dupla">' +
           '<label class="campo"><span class="campo__rot">Data</span>' +
             '<input class="entrada js-d" data-k="data" type="date" value="' + U.esc(dados.data) + '"></label>' +
+          '<label class="campo"><span class="campo__rot">Desmontagem (retorno previsto)</span>' +
+            '<input class="entrada js-d" data-k="data_desmontagem" type="date" value="' + U.esc(dados.data_desmontagem) + '"></label>' +
           '<label class="campo"><span class="campo__rot">Conferente</span>' +
             '<select class="entrada js-d" data-k="conferente_id">' +
               '<option value="">Deixar em aberto</option>' +
@@ -5011,6 +5365,7 @@ function TelaNovoEvento() {
       cliente: dados.cliente.trim(),
       local: dados.local.trim(),
       data: dados.data || U.hojeISO(),
+      data_desmontagem: dados.data_desmontagem || null,
       conferente_id: dados.conferente_id || null,
       status: 'Aguardando conferência'
     }).then(function (criado) {
@@ -5372,6 +5727,10 @@ function TelaEvento(eventoId) {
         '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
         '<dt>Local</dt><dd>' + U.esc(ev.local || '—') + '</dd>' +
         '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
+        '<dt>Desmontagem</dt><dd>' + (ev.data_desmontagem ? U.fmtData(ev.data_desmontagem) : '<span class="mut">não informada</span>') +
+          (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência'
+            ? ' <button class="btn btn--branco btn--peq" id="btn-desmontagem" style="margin-left:6px;padding:2px 10px;min-height:30px">✏️</button>'
+            : '') + '</dd>' +
         '<dt>Conferente</dt><dd>' + (ev.conferente_id
           ? U.esc(App.nomeUsuario(ev.conferente_id))
           : '<span style="color:var(--amarelo);font-weight:700">Não designado</span>') + '</dd>' +
@@ -5381,6 +5740,73 @@ function TelaEvento(eventoId) {
           (ev.conferente_id ? 'Trocar conferente' : 'DESIGNAR CONFERENTE') + '</button>'
         : '') +
       '</div></div>';
+
+    /* ⏰ retorno atrasado: passou a desmontagem e o material não voltou todo */
+    var evAberto = ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
+    if (evAberto && ev.data_desmontagem && String(ev.data_desmontagem).slice(0, 10) < U.hojeISO() &&
+        (pctEvento === null || pctEvento < 100)) {
+      var diasAtr = Math.floor((Date.now() - new Date(String(ev.data_desmontagem).slice(0, 10) + 'T12:00:00').getTime()) / 86400000);
+      h += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⏰</span><div>' +
+        '<b>RETORNO ATRASADO há ' + diasAtr + ' dia' + (diasAtr > 1 ? 's' : '') + '.</b>' +
+        'A desmontagem era ' + U.fmtData(ev.data_desmontagem) + ' e o material ainda não voltou todo. ' +
+        'Cobre o retorno e registre quando o caminhão chegar.</div></div>';
+    }
+
+    /* --- 🕓 linha do tempo: tudo que aconteceu no evento, em ordem --- */
+    (function () {
+      var tl = [];
+      function pt(iso, ico, txt) { if (iso) tl.push({ t: String(iso), ico: ico, txt: txt }); }
+      pt(ev.created_at, '📌', 'Evento criado');
+      if (p.produtos.length) {
+        var priCk = p.produtos.map(function (x) { return x.created_at || ''; }).filter(Boolean).sort()[0];
+        pt(priCk, '📋', 'Checklist lançado (' + p.produtos.length + ' produtos)');
+      }
+      p.carregamentos.forEach(function (cg) {
+        pt(cg.created_at, cg.sentido === 'retorno' ? '↩️' : '🚚',
+          (cg.sentido === 'retorno' ? 'Retorno' : 'Carregamento') + ' ' + cg.numero +
+          (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' criado — ' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)));
+      });
+      p.conferencias.forEach(function (c) {
+        var cgC = p.carregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+        var rot = (c.tipo === 'retorno' ? 'retorno' : 'saída') + (cgC ? ' — Carreg. ' + cgC.numero : '');
+        pt(c.created_at, '▶️', 'Conferência de ' + rot + ' iniciada por ' + U.esc(App.nomeUsuario(c.conferente_id)));
+        if (c.finalizada_em) pt(c.finalizada_em, c.status === 'Com divergência' ? '🔴' : '✅',
+          'Conferência de ' + rot + ' finalizada (' + U.esc(c.status || '') + ') por ' + U.esc(App.nomeUsuario(c.conferente_id)));
+        (c.correcoes || []).forEach(function (cor) {
+          pt(cor.em, '✏️', 'Correção na conferência de ' + rot + ' por ' + U.esc(cor.nome || '') +
+            (cor.texto ? ': ' + U.esc(cor.texto) : ''));
+        });
+      });
+      (p.confProdutor || []).forEach(function (c) {
+        var cgP = p.carregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+        var nota = ConfProd.nota(c), rr = ConfProd.resumo(c);
+        pt(c.finalizada_em, c.tipo === 'sobra' ? '📦' : '🤝',
+          (c.tipo === 'sobra' ? 'Produtor declarou a sobra' :
+            'Produtor conferiu a chegada' + (cgP ? ' — Carreg. ' + cgP.numero : '')) +
+          ' (' + U.esc(c.responsavel || '—') + ')' +
+          (nota ? ' · ' + ConfProd.estrelas(nota) : '') +
+          ((rr.qtdAvariada || U.num(c.qtd_avarias)) ? ' · <b style="color:var(--vermelho)">' + U.fmt(rr.qtdAvariada || U.num(c.qtd_avarias)) + ' avariada(s)</b>' : ''));
+      });
+      (ev.notas_fiscais || []).forEach(function (n, i) {
+        pt(n.em, '🧾', 'Nota fiscal anexada' + (n.nome ? ': ' + U.esc(n.nome) : ''));
+      });
+      pt(ev.terceiros_devolvidos_em, '🔗', 'Terceirizados devolvidos ao fornecedor' +
+        (ev.terceiros_devolvidos_por ? ' (' + U.esc(ev.terceiros_devolvidos_por) + ')' : ''));
+      pt(ev.encerrado_em, '🏁', 'Evento encerrado — ' + U.esc(ev.status || ''));
+      tl.sort(function (a, b) { return a.t.localeCompare(b.t); });
+
+      var aberta = !!TelaEvento._tlAberta;
+      h += '<div class="cartao"><div class="cartao__topo" id="tl-topo" style="cursor:pointer;user-select:none">' +
+        '<h3>🕓 Linha do tempo</h3>' +
+        '<span class="peq" style="color:var(--azul);font-weight:800">' + tl.length + ' registro(s) ' + (aberta ? '▲' : '▼') + '</span></div>' +
+        '<div class="cartao__corpo" id="tl-corpo"' + (aberta ? '' : ' hidden') + '>' +
+        (tl.length ? tl.map(function (x) {
+          return '<div class="peq" style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+            '<span style="flex:none;min-width:118px;color:var(--txt-3);font-variant-numeric:tabular-nums">' + U.fmtDataHora(x.t) + '</span>' +
+            '<span style="flex:none">' + x.ico + '</span><span style="flex:1;min-width:0">' + x.txt + '</span></div>';
+        }).join('') : '<p class="peq mut">Nada registrado ainda.</p>') +
+        '</div></div>';
+    })();
 
     /* --- 🤝 produtor: link externo + o que ele enviou (POR CARREGAMENTO) --- */
     if (ehCoord) {
@@ -5567,6 +5993,13 @@ function TelaEvento(eventoId) {
             'Se algum produto estiver errado, avise ele — assim a contagem sempre é comparada com a lista original.</p>') +
         '</div>' +
       '</div>';
+
+      if (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência') {
+        h += '<div class="btn-linha" style="margin-top:2px">' +
+          '<button class="btn btn--branco" id="btn-disponibilidade">🔍 VERIFICAR DISPONIBILIDADE (conflito de datas)</button>' +
+          '<button class="btn btn--branco" id="btn-transferir">🔁 TRANSFERIR MATERIAL P/ OUTRO EVENTO</button>' +
+        '</div>';
+      }
     }
 
     /* --- carregamentos: valem MESMO sem checklist no evento, porque é
@@ -6834,6 +7267,40 @@ function TelaEvento(eventoId) {
             })
             .catch(App.falhou);
         });
+      });
+    });
+
+    var btnDisp = U.$('#btn-disponibilidade', tela);
+    if (btnDisp) btnDisp.addEventListener('click', function () { verificarDisponibilidade(p); });
+    var btnTransf = U.$('#btn-transferir', tela);
+    if (btnTransf) btnTransf.addEventListener('click', function () { transferirMaterial(p); });
+
+    var tlTopo = U.$('#tl-topo', tela);
+    if (tlTopo) tlTopo.addEventListener('click', function () {
+      var corpo = U.$('#tl-corpo', tela);
+      TelaEvento._tlAberta = corpo.hidden;
+      corpo.hidden = !corpo.hidden;
+      tlTopo.querySelector('span').innerHTML = tlTopo.querySelector('span').innerHTML
+        .replace(corpo.hidden ? '▲' : '▼', corpo.hidden ? '▼' : '▲');
+    });
+
+    var btnDesm = U.$('#btn-desmontagem', tela);
+    if (btnDesm) btnDesm.addEventListener('click', function () {
+      var m = U.modal({
+        titulo: '⏰ Data da desmontagem',
+        html: '<p class="mut peq" style="margin-bottom:10px">Quando o evento desmonta e o material deve voltar. ' +
+          'Passou dessa data sem retorno completo, o evento fica marcado como <b>RETORNO ATRASADO</b> no painel.</p>' +
+          '<input class="entrada" id="desm-data" type="date" value="' + U.esc(String(ev.data_desmontagem || '').slice(0, 10)) + '">',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--verde" data-ok>SALVAR</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        var v = m.querySelector('#desm-data').value || null;
+        Banco.atualizarEvento(eventoId, { data_desmontagem: v })
+          .then(function () { m.fechar(); U.aviso('⏰ Desmontagem ' + (v ? 'marcada para ' + U.fmtData(v) : 'removida') + '.', 'ok'); App.recarregar(); })
+          .catch(App.falhou);
       });
     });
 

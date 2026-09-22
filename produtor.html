@@ -120,7 +120,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 22/09 D</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 22/09 E</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -736,7 +736,7 @@ function montarEnvio() {
   var resp = (document.getElementById('resp').value || '').trim();
   if (resp.length < 3) { alert('Escreva o nome de quem está conferindo.'); return null; }
 
-  var itens = [], algum = 0, erro = null;
+  var itens = [], algum = 0, erro = null, avTot = 0;
   itensBase.forEach(function (b) {
     if (erro) return;
     var q = num(b.qtd);
@@ -750,6 +750,7 @@ function montarEnvio() {
       if (q <= 0) { erro = b.nome + ': informe a quantidade total do item, incluindo as avariadas.'; return; }
       if (!b.avFotos.length) { erro = b.nome + ': a FOTO da avaria é obrigatória.'; return; }
       it.avaria = { qtd: aq, descricao: (b.avDesc || '').trim() || null, fotos: b.avFotos.slice() };
+      avTot += aq;
     }
     itens.push(it);
     algum += q;
@@ -764,6 +765,7 @@ function montarEnvio() {
       responsavel: resp,
       itens: itens,
       observacao: (document.getElementById('obs').value || '').trim() || null,
+      qtd_avarias: avTot,
       status: 'Finalizado'
     },
     algum: algum
@@ -825,6 +827,14 @@ function gravar(reg, bt) {
 
   inserir(reg)
     .then(function (r) {
+      /* coluna qtd_avarias ainda não criada no banco: envia sem ela (o aviso do painel fica sem esse registro) */
+      if (r.error && /qtd_avarias/i.test(r.error.message || '')) {
+        var semAv = {}; Object.keys(reg).forEach(function (k) { if (k !== 'qtd_avarias') semAv[k] = reg[k]; });
+        return inserir(semAv).then(function (rx) {
+          if (rx.error) throw rx.error;
+          return (rx.data || [])[0] || semAv;
+        });
+      }
       /* se a coluna "avaliacao" ainda não existir no banco, grava a nota dentro da observação */
       if (r.error && reg.avaliacao && /avaliacao/i.test(r.error.message || '')) {
         var copia = {}; Object.keys(reg).forEach(function (k) { if (k !== 'avaliacao') copia[k] = reg[k]; });
