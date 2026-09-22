@@ -9519,16 +9519,41 @@ function TelaRelatorios() {
     var exportTitulo = '';
     var dadosSaidas = null;  /* snapshot da aba de saídas para o relatório impresso */
 
+    /* barra e regras do período — usadas por todas as abas */
+    function rotuloPeriodo() {
+      return (periodoDe || periodoAte)
+        ? (periodoDe ? U.fmtData(periodoDe) : 'início') + ' a ' + (periodoAte ? U.fmtData(periodoAte) : 'hoje')
+        : 'todo o histórico';
+    }
+    function noPeriodo(d) {
+      d = String(d || '').slice(0, 10);
+      if (periodoDe && (!d || d < periodoDe)) return false;
+      if (periodoAte && (!d || d > periodoAte)) return false;
+      return true;
+    }
+    function barraPeriodo() {
+      return '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
+        '<span class="peq mut" style="flex:none">📅 Período</span>' +
+        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<span class="peq mut" style="flex:none">até</span>' +
+        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
+      '</div></div>';
+    }
+
     function abaMaterial() {
       exportTitulo = 'Material na rua';
-      exportLinhas = [['Evento', 'Cliente', 'Item', 'Saiu', 'Voltou', 'Fora']];
-      var cards = '', totalFora = 0, eventosFora = 0;
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Cliente', 'Item', 'Saiu', 'Voltou', 'Fora']];
+      var cards = '', totalFora = 0, eventosFora = 0, ocultos = 0, ocultosQtd = 0;
       App.eventos.forEach(function (ev) {
         if (ev.pendencia_resolvida_em) return;
         if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
         var fora = porNomeDe(ev).filter(function (b) { return b.fora > 0; });
         if (!fora.length) return;
         var t = 0; fora.forEach(function (b) { t += b.fora; });
+        if (!noPeriodo(ev.data || ev.created_at)) { ocultos++; ocultosQtd += t; return; }
         totalFora += t; eventosFora++;
         fora.forEach(function (b) { exportLinhas.push([ev.nome, ev.cliente || '', b.nome, b.saiu, b.voltou, b.fora]); });
         cards += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer">' +
@@ -9542,10 +9567,17 @@ function TelaRelatorios() {
                 ' · <b style="color:var(--laranja)">' + U.fmt(b.fora) + ' fora</b></span></div>';
             }).join('') + '</div></div>';
       });
-      return '<div class="dupla" style="margin-bottom:16px">' +
-        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalFora) + '</p><p class="mut peq">Peças na rua agora</p></div>' +
+      return barraPeriodo() +
+        '<div class="dupla" style="margin-bottom:16px">' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalFora) + '</p><p class="mut peq">Peças na rua · ' + U.esc(rotuloPeriodo()) + '</p></div>' +
         '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--azul)">' + eventosFora + '</p><p class="mut peq">Eventos com material fora</p></div>' +
-      '</div>' + (cards || '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada na rua</h3><p>Todo material voltou para o galpão.</p></div>');
+      '</div>' +
+      (ocultos
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:14px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Fora do período escolhido ainda tem ' + ocultos + ' evento(s) com ' + U.fmt(ocultosQtd) +
+          ' peça(s) na rua.</b>Toque em <b>TUDO</b> para ver o total.</div></div>'
+        : '') +
+      (cards || '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada na rua neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>');
     }
 
     function abaCarregamentos() {
@@ -9557,15 +9589,7 @@ function TelaRelatorios() {
       exportLinhas.unshift(['Período', rotPeriodo]);
 
       /* barra do período: mesma da aba de saídas (os botões já funcionam) */
-      var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
-        '<span class="peq mut" style="flex:none">📅 Período</span>' +
-        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<span class="peq mut" style="flex:none">até</span>' +
-        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
-      '</div></div>';
+      var h = barraPeriodo();
 
       var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -9625,10 +9649,11 @@ function TelaRelatorios() {
 
     function abaPerdas() {
       exportTitulo = 'Perdas e quebras';
-      exportLinhas = [['Evento', 'Item', 'Danificado', 'Não voltou (evento encerrado)']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Item', 'Danificado', 'Não voltou (evento encerrado)']];
       var h = '', total = 0;
       App.eventos.forEach(function (ev) {
         if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
+        if (!noPeriodo(ev.data || ev.created_at)) return;
         var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
         var linhasEv = porNomeDe(ev).filter(function (b) { return b.dano > 0 || (fechado && b.fora > 0 && !ev.pendencia_resolvida_em); });
         if (!linhasEv.length) return;
@@ -9649,20 +9674,25 @@ function TelaRelatorios() {
               '</span></div>';
           }).join('') + '</div></div>';
       });
-      return '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
+      return barraPeriodo() +
+        '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
         '<p style="font-size:34px;font-weight:900;color:var(--vermelho)">' + U.fmt(total) + '</p>' +
-        '<p class="mut peq">Peças danificadas ou perdidas</p></div>' +
-        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda registrada</h3></div>');
+        '<p class="mut peq">Peças danificadas ou perdidas · ' + U.esc(rotuloPeriodo()) + '</p></div>' +
+        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>');
     }
 
     function abaHistorico() {
       exportTitulo = 'Histórico por evento';
-      exportLinhas = [['Evento', 'Cliente', 'Data', 'Status', 'Enviado', 'Retornado']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Cliente', 'Data', 'Status', 'Enviado', 'Retornado']];
       var fechados = App.eventos.filter(function (ev) {
-        return (ev.status === 'Finalizado' || ev.status === 'Com divergência') && casaBusca(ev.nome + ' ' + (ev.cliente || ''));
-      });
-      if (!fechados.length) return '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado ainda</h3></div>';
-      return fechados.map(function (ev) {
+        return (ev.status === 'Finalizado' || ev.status === 'Com divergência') &&
+          casaBusca(ev.nome + ' ' + (ev.cliente || '')) &&
+          noPeriodo(ev.data || ev.encerrado_em || ev.created_at);
+      }).sort(function (a, b) { return String(b.data || '').localeCompare(String(a.data || '')); });
+      if (!fechados.length) return barraPeriodo() +
+        '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado neste período</h3>' +
+        '<p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
+      return barraPeriodo() + fechados.map(function (ev) {
         var t = Calculo.totaisEvento(prodPorEvento[ev.id] || [], cgPorEvento[ev.id] || [],
           App.conferencias.filter(function (c) { return c.evento_id === ev.id; }),
           itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
@@ -9676,9 +9706,10 @@ function TelaRelatorios() {
 
     function abaGiro() {
       exportTitulo = 'Giro de peças';
-      exportLinhas = [['Item', 'Saiu no total', 'Eventos em que saiu']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Item', 'Saiu no total', 'Eventos em que saiu']];
       var mapa = {};
       App.eventos.forEach(function (ev) {
+        if (!noPeriodo(ev.data || ev.created_at)) return;
         porNomeDe(ev).forEach(function (b) {
           if (!(b.saiu > 0)) return;
           var m = mapa[Estoque.chave(b.nome)] || (mapa[Estoque.chave(b.nome)] = { nome: b.nome, saiu: 0, eventos: 0 });
@@ -9688,9 +9719,11 @@ function TelaRelatorios() {
       var lista = Object.keys(mapa).map(function (k) { return mapa[k]; })
         .filter(function (m) { return casaBusca(m.nome); })
         .sort(function (a, b) { return b.saiu - a.saiu; }).slice(0, 60);
-      if (!lista.length) return '<div class="vazio"><p class="vazio__ico">🔄</p><h3>Sem movimento ainda</h3></div>';
+      if (!lista.length) return barraPeriodo() +
+        '<div class="vazio"><p class="vazio__ico">🔄</p><h3>Sem movimento neste período</h3>' +
+        '<p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
       var max = lista[0].saiu || 1;
-      return '<div class="cartao"><div class="cartao__topo"><h3>O que mais roda no galpão</h3>' +
+      return barraPeriodo() + '<div class="cartao"><div class="cartao__topo"><h3>O que mais roda no galpão · ' + U.esc(rotuloPeriodo()) + '</h3>' +
         '<span class="mut peq">top ' + lista.length + '</span></div><div class="cartao__corpo">' +
         lista.map(function (m, i) {
           exportLinhas.push([m.nome, m.saiu, m.eventos]);
@@ -9707,9 +9740,9 @@ function TelaRelatorios() {
        o que já foi consertado e o que virou sucata. */
     function abaManutencao() {
       exportTitulo = 'Manutenção';
-      exportLinhas = [['Evento', 'Item', 'Qtd', 'Situação', 'Defeito', 'Resolvido por', 'Quando']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Item', 'Qtd', 'Situação', 'Defeito', 'Resolvido por', 'Quando']];
 
-      var pendentes = [], resolvidos = [];
+      var pendentes = [], resolvidos = [], mntOcultos = 0;
       todosItens.forEach(function (i) {
         var q = U.num(i.qtd_danificada);
         if (!(q > 0)) return;
@@ -9718,6 +9751,10 @@ function TelaRelatorios() {
         var prod = todosProdutos.filter(function (p) { return p.id === i.produto_id; })[0];
         var nome = prod ? prod.nome : 'Item';
         if (!casaBusca((ev ? ev.nome : '') + ' ' + nome)) return;
+        if (!noPeriodo(ev ? (ev.data || ev.created_at) : '')) {
+          if ((i.manutencao_status || 'pendente') === 'pendente') mntOcultos += q;
+          return;
+        }
         var reg = {
           id: i.id, nome: nome, qtd: q, evNome: ev ? ev.nome : '—', evId: evId,
           defeito: i.dano_descricao || '', foto: i.dano_foto_base64 || null,
@@ -9759,7 +9796,13 @@ function TelaRelatorios() {
         '</div>';
       }
 
-      return '<div class="dupla" style="margin-bottom:16px">' +
+      return barraPeriodo() +
+      (mntOcultos
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:14px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Fora do período escolhido ainda tem ' + U.fmt(mntOcultos) + ' peça(s) na oficina.</b>' +
+          'Toque em <b>TUDO</b> para ver todas.</div></div>'
+        : '') +
+      '<div class="dupla" style="margin-bottom:16px">' +
           '<div class="cartao" style="text-align:center;padding:18px 10px">' +
             '<p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalPend) + '</p>' +
             '<p class="mut peq">Peças na oficina agora</p></div>' +
@@ -9861,15 +9904,7 @@ function TelaRelatorios() {
       dadosSaidas = { rotPeriodo: rotPeriodo, ranking: ranking, eventosLista: eventosLista,
         vida: vida, totalPecas: totalPecas, nConfs: nConfs, evPorId: evPorId };
 
-      var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
-        '<span class="peq mut" style="flex:none">📅 Período</span>' +
-        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<span class="peq mut" style="flex:none">até</span>' +
-        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
-      '</div></div>' +
+      var h = barraPeriodo() +
 
       '<div class="dupla" style="margin-bottom:16px">' +
         '<div class="cartao" style="text-align:center;padding:18px 10px">' +
@@ -10157,8 +10192,14 @@ function TelaRelatorios() {
     /* corpo padrão: a tabela da aba atual, arrumada */
     function corpoTabela() {
       if (!exportLinhas.length) return '<p>Nada para mostrar nesta aba.</p>';
-      var cab = exportLinhas[0], linhas = exportLinhas.slice(1);
-      return '<table><thead><tr>' + cab.map(function (c) { return '<th>' + U.esc(c) + '</th>'; }).join('') +
+      var rows = exportLinhas.slice(), pre = '';
+      if (rows.length && rows[0][0] === 'Período') {
+        pre = '<p style="font-size:10px;color:#5A6B7D;margin:0 0 8px"><b>Período:</b> ' + U.esc(rows[0][1]) + '</p>';
+        rows.shift();
+      }
+      if (!rows.length) return pre + '<p>Nada para mostrar nesta aba.</p>';
+      var cab = rows[0], linhas = rows.slice(1);
+      return pre + '<table><thead><tr>' + cab.map(function (c) { return '<th>' + U.esc(c) + '</th>'; }).join('') +
         '</tr></thead><tbody>' + linhas.map(function (l) {
           return '<tr>' + l.map(function (c) {
             var ehNum = typeof c === 'number';
