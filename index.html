@@ -11539,6 +11539,23 @@ var Patio = {
     return passo(0);
   },
   demandas: function () { return Patio.lista(Banco.cliente.from('patio_demanda').select('*')); },
+  /* 📝 tarefas: as do período + as ANTIGAS que ainda não foram feitas */
+  tarefas: function (de, ate) {
+    return Promise.all([
+      Patio.lista(Banco.cliente.from('patio_tarefas').select('*').gte('data', de).lte('data', ate)),
+      Patio.lista(Banco.cliente.from('patio_tarefas').select('*').lt('data', de).eq('feita', false))
+    ]).then(function (r) { return r[0].concat(r[1]); });
+  },
+  gravarTarefa: function (t) {
+    t.atualizado_em = new Date().toISOString();
+    var q = t.id
+      ? Banco.cliente.from('patio_tarefas').update(t).eq('id', t.id)
+      : Banco.cliente.from('patio_tarefas').insert(t);
+    return q.then(function (r) { if (r.error) throw r.error; });
+  },
+  apagarTarefa: function (id) {
+    return Banco.cliente.from('patio_tarefas').delete().eq('id', id).then(function (r) { if (r.error) throw r.error; });
+  },
   gravarPresenca: function (linhas) {
     if (!linhas.length) return Promise.resolve();
     var lotes = [];
@@ -11697,6 +11714,7 @@ function TelaPatio() {
 
   var colabs = [], pres = [], dems = [], cgs = [], cams = [];
   var ativos = [];
+  var tarefas = [], tarefasOk = true;
 
   function abas() {
     var A = [['dia', '📋 Demanda do dia'], ['presenca', '🗓️ Presença do mês'], ['folgas', '🛌 Folgas'], ['colab', '👥 Colaboradores']];
@@ -11727,9 +11745,11 @@ function TelaPatio() {
       Patio.presenca(f[0], f[1]),
       Patio.demandas(),
       Banco.listarCarregamentos().catch(function () { return []; }),
-      Banco.listarCaminhoes().catch(function () { return []; })
+      Banco.listarCaminhoes().catch(function () { return []; }),
+      Patio.tarefas(Patio.isoMais(f[0], -60), f[1]).catch(function () { return null; })
     ]).then(function (r) {
       colabs = r[1]; pres = r[2]; dems = r[3]; cgs = r[4]; cams = r[5];
+      tarefasOk = r[6] !== null; tarefas = r[6] || [];
       ativos = colabs.filter(function (c) { return c.ativo !== false; });
       desenhar();
     }).catch(function (e) {
@@ -11775,6 +11795,115 @@ function TelaPatio() {
     });
     return m;
   }
+  function tarefasDoDia(dia) {
+    return tarefas.filter(function (t) { return String(t.data).slice(0, 10) === dia; })
+      .sort(function (a, b) {
+        return (a.feita ? 1 : 0) - (b.feita ? 1 : 0) || (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0) ||
+          String(a.criado_em || '').localeCompare(String(b.criado_em || ''));
+      });
+  }
+  function cartaoTarefa(t, atrasada) {
+    var quem = (t.colaboradores || []).map(nomeColab);
+    return '<div class="carga" style="margin-bottom:10px;' + (t.feita ? 'opacity:.7;' : '') +
+        (t.urgente && !t.feita ? 'border-left:5px solid var(--vermelho);' : atrasada ? 'border-left:5px solid var(--laranja);' : '') + '">' +
+      '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px">' +
+        '<button class="js-tf-feita" data-id="' + t.id + '" title="' + (t.feita ? 'Desmarcar' : 'Marcar como feita') + '" ' +
+          'style="flex:none;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;font-weight:900;' +
+          (t.feita ? 'background:var(--verde);border:2px solid var(--verde);color:#fff">✓' : 'background:#fff;border:2px solid var(--linha);color:var(--linha)">✓') +
+        '</button>' +
+        '<span style="flex:1;min-width:0">' +
+          '<b style="font-size:16px;' + (t.feita ? 'text-decoration:line-through;color:var(--txt-3)' : '') + '">' +
+            (t.urgente && !t.feita ? '🔴 ' : '') + U.esc(t.titulo) + '</b>' +
+          (atrasada ? '<span class="peq" style="display:block;color:var(--laranja);font-weight:800">era para ' + U.fmtData(t.data) + '</span>' : '') +
+          (t.obs ? '<span class="peq" style="display:block;margin-top:2px">📝 ' + U.esc(t.obs) + '</span>' : '') +
+          '<span style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">' +
+            (quem.length ? quem.map(function (n) {
+              return '<span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul);font-weight:800">👷 ' + U.esc(n) + '</span>';
+            }).join('') : '<span class="peq" style="color:var(--vermelho);font-weight:800">⚠ ninguém designado</span>') +
+          '</span>' +
+          (t.feita && t.feita_por
+            ? '<span class="peq mut" style="display:block;margin-top:4px">✓ feita · marcado por ' + U.esc(t.feita_por) +
+              (t.feita_em ? ' em ' + U.fmtDataHora(t.feita_em) : '') + '</span>' : '') +
+        '</span>' +
+        '<span style="flex:none;display:flex;flex-direction:column;gap:6px">' +
+          '<button class="btn btn--branco btn--peq js-tf-editar" data-id="' + t.id + '" style="min-height:34px;padding:4px 10px">✏️</button>' +
+          '<button class="btn btn--branco btn--peq js-tf-apagar" data-id="' + t.id + '" style="min-height:34px;padding:4px 10px;color:var(--vermelho);border-color:var(--vermelho)">🗑️</button>' +
+        '</span>' +
+      '</div></div>';
+  }
+
+  /* ➕ / ✏️ tarefa: o que fazer, dia, quem faz */
+  function editarTarefa(t) {
+    t = t || { data: TelaPatio._dia, titulo: '', obs: '', colaboradores: [], urgente: false };
+    var sel = {};
+    (t.colaboradores || []).forEach(function (id) { sel[id] = true; });
+    var titulosUsados = [];
+    tarefas.forEach(function (x) { if (titulosUsados.indexOf(x.titulo) < 0) titulosUsados.push(x.titulo); });
+    var SUGESTOES = ['ORGANIZAR ESTOQUE', 'LIMPEZA DO PÁTIO', 'LAVAR LONAS', 'MANUTENÇÃO DE PEÇAS', 'SEPARAR MATERIAL',
+      'CONFERIR RETORNO', 'CARREGAR CAMINHÃO', 'DESCARREGAR CAMINHÃO', 'PINTURA', 'ORGANIZAR PLACAS DE PISO'];
+    SUGESTOES.forEach(function (x) { if (titulosUsados.indexOf(x) < 0) titulosUsados.push(x); });
+    var m = U.modal({
+      titulo: t.id ? '✏️ Editar tarefa' : '📝 Nova tarefa',
+      html: '<label class="campo"><span class="campo__rot">O que fazer *</span>' +
+          '<input class="entrada" id="tf-titulo" list="tf-sug" value="' + U.esc(t.titulo || '') + '" placeholder="Ex.: ORGANIZAR PLACAS DE PISO" style="text-transform:uppercase"></label>' +
+          '<datalist id="tf-sug">' + titulosUsados.map(function (x) { return '<option value="' + U.esc(x) + '">'; }).join('') + '</datalist>' +
+        '<div class="btn-linha" style="margin-top:8px">' +
+          '<label class="campo" style="flex:1"><span class="campo__rot">Dia</span>' +
+            '<input class="entrada" type="date" id="tf-data" value="' + U.esc(String(t.data || '').slice(0, 10)) + '"></label>' +
+          '<label style="display:flex;gap:8px;align-items:center;flex:1;font-weight:800;color:var(--vermelho);cursor:pointer;margin-top:18px">' +
+            '<input type="checkbox" id="tf-urgente" style="width:20px;height:20px"' + (t.urgente ? ' checked' : '') + '> 🔴 URGENTE</label>' +
+        '</div>' +
+        '<label class="campo" style="margin-top:8px"><span class="campo__rot">Detalhe (opcional)</span>' +
+          '<input class="entrada" id="tf-obs" value="' + U.esc(t.obs || '') + '" placeholder="Ex.: separar as placas quebradas no fundo do galpão"></label>' +
+        '<p class="peq mut" style="margin:12px 0 4px">Quem vai fazer (quem está de folga nesse dia fica bloqueado):</p>' +
+        '<div id="tf-lista"><p class="mut">Carregando a escala…</p></div>',
+      pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR TAREFA</button>',
+      travado: true
+    });
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+    var caixa = m.querySelector('#tf-lista');
+    function montar() {
+      var dia = m.querySelector('#tf-data').value;
+      if (!dia) { caixa.innerHTML = '<p class="peq mut">Escolha o dia.</p>'; return; }
+      Patio.presenca(dia, dia).then(function (pd) {
+        var stDia = {};
+        pd.forEach(function (x) { stDia[x.colaborador_id] = x.status; });
+        caixa.innerHTML = ativos.map(function (c) {
+          var st = stDia[c.id] || '';
+          var bloq = st && !Patio.livre(st);
+          return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
+            (bloq ? 'opacity:.55' : 'cursor:pointer') + '">' +
+            '<input type="checkbox" class="js-tf-c" value="' + c.id + '" style="width:20px;height:20px"' +
+              (sel[c.id] && !bloq ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
+            '<b class="peq" style="flex:1">' + U.esc(c.nome) + '</b>' + chipStatus(st) + '</label>';
+        }).join('') || '<p class="peq mut">Nenhum colaborador ativo.</p>';
+        U.$$('.js-tf-c', caixa).forEach(function (cb) { cb.addEventListener('change', function () { sel[cb.value] = cb.checked; }); });
+      }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
+    }
+    montar();
+    m.querySelector('#tf-data').addEventListener('change', montar);
+    m.querySelector('[data-ok]').addEventListener('click', function () {
+      var titulo = Patio.normNome(m.querySelector('#tf-titulo').value);
+      var dia = m.querySelector('#tf-data').value;
+      if (titulo.length < 3) return U.aviso('Escreva o que é para fazer.', 'erro');
+      if (!dia) return U.aviso('Escolha o dia.', 'erro');
+      var ids = U.$$('.js-tf-c', caixa).filter(function (cb) { return cb.checked && !cb.disabled; }).map(function (cb) { return cb.value; });
+      var reg = {
+        titulo: titulo, data: dia, colaboradores: ids,
+        obs: (m.querySelector('#tf-obs').value || '').trim() || null,
+        urgente: m.querySelector('#tf-urgente').checked
+      };
+      if (t.id) reg.id = t.id;
+      else { reg.feita = false; reg.criado_por = Sessao.atual ? Sessao.atual.nome : null; reg.criado_em = new Date().toISOString(); }
+      var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+      Patio.gravarTarefa(reg).then(function () {
+        m.fechar();
+        U.aviso('📝 Tarefa ' + (t.id ? 'atualizada' : 'criada') + ': ' + titulo + (ids.length ? ' · ' + ids.length + ' pessoa(s)' : '') + '.', 'ok', 5000);
+        carregar();
+      }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR TAREFA'; App.falhou(e); });
+    });
+  }
+
   function chipStatus(k) {
     var s = Patio.st(k);
     if (!s) return '<span class="terc-tag" style="background:#F1F4F8;border-color:#DCE3ED;color:var(--txt-3)">sem marcação</span>';
@@ -11900,8 +12029,35 @@ function TelaPatio() {
       (desc.length ? desc.map(function (x) { x.data = dia; return cartaoDemanda(x); }).join('')
         : '<p class="peq mut">Nenhum descarregamento nesse dia. Aparece aqui pelo fim da desmontagem do evento.</p>');
 
+    /* 📝 tarefas do dia + atrasadas */
+    var tfDia = tarefasDoDia(dia);
+    var tfAtras = dia === U.hojeISO()
+      ? tarefas.filter(function (t) { return !t.feita && String(t.data).slice(0, 10) < dia; })
+          .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); })
+      : [];
+    var feitas = tfDia.filter(function (t) { return t.feita; }).length;
+    h += '<h2 class="secao__tit" style="margin-top:22px">📝 Tarefas do dia <span class="n">' +
+      (tfDia.length ? feitas + '/' + tfDia.length + ' feitas' : '0') + '</span></h2>';
+    if (!tarefasOk) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">⚠</span><div>' +
+        '<b>Falta criar a tabela de tarefas no Supabase.</b>Rode o <b>patio.sql</b> de novo (ele cria só o que falta).</div></div>';
+    } else {
+      h += '<button class="btn btn--laranja btn--bloco" id="tf-nova" style="margin-bottom:10px">➕ NOVA TAREFA</button>';
+      if (tfAtras.length) {
+        h += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⏰</span><div>' +
+          '<b>' + tfAtras.length + ' tarefa(s) de dias anteriores NÃO FEITAS:</b></div></div>' +
+          tfAtras.map(function (t) { return cartaoTarefa(t, true); }).join('');
+      }
+      h += tfDia.length ? tfDia.map(function (t) { return cartaoTarefa(t, false); }).join('')
+        : '<p class="peq mut">Nenhuma tarefa para esse dia. Toque em ➕ NOVA TAREFA para passar uma tarefa para a equipe.</p>';
+    }
+
     /* presença do dia */
     var esc = escaladosNoDia(dia);
+    tfDia.forEach(function (t) {
+      if (t.feita) return;
+      (t.colaboradores || []).forEach(function (id) { (esc[id] = esc[id] || []).push('📝 ' + t.titulo); });
+    });
     h += '<h2 class="secao__tit" style="margin-top:22px">👥 Presença do dia <span class="n">' + ativos.length + '</span></h2>' +
       '<div class="cartao"><div class="cartao__corpo">' +
       (semMarc ? '<button class="btn btn--verde btn--bloco btn--peq" id="pt-todos" style="margin-bottom:10px">✔ MARCAR OS ' + semMarc + ' SEM MARCAÇÃO COMO TRABALHOU</button>' : '') +
@@ -12150,6 +12306,41 @@ function TelaPatio() {
         marcar(TelaPatio._dia, s.dataset.colab, v).then(function () { desenhar(); }).catch(App.falhou);
       });
     });
+    var tfNova = U.$('#tf-nova', tela);
+    if (tfNova) tfNova.addEventListener('click', function () { editarTarefa(null); });
+    function acharTarefa(id) { return tarefas.filter(function (t) { return t.id === id; })[0]; }
+    U.$$('.js-tf-editar', tela).forEach(function (b) {
+      b.addEventListener('click', function () { var t = acharTarefa(b.dataset.id); if (t) editarTarefa(JSON.parse(JSON.stringify(t))); });
+    });
+    U.$$('.js-tf-feita', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var t = acharTarefa(b.dataset.id); if (!t) return;
+        var feita = !t.feita;
+        b.disabled = true;
+        Patio.gravarTarefa({
+          id: t.id, feita: feita,
+          feita_em: feita ? new Date().toISOString() : null,
+          feita_por: feita ? (Sessao.atual ? Sessao.atual.nome : null) : null
+        }).then(function () {
+          t.feita = feita; t.feita_em = feita ? new Date().toISOString() : null;
+          t.feita_por = feita ? (Sessao.atual ? Sessao.atual.nome : null) : null;
+          desenhar();
+        }).catch(function (e) { b.disabled = false; App.falhou(e); });
+      });
+    });
+    U.$$('.js-tf-apagar', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var t = acharTarefa(b.dataset.id); if (!t) return;
+        U.confirmar('Apagar tarefa?', 'Apagar "' + t.titulo + '"? Não dá para desfazer.', 'APAGAR', 'btn--vermelho').then(function (ok) {
+          if (!ok) return;
+          Patio.apagarTarefa(t.id).then(function () {
+            tarefas = tarefas.filter(function (x) { return x.id !== t.id; });
+            U.aviso('🗑️ Tarefa apagada.', 'ok'); desenhar();
+          }).catch(App.falhou);
+        });
+      });
+    });
+
     var todos = U.$('#pt-todos', tela);
     if (todos) todos.addEventListener('click', function () {
       var linhas = ativos.filter(function (c) { return !statusDe(TelaPatio._dia, c.id); })

@@ -108,9 +108,11 @@
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
       lista(cli.from("patio_presenca").select("data,colaborador_id,status")
         .gte("data", hojeISO(0)).lte("data", hojeISO(3))).catch(function () { return []; }),
-      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores")).catch(function () { return []; })
+      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores")).catch(function () { return []; }),
+      lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
+        .gte("data", hojeISO(-30)).lte("data", hojeISO(0))).catch(function () { return []; })
     ]).then(function (rr) {
-      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6]);
+      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
       $("erro").hidden = true;
       $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
     }).catch(function (e) {
@@ -120,7 +122,7 @@
     });
   }
 
-  function desenhar(eventos, cgs, confs, cams, colabs, pres, dems) {
+  function desenhar(eventos, cgs, confs, cams, colabs, pres, dems, tarefas) {
     var hoje = hojeISO(0);
     var evPorId = {}, nomeColab = {};
     eventos.forEach(function (e) { evPorId[e.id] = e; });
@@ -199,6 +201,29 @@
           }).join("") : '<span class="tag ruim">NENHUM CARREGAMENTO CRIADO</span>') +
         "</div>";
       }).join("") : '<div class="vazio">Nada saindo até amanhã.</div>') + "</div></div>";
+
+    /* 📝 TAREFAS DE HOJE (+ atrasadas não feitas) */
+    var tfHoje = (tarefas || []).filter(function (t) {
+      var d = String(t.data).slice(0, 10);
+      return d === hoje || (d < hoje && !t.feita);
+    }).sort(function (a, b) {
+      return (a.feita ? 1 : 0) - (b.feita ? 1 : 0) || (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0) ||
+        String(a.data).localeCompare(String(b.data));
+    });
+    var tfFeitas = tfHoje.filter(function (t) { return t.feita; }).length;
+    h += '<div class="bloco"><h2>📝 Tarefas de hoje <span class="n">' + tfFeitas + '/' + tfHoje.length + '</span></h2><div class="corpo">' +
+      (tfHoje.length ? tfHoje.map(function (t) {
+        var quem = (t.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+        var atras = String(t.data).slice(0, 10) < hoje;
+        return '<div class="lin" style="' + (t.feita ? 'opacity:.45' : '') + '">' +
+          '<b class="ev" style="' + (t.feita ? 'text-decoration:line-through' : '') + '">' +
+            (t.feita ? '✓ ' : t.urgente ? '🔴 ' : '') + esc(t.titulo) + '</b>' +
+          (atras ? '<div class="sub" style="color:#FFB066;font-weight:800">ATRASADA · era para ' + fmtData(t.data) + '</div>' : '') +
+          (t.obs ? '<div class="sub">' + esc(t.obs) + '</div>' : '') +
+          '<div class="sub" style="color:#BFD6F5">👷 ' + (quem.length ? quem.map(esc).join(" · ") : "sem responsável") + '</div>' +
+        '</div>';
+      }).join('') : '<div class="vazio">Nenhuma tarefa passada para hoje.</div>') +
+    '</div></div>';
 
     var totFora = 0; foraPorDia.forEach(function (x) { totFora += x.fora.length; });
     var DIAS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
