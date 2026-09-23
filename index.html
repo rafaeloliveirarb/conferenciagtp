@@ -3208,7 +3208,8 @@ function transferirMaterial(p) {
   var m = U.modal({
     titulo: '🔁 Transferir material',
     html: '<p class="mut peq" style="margin-bottom:10px">O material sai deste evento direto para o outro, sem voltar ao galpão. ' +
-        'Fica registrado como retorno aqui e saída lá — os relatórios dos dois fecham certinho.</p>' +
+        'Fica registrado como retorno aqui e saída lá, e o <b>produtor do evento de destino confere a chegada</b> ' +
+        'no link dele, igual a um caminhão normal.</p>' +
       '<label class="campo"><span class="campo__rot">Evento de destino</span>' +
         '<select class="entrada" id="tr-dest">' +
           destinos.map(function (e) {
@@ -3296,12 +3297,23 @@ function transferirMaterial(p) {
                 return { produto_id: prodD ? prodD.id : null, quantidade: i.qtd, observacao: obsD };
               }).filter(function (x) { return x.produto_id; })).then(function () { return cD; });
             }).then(function (cD) {
+              /* checklist do caminhão da transferência: é isso que faz o
+                 PRODUTOR do destino ver o material chegando e conferir */
+              var linhasPlano = itens.map(function (i) {
+                var prodD = res.porChave[Estoque.chave(i.nome)];
+                return prodD && prodD.id
+                  ? { carregamento_id: cD.carregamento_id, produto_id: prodD.id, quantidade: i.qtd }
+                  : null;
+              }).filter(Boolean);
+              return Banco.salvarPlano(cD.carregamento_id, linhasPlano).then(function () { return cD; });
+            }).then(function (cD) {
               return Banco.sincronizarEstoqueConferencia(cD.id, destId, 'saida', porChave, Sessao.atual.id, obsD);
             });
           });
         }).then(function () {
           m.fechar();
-          U.aviso('🔁 ' + U.fmt(totTr) + ' peça(s) transferida(s) para "' + dest.nome + '".', 'ok', 7000);
+          U.aviso('🔁 ' + U.fmt(totTr) + ' peça(s) transferida(s) para "' + dest.nome + '". ' +
+            'O produtor de lá já vê a chegada no link dele para conferir.', 'ok', 8000);
           App.recarregar();
         }).catch(function (e) {
           btn.disabled = false; btn.textContent = '🔁 TRANSFERIR';
@@ -3457,6 +3469,30 @@ function TelaPainel() {
       return Math.max(1, Math.floor((Date.now() - new Date(fimDesmontagem(ev) + 'T12:00:00').getTime()) / 86400000));
     }
 
+    /* 🚨 evento chegando sem preparo: sai em até 3 dias e falta checklist ou caminhão */
+    var limitePrep = (function () {
+      var d = new Date(Date.now() + 3 * 86400000);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    var semPreparo = [];
+    App.eventos.forEach(function (ev) {
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return;
+      var d = String(ev.data || '').slice(0, 10);
+      if (!d || d < U.hojeISO() || d > limitePrep) return;
+      /* se alguma saída já foi finalizada, o material já está saindo: preparado */
+      if (App.conferencias.some(function (c) { return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em; })) return;
+      var falta = [];
+      if (!(App.qtdChecklist(ev.id) > 0)) falta.push('SEM CHECKLIST');
+      var temCam = todosCarregamentos.some(function (cg) {
+        return cg.evento_id === ev.id && cg.sentido !== 'retorno' && cg.caminhao_id;
+      });
+      if (!temCam) falta.push('SEM CAMINHÃO');
+      if (!falta.length) return;
+      var dias = Math.round((new Date(d + 'T12:00:00').getTime() - Date.now()) / 86400000);
+      semPreparo.push({ ev: ev, falta: falta, dias: Math.max(0, dias) });
+    });
+    semPreparo.sort(function (a, b) { return a.dias - b.dias; });
+
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
     var finalizadas = App.conferencias.filter(function (c) { return c.status === 'Finalizado' || c.status === 'Com divergência'; }).length;
     var divergencias = App.conferencias.filter(function (c) { return c.status === 'Com divergência'; }).length;
@@ -3477,10 +3513,25 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
+        '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
+
+      (semPreparo.length
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:18px"><span class="aviso__ico">🚨</span><div>' +
+          '<b>' + semPreparo.length + ' evento(s) chegando SEM PREPARO:</b>' +
+          semPreparo.slice(0, 6).map(function (x) {
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(x.ev.nome) + ' — ' +
+                (x.dias === 0 ? '<b style="color:var(--vermelho)">sai HOJE</b>' : 'sai em <b>' + x.dias + ' dia(s)</b>') +
+                ' · <b style="color:var(--vermelho)">' + x.falta.join(' e ') + '</b></span>' +
+              '<button class="btn btn--branco btn--peq js-abrir-atr" data-id="' + x.ev.id + '">RESOLVER</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
 
       (avariasProd.length
         ? '<div class="aviso aviso--vermelho" style="margin-bottom:18px"><span class="aviso__ico">⚠</span><div>' +
@@ -3797,6 +3848,7 @@ function TelaPainel() {
     });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
+    U.$('#btn-tv').addEventListener('click', function () { window.open('tv.html', '_blank'); });
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
     U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
@@ -5871,6 +5923,102 @@ function TelaEvento(eventoId) {
           '<button class="btn btn--branco btn--bloco btn--peq" id="btn-link-produtor" style="margin-top:12px">' +
             '🔗 ' + (ev.token_produtor ? 'VER / COPIAR O LINK DO PRODUTOR' : 'GERAR LINK DO PRODUTOR') + '</button>' +
         '</div></div>';
+
+      /* --- 🔎 PRODUTOR × GALPÃO: cruza os números e mostra onde o material sumiu --- */
+      (function () {
+        var chegadas = cps.filter(function (c) { return c.tipo !== 'sobra'; });
+        var sobras = cps.filter(function (c) { return c.tipo === 'sobra'; });
+        if (!chegadas.length && !sobras.length) return;
+
+        /* galpão, somado por nome */
+        var galpao = {};
+        linhas.forEach(function (l) {
+          var ch = Estoque.chave(l.nome);
+          var g = galpao[ch] || (galpao[ch] = { nome: l.nome, un: l.unidade || 'UN', saiu: 0, voltou: 0 });
+          g.saiu += (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+          g.voltou += l.retorno === null ? 0 : l.retorno;
+        });
+        var temSaidaG = linhas.some(function (l) { return l.saida !== null; });
+        var temRetornoG = linhas.some(function (l) { return l.retorno !== null; });
+
+        /* produtor, somado por nome */
+        function somaProdutor(lista) {
+          var m2 = {};
+          lista.forEach(function (c) {
+            (c.itens || []).forEach(function (i2) {
+              var ch = Estoque.chave(i2.nome);
+              var b = m2[ch] || (m2[ch] = { nome: i2.nome, un: i2.unidade || 'UN', qtd: 0 });
+              b.qtd += U.num(i2.qtd);
+            });
+          });
+          return m2;
+        }
+        var chegouProd = somaProdutor(chegadas);
+        var sobraProd = somaProdutor(sobras);
+
+        function blocoCruza(titulo, ladoA, rotA, ladoB, rotB, dicaSumiu, dicaSobrou) {
+          var chaves = {};
+          Object.keys(ladoA).forEach(function (k) { chaves[k] = 1; });
+          Object.keys(ladoB).forEach(function (k) { chaves[k] = 1; });
+          var difs = [], bateu = 0;
+          Object.keys(chaves).forEach(function (k) {
+            var a = ladoA[k], b = ladoB[k];
+            var va = a ? (a.saiu !== undefined ? a.saiu : a.qtd !== undefined ? a.qtd : a.voltou) : 0;
+            var vb = b ? (b.saiu !== undefined ? b.saiu : b.qtd !== undefined ? b.qtd : b.voltou) : 0;
+            if (!(va > 0) && !(vb > 0)) return;
+            var d = vb - va;
+            if (d === 0) { bateu++; return; }
+            difs.push({ nome: (a || b).nome, un: (a || b).un, va: va, vb: vb, d: d });
+          });
+          if (!difs.length && !bateu) return '';
+          var h3 = '<p class="peq" style="margin:12px 0 4px;font-weight:800;color:var(--azul)">' + titulo + '</p>';
+          if (difs.length) {
+            difs.sort(function (x, y) { return Math.abs(y.d) - Math.abs(x.d); });
+            h3 += difs.map(function (x) {
+              return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;' +
+                'padding:6px 10px;border:1px solid var(--linha);border-left:4px solid ' +
+                (x.d < 0 ? 'var(--vermelho)' : 'var(--laranja)') + ';border-radius:8px;margin-top:6px">' +
+                '<span style="flex:1;min-width:150px"><b>' + U.esc(x.nome) + '</b>' +
+                  '<span class="mut" style="display:block">' + rotA + ': ' + U.fmt(x.va) + ' · ' + rotB + ': ' + U.fmt(x.vb) + '</span></span>' +
+                '<b style="flex:none;color:' + (x.d < 0 ? 'var(--vermelho)' : 'var(--laranja)') + '">' +
+                  (x.d < 0 ? '✖ ' + U.fmt(-x.d) + ' ' + U.esc(x.un) + ' ' + dicaSumiu
+                           : '+' + U.fmt(x.d) + ' ' + U.esc(x.un) + ' ' + dicaSobrou) + '</b>' +
+              '</div>';
+            }).join('');
+          }
+          if (bateu) {
+            h3 += '<p class="peq" style="margin-top:6px;color:var(--verde);font-weight:700">✓ ' + bateu +
+              ' item(ns) bateram certinho.</p>';
+          }
+          return h3;
+        }
+
+        var corpoX = '';
+        if (chegadas.length && temSaidaG) {
+          corpoX += blocoCruza('🚚 IDA — saiu do galpão × o produtor recebeu',
+            galpao, 'saiu do galpão',
+            (function () { var m3 = {}; Object.keys(chegouProd).forEach(function (k) { m3[k] = chegouProd[k]; }); return m3; })(), 'produtor recebeu',
+            'sumiu no caminho de ida', 'chegou a mais');
+        }
+        if (sobras.length && temRetornoG) {
+          corpoX += blocoCruza('↩️ VOLTA — o produtor deixou na sobra × voltou ao galpão',
+            (function () { var m4 = {}; Object.keys(sobraProd).forEach(function (k) { m4[k] = sobraProd[k]; }); return m4; })(), 'sobra declarada',
+            (function () { var m5 = {}; Object.keys(galpao).forEach(function (k) { if (galpao[k].voltou > 0 || sobraProd[k]) m5[k] = { nome: galpao[k].nome, un: galpao[k].un, qtd: galpao[k].voltou }; }); return m5; })(), 'voltou ao galpão',
+            'sumiu no caminho de volta', 'voltou a mais');
+        }
+        if (!corpoX) {
+          corpoX = '<p class="peq mut">O cruzamento aparece quando os dois lados existem: ' +
+            'saída finalizada + chegada do produtor (ida), e sobra do produtor + retorno no galpão (volta).</p>';
+        }
+        var abertoX = !!TelaEvento._pxAberta;
+        h += '<div class="cartao"><div class="cartao__topo" id="px-topo" style="cursor:pointer;user-select:none">' +
+          '<h3>🔎 Produtor × Galpão</h3>' +
+          '<span class="peq" style="color:var(--azul);font-weight:800">onde o material sumiu ' + (abertoX ? '▲' : '▼') + '</span></div>' +
+          '<div class="cartao__corpo" id="px-corpo"' + (abertoX ? '' : ' hidden') + '>' +
+          '<p class="peq mut" style="margin:0 0 4px">Cruza o que o galpão registrou com o que o produtor conferiu no evento. ' +
+            'Diferença na IDA = problema no transporte ou no carregamento. Diferença na VOLTA = ficou no evento ou se perdeu no caminho.</p>' +
+          corpoX + '</div></div>';
+      })();
     }
 
     /* --- nota fiscal (o coordenador anexa; todos podem abrir/imprimir) --- */
@@ -7288,6 +7436,15 @@ function TelaEvento(eventoId) {
     if (btnDisp) btnDisp.addEventListener('click', function () { verificarDisponibilidade(p); });
     var btnTransf = U.$('#btn-transferir', tela);
     if (btnTransf) btnTransf.addEventListener('click', function () { transferirMaterial(p); });
+
+    var pxTopo = U.$('#px-topo', tela);
+    if (pxTopo) pxTopo.addEventListener('click', function () {
+      var corpoP = U.$('#px-corpo', tela);
+      TelaEvento._pxAberta = corpoP.hidden;
+      corpoP.hidden = !corpoP.hidden;
+      pxTopo.querySelector('span').innerHTML = pxTopo.querySelector('span').innerHTML
+        .replace(corpoP.hidden ? '▲' : '▼', corpoP.hidden ? '▼' : '▲');
+    });
 
     var tlTopo = U.$('#tl-topo', tela);
     if (tlTopo) tlTopo.addEventListener('click', function () {
@@ -10477,6 +10634,67 @@ function TelaRelatorios() {
       return h;
     }
 
+    /* 👷 produtividade dos conferentes no período */
+    function abaConferentes() {
+      exportTitulo = 'Conferentes';
+      exportLinhas = [['Período', rotuloPeriodo()],
+        ['Conferente', 'Conferências', 'Saídas', 'Retornos', 'Divergências', 'Tempo médio']];
+      var evPorId2 = {};
+      App.eventos.forEach(function (e) { evPorId2[e.id] = e; });
+      var porConf = {};
+      App.conferencias.forEach(function (c) {
+        if (!c.finalizada_em || !c.conferente_id) return;
+        if (!noPeriodo(c.finalizada_em)) return;
+        var b = porConf[c.conferente_id] || (porConf[c.conferente_id] = {
+          nome: App.nomeUsuario(c.conferente_id), total: 0, saidas: 0, retornos: 0,
+          diverg: 0, corrigidas: 0, somaMin: 0, comTempo: 0
+        });
+        b.total++;
+        if (c.tipo === 'retorno') b.retornos++; else b.saidas++;
+        if (c.status === 'Com divergência') b.diverg++;
+        if ((c.correcoes || []).length) b.corrigidas++;
+        if (c.created_at) {
+          var min = (new Date(c.finalizada_em) - new Date(c.created_at)) / 60000;
+          if (min > 0 && min < 60 * 24) { b.somaMin += min; b.comTempo++; }   /* acima de 1 dia não conta (ficou aberta) */
+        }
+      });
+      var lista = Object.keys(porConf).map(function (k) { return porConf[k]; })
+        .filter(function (b) { return casaBusca(b.nome); })
+        .sort(function (a, b) { return b.total - a.total; });
+      if (!lista.length) {
+        return barraPeriodo() + '<div class="vazio"><p class="vazio__ico">👷</p>' +
+          '<h3>Nenhuma conferência finalizada neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
+      }
+      function tempoTxt(b) {
+        if (!b.comTempo) return '—';
+        var m = Math.round(b.somaMin / b.comTempo);
+        return m >= 60 ? Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') : m + ' min';
+      }
+      var max = lista[0].total || 1;
+      return barraPeriodo() +
+        '<div class="cartao"><div class="cartao__topo"><h3>👷 Produtividade dos conferentes</h3>' +
+          '<span class="mut peq">' + U.esc(rotuloPeriodo()) + '</span></div><div class="cartao__corpo">' +
+        lista.map(function (b) {
+          exportLinhas.push([b.nome, b.total, b.saidas, b.retornos, b.diverg, tempoTxt(b)]);
+          var pctDiv = b.total ? Math.round(b.diverg / b.total * 100) : 0;
+          return '<div style="padding:9px 0;border-bottom:1px solid var(--linha)">' +
+            '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+              '<b>' + U.esc(b.nome) + '</b>' +
+              '<span><b>' + b.total + '</b> conferência(s) · ' + b.saidas + ' saída(s) · ' + b.retornos + ' retorno(s)' +
+                ' · ⏱ ' + tempoTxt(b) +
+                ' · <b style="color:' + (pctDiv > 20 ? 'var(--vermelho)' : pctDiv > 0 ? 'var(--laranja)' : 'var(--verde)') + '">' +
+                  b.diverg + ' divergência(s)' + (b.total ? ' (' + pctDiv + '%)' : '') + '</b>' +
+                (b.corrigidas ? ' · ✏️ ' + b.corrigidas + ' corrigida(s)' : '') + '</span></div>' +
+            '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:5px">' +
+              '<div style="height:6px;border-radius:4px;background:var(--azul);width:' +
+                Math.max(2, Math.round(b.total / max * 100)) + '%"></div></div>' +
+          '</div>';
+        }).join('') +
+        '<p class="peq mut" style="margin-top:10px">⏱ Tempo médio entre abrir e finalizar a conferência ' +
+          '(conferências que ficaram abertas mais de 1 dia não entram na média).</p>' +
+        '</div></div>';
+    }
+
     var ABAS = {
       saidas: { rot: '📤 Saídas no período', fn: abaSaidas },
       material: { rot: '🚧 Material na rua', fn: abaMaterial },
@@ -10484,7 +10702,8 @@ function TelaRelatorios() {
       perdas: { rot: '🔧 Perdas e quebras', fn: abaPerdas },
       manutencao: { rot: '🛠️ Manutenção', fn: abaManutencao },
       historico: { rot: '🗂️ Histórico por evento', fn: abaHistorico },
-      giro: { rot: '🔄 Giro de peças', fn: abaGiro }
+      giro: { rot: '🔄 Giro de peças', fn: abaGiro },
+      conferentes: { rot: '👷 Conferentes', fn: abaConferentes }
     };
     var abaAtiva = 'saidas';
 

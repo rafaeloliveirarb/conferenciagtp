@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Galpão · Grupo Tendas Plenart</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --azul:#0B4F9E; --laranja:#F57C00; --verde:#2FBF71; --vermelho:#FF5A4E; --amarelo:#FFC24B;
+    --fundo:#0C1420; --cartao:#152238; --linha:#24344E; --txt:#EAF1FA; --mut:#8FA3BD;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fundo);color:var(--txt);
+    font:18px/1.4 "Segoe UI",system-ui,Arial,sans-serif;min-height:100vh}
+  .topo{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+    padding:18px 26px;border-bottom:4px solid var(--laranja)}
+  .topo h1{margin:0;font-size:26px;font-weight:900;letter-spacing:.5px}
+  .topo h1 small{display:block;font-size:13px;font-weight:600;color:var(--mut);letter-spacing:3px}
+  .relogio{text-align:right}
+  .relogio b{display:block;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
+  .relogio span{font-size:15px;color:var(--mut);text-transform:capitalize}
+  .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;padding:20px 26px}
+  .bloco{background:var(--cartao);border:1px solid var(--linha);border-radius:14px;overflow:hidden}
+  .bloco h2{margin:0;padding:12px 18px;font-size:17px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;
+    background:rgba(255,255,255,.04);border-bottom:1px solid var(--linha);display:flex;justify-content:space-between;align-items:center}
+  .bloco h2 .n{background:var(--linha);border-radius:999px;padding:2px 12px;font-size:15px}
+  .bloco h2.alerta{color:var(--vermelho)} .bloco h2.alerta .n{background:var(--vermelho);color:#fff}
+  .bloco h2.atencao{color:var(--amarelo)} .bloco h2.atencao .n{background:var(--amarelo);color:#4A3000}
+  .corpo{padding:8px 18px 14px;max-height:44vh;overflow:hidden}
+  .lin{padding:10px 0;border-bottom:1px solid var(--linha)}
+  .lin:last-child{border-bottom:0}
+  .lin b.ev{font-size:20px}
+  .lin .sub{color:var(--mut);font-size:15px;margin-top:2px}
+  .tag{display:inline-block;border-radius:999px;padding:2px 12px;font-size:13.5px;font-weight:800;margin:3px 6px 0 0}
+  .tag.ok{background:rgba(47,191,113,.18);color:var(--verde)}
+  .tag.pend{background:rgba(245,124,0,.2);color:#FFB066}
+  .tag.ruim{background:rgba(255,90,78,.18);color:var(--vermelho)}
+  .vazio{padding:20px 0;color:var(--mut);font-weight:600}
+  .rodape{padding:10px 26px 20px;color:var(--mut);font-size:13px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .err{margin:0 26px;padding:12px 16px;background:rgba(255,90,78,.15);border:1px solid var(--vermelho);
+    border-radius:10px;color:#FFB4AE;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>GRUPO TENDAS PLENART<small>PAINEL DO GALPÃO</small></h1>
+  <div class="relogio"><b id="hora">--:--</b><span id="data"></span></div>
+</div>
+
+<div class="err" id="erro" hidden></div>
+<div class="grade" id="grade"><div class="vazio" style="padding:30px 26px">Carregando o painel…</div></div>
+<div class="rodape">
+  <span>Atualiza sozinho a cada minuto · somente leitura</span>
+  <span id="atualizado"></span>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SUPABASE_URL = "https://cllylcuhpmwnyebmlelf.supabase.co";
+  var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E";
+  function fetchLimpo(recurso, opcoes) {
+    opcoes = opcoes || {};
+    try {
+      if (opcoes.headers && typeof Headers !== "undefined" && opcoes.headers instanceof Headers) {
+        var simples = {}; opcoes.headers.forEach(function (v, k) { simples[k] = v; });
+        var copia = {}; Object.keys(opcoes).forEach(function (k) { copia[k] = opcoes[k]; });
+        copia.headers = simples; opcoes = copia;
+      }
+    } catch (e) { }
+    return fetch(recurso, opcoes);
+  }
+  var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
+
+  function $(id) { return document.getElementById(id); }
+  function esc(t) {
+    return String(t === null || t === undefined ? "" : t)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function hojeISO(mais) {
+    var d = new Date(Date.now() + (mais || 0) * 86400000);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function fmtData(iso) {
+    var p = String(iso || "").slice(0, 10).split("-");
+    return p.length === 3 ? p[2] + "/" + p[1] : "";
+  }
+
+  /* relógio */
+  function relogio() {
+    var d = new Date();
+    $("hora").textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    $("data").textContent = d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+  }
+  relogio(); setInterval(relogio, 5000);
+
+  function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+
+  function carregar() {
+    Promise.all([
+      lista(cli.from("eventos").select("id,nome,cliente,local,data,data_desmontagem,data_desmontagem_fim,status")),
+      lista(cli.from("carregamentos").select("id,evento_id,numero,nome,sentido,caminhao_id,cavalo_id")),
+      lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,status,finalizada_em")),
+      lista(cli.from("caminhoes").select("id,tipo,placa")),
+      lista(cli.from("conferencias_produtor").select("id,evento_id,tipo,responsavel,finalizada_em,qtd_avarias")
+        .gt("qtd_avarias", 0).not("avaria_vista", "is", true)).catch(function () { return []; }),
+      lista(cli.from("produtos").select("evento_id")).catch(function () { return []; })
+    ]).then(function (rr) {
+      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5]);
+      $("erro").hidden = true;
+      $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
+    }).catch(function (e) {
+      console.error(e);
+      $("erro").hidden = false;
+      $("erro").textContent = "Sem conexão com o banco agora — mostrando a última tela. Tentando de novo em 1 minuto.";
+    });
+  }
+
+  function desenhar(eventos, cgs, confs, cams, avarias, prods) {
+    var hoje = hojeISO(0), limite = hojeISO(3);
+    var evPorId = {}, temCk = {};
+    eventos.forEach(function (e) { evPorId[e.id] = e; });
+    prods.forEach(function (p) { temCk[p.evento_id] = (temCk[p.evento_id] || 0) + 1; });
+    function aberto(e) { return e.status !== "Finalizado" && e.status !== "Com divergência"; }
+    function nomeCam(cg) {
+      var c = cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+      return c ? (c.tipo || "Caminhão") + " " + (c.placa || "") : "caminhão a definir";
+    }
+    function saidaFinal(cgId) {
+      return confs.some(function (c) { return c.carregamento_id === cgId && c.tipo === "saida" && c.finalizada_em; });
+    }
+
+    /* SAINDO HOJE / AMANHÃ: eventos com data hoje..amanhã, com os caminhões */
+    var saindo = eventos.filter(function (e) {
+      var d = String(e.data || "").slice(0, 10);
+      return aberto(e) && d >= hoje && d <= hojeISO(1);
+    }).sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+
+    /* ATRASADOS: fim da desmontagem passou e não encerrou */
+    var atrasados = eventos.filter(function (e) {
+      if (!aberto(e) || !e.data_desmontagem) return false;
+      return String(e.data_desmontagem_fim || e.data_desmontagem).slice(0, 10) < hoje;
+    });
+
+    /* SEM PREPARO: sai em até 3 dias sem checklist ou caminhão */
+    var semPrep = [];
+    eventos.forEach(function (e) {
+      if (!aberto(e)) return;
+      var d = String(e.data || "").slice(0, 10);
+      if (!d || d < hoje || d > limite) return;
+      if (confs.some(function (c) { return c.evento_id === e.id && c.tipo === "saida" && c.finalizada_em; })) return;
+      var falta = [];
+      if (!temCk[e.id]) falta.push("SEM CHECKLIST");
+      if (!cgs.some(function (cg) { return cg.evento_id === e.id && cg.sentido !== "retorno" && cg.caminhao_id; })) falta.push("SEM CAMINHÃO");
+      if (falta.length) semPrep.push({ e: e, falta: falta });
+    });
+
+    /* NA RUA: eventos abertos com saída finalizada (material fora) */
+    var naRua = eventos.filter(function (e) {
+      return aberto(e) && confs.some(function (c) { return c.evento_id === e.id && c.tipo === "saida" && c.finalizada_em; });
+    });
+
+    var h = "";
+
+    h += '<div class="bloco"><h2>🚚 Saindo hoje e amanhã <span class="n">' + saindo.length + "</span></h2><div class=\"corpo\">" +
+      (saindo.length ? saindo.map(function (e) {
+        var cgsE = cgs.filter(function (c) { return c.evento_id === e.id && c.sentido !== "retorno"; });
+        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
+          '<div class="sub">' + (String(e.data).slice(0, 10) === hoje ? "HOJE" : "AMANHÃ") +
+            (e.local ? " · " + esc(e.local) : "") + "</div>" +
+          (cgsE.length ? cgsE.map(function (cg) {
+            var ok = saidaFinal(cg.id);
+            return '<span class="tag ' + (ok ? "ok" : "pend") + '">' +
+              (ok ? "✓ " : "") + "Carreg. " + cg.numero + " · " + esc(nomeCam(cg)) + (ok ? " SAIU" : " PENDENTE") + "</span>";
+          }).join("") : '<span class="tag ruim">NENHUM CARREGAMENTO CRIADO</span>') +
+        "</div>";
+      }).join("") : '<div class="vazio">Nada saindo até amanhã.</div>') + "</div></div>";
+
+    h += '<div class="bloco"><h2 class="' + (semPrep.length ? "atencao" : "") + '">🚨 Sem preparo <span class="n">' + semPrep.length + "</span></h2><div class=\"corpo\">" +
+      (semPrep.length ? semPrep.map(function (x) {
+        return '<div class="lin"><b class="ev">' + esc(x.e.nome) + "</b>" +
+          '<div class="sub">sai ' + (String(x.e.data).slice(0, 10) === hoje ? "HOJE" : fmtData(x.e.data)) + "</div>" +
+          '<span class="tag ruim">' + x.falta.join(" · ") + "</span></div>";
+      }).join("") : '<div class="vazio">Tudo preparado. 👊</div>') + "</div></div>";
+
+    h += '<div class="bloco"><h2 class="' + (atrasados.length ? "alerta" : "") + '">⏰ Retorno atrasado <span class="n">' + atrasados.length + "</span></h2><div class=\"corpo\">" +
+      (atrasados.length ? atrasados.map(function (e) {
+        var dias = Math.max(1, Math.floor((Date.now() - new Date(String(e.data_desmontagem_fim || e.data_desmontagem).slice(0, 10) + "T12:00:00").getTime()) / 86400000));
+        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
+          '<div class="sub">desmontagem terminou ' + fmtData(e.data_desmontagem_fim || e.data_desmontagem) + "</div>" +
+          '<span class="tag ruim">HÁ ' + dias + " DIA(S) SEM VOLTAR</span></div>";
+      }).join("") : '<div class="vazio">Nenhum atraso. ✓</div>') + "</div></div>";
+
+    h += '<div class="bloco"><h2 class="' + (avarias.length ? "alerta" : "") + '">⚠ Avarias no evento <span class="n">' + avarias.length + "</span></h2><div class=\"corpo\">" +
+      (avarias.length ? avarias.slice(0, 6).map(function (c) {
+        var e = evPorId[c.evento_id];
+        return '<div class="lin"><b class="ev">' + esc(e ? e.nome : "—") + "</b>" +
+          '<div class="sub">' + esc(c.responsavel || "") + " · " + fmtData(c.finalizada_em) + "</div>" +
+          '<span class="tag ruim">' + Number(c.qtd_avarias) + " PEÇA(S) AVARIADA(S)</span></div>";
+      }).join("") : '<div class="vazio">Nenhuma avaria aberta. ✓</div>') + "</div></div>";
+
+    h += '<div class="bloco"><h2>📍 Material na rua <span class="n">' + naRua.length + "</span></h2><div class=\"corpo\">" +
+      (naRua.length ? naRua.slice(0, 8).map(function (e) {
+        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
+          '<div class="sub">' + (e.cliente ? esc(e.cliente) + " · " : "") + "evento " + fmtData(e.data) +
+          (e.data_desmontagem ? " · volta " + fmtData(e.data_desmontagem_fim || e.data_desmontagem) : "") + "</div></div>";
+      }).join("") : '<div class="vazio">Nada na rua.</div>') + "</div></div>";
+
+    $("grade").innerHTML = h;
+  }
+
+  carregar();
+  setInterval(carregar, 60000);
+})();
+</script>
+</body>
+</html>

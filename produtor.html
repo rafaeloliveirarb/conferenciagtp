@@ -73,6 +73,10 @@
   .tag--av{background:#FDECEA;color:var(--vermelho)}
   .tag--extra{background:#FFF1E0;color:#A85600}
   [hidden]{display:none!important}
+  .fila-off{position:sticky;top:0;z-index:40;background:#B54708;color:#fff;padding:10px 14px;
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13.5px;font-weight:700}
+  .fila-off button{border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:8px;
+    padding:6px 12px;font-weight:800;cursor:pointer;font-size:13px}
   .q30bloco{border:1px solid var(--linha);border-radius:10px;overflow:hidden;margin-bottom:10px}
   .q30bloco:last-child{margin-bottom:0}
   .q30bloco header{background:var(--azul);color:#fff;font-weight:800;font-size:14px;padding:7px 12px}
@@ -116,11 +120,16 @@
   <p id="sub">Grupo Tendas Plenart</p>
 </div>
 
+<div class="fila-off" id="fila-banner" hidden>
+  <span style="flex:1" id="fila-texto"></span>
+  <button type="button" id="fila-tentar">TENTAR AGORA</button>
+</div>
+
 <div class="caixa" id="tela">
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 22/09 E</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 23/09 F</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -194,6 +203,95 @@ var tela = document.getElementById('tela');
 var token = (location.hash || '').replace('#', '').trim();
 
 var evento = null, itensBase = [], aba = 'chegada', jaFeitas = { chegada: {}, sobra: null };
+
+/* ---------- 📴 FILA OFFLINE: sem sinal, a conferência fica guardada
+   no celular e é enviada sozinha quando a internet voltar ---------- */
+var CHAVE_FILA = 'plenart_produtor_fila_v1';
+var filaEnviando = false;
+function lerFila() {
+  try { return JSON.parse(localStorage.getItem(CHAVE_FILA)) || []; } catch (e) { return []; }
+}
+function gravaFila(f) {
+  try { localStorage.setItem(CHAVE_FILA, JSON.stringify(f)); return true; }
+  catch (e) { return false; }   /* não coube (fotos demais) */
+}
+function ehSemSinal(e) {
+  var m = (e && (e.message || e.msg)) || String(e || '');
+  return /Failed to fetch|NetworkError|Load failed|timeout|aborted/i.test(m) || (typeof navigator !== 'undefined' && navigator.onLine === false);
+}
+function bannerFila() {
+  var f = lerFila().filter(function (x) { return x.token === token; });
+  var b = document.getElementById('fila-banner');
+  if (!b) return;
+  b.hidden = !f.length;
+  if (f.length) {
+    document.getElementById('fila-texto').textContent =
+      '📴 ' + f.length + ' conferência(s) guardada(s) no celular — envio sozinho quando a internet voltar. NÃO FECHE ESTA PÁGINA.';
+  }
+}
+function entraNaFila(reg) {
+  var f = lerFila();
+  f.push({ token: token, reg: reg, em: new Date().toISOString() });
+  if (!gravaFila(f)) return false;
+  /* na tela, o caminhão fica marcado como "guardado no celular" */
+  var marca = { pendenteEnvio: true, responsavel: reg.responsavel, finalizada_em: reg.finalizada_em,
+    itens: reg.itens, observacao: reg.observacao, avaliacao: reg.avaliacao || null, tipo: reg.tipo,
+    carregamento_id: reg.carregamento_id, qtd_avarias: reg.qtd_avarias || 0 };
+  if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = marca; delete rascPorCg[reg.carregamento_id]; }
+  else jaFeitas.sobra = marca;
+  bannerFila();
+  return true;
+}
+function enviaFila() {
+  if (filaEnviando) return;
+  var f = lerFila();
+  if (!f.length) { bannerFila(); return; }
+  filaEnviando = true;
+  var item = f[0];
+  cli.from('conferencias_produtor').insert(item.reg).select()
+    .then(function (r) {
+      if (r.error) {
+        /* erro de coluna que ainda não existe: tira o campo e tenta de novo */
+        if (/qtd_avarias|avaliacao/i.test(r.error.message || '')) {
+          var copia = {};
+          Object.keys(item.reg).forEach(function (k) {
+            if (k !== 'qtd_avarias' && k !== 'avaliacao') copia[k] = item.reg[k];
+          });
+          return cli.from('conferencias_produtor').insert(copia).select().then(function (r2) {
+            if (r2.error) throw r2.error;
+            return r2;
+          });
+        }
+        throw r.error;
+      }
+      return r;
+    })
+    .then(function (r) {
+      var novo = (r.data || [])[0] || item.reg;
+      f.shift(); gravaFila(f);
+      if (item.token === token) {
+        if (item.reg.tipo === 'chegada') jaFeitas.chegada[item.reg.carregamento_id] = novo;
+        else if (item.reg.tipo === 'sobra') jaFeitas.sobra = novo;
+        desenhar();
+      }
+      filaEnviando = false;
+      bannerFila();
+      if (f.length) enviaFila();
+    })
+    .catch(function (e) {
+      console.error('fila', e);
+      filaEnviando = false;
+      bannerFila();   /* sem sinal ainda: tenta de novo no próximo ciclo */
+    });
+}
+window.addEventListener('online', function () { setTimeout(enviaFila, 1500); });
+setInterval(enviaFila, 30000);
+document.addEventListener('DOMContentLoaded', function () {
+  var bt = document.getElementById('fila-tentar');
+  if (bt) bt.addEventListener('click', enviaFila);
+  bannerFila();
+  setTimeout(enviaFila, 2000);
+});
 var cargas = [], cargaSel = null, caminhoes = [], sobraBase = [];
 var produtosEv = [], planoPorCg = {};
 var areasQ30 = [], areasAbertas = false;
@@ -412,6 +510,11 @@ function desenhar() {
 
   if (feita) {
     var nota = notaDe(feita);
+    if (feita.pendenteEnvio) {
+      h += '<div class="aviso" style="background:#FDF0E2;color:#8A4B00"><span>📴</span><div>' +
+        '<b>Conferência GUARDADA NO CELULAR — ainda não foi enviada.</b><br>' +
+        'Vai sozinha quando a internet voltar. Não feche esta página.</div></div>';
+    }
     h += '<div class="aviso ok"><span>✅</span><div><b>Este caminhão já foi conferido.</b><br>' +
       'Recebido em ' + fmtData(feita.finalizada_em) +
       (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') +
@@ -861,6 +964,18 @@ function gravar(reg, bt) {
     .catch(function (e) {
       console.error(e);
       bt.disabled = false; bt.textContent = rotulo;
+      if (ehSemSinal(e)) {
+        if (entraNaFila(reg)) {
+          fecharAvaliacao();
+          envioPendente = null;
+          desenhar();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          alert('📴 SEM SINAL AGORA.\n\nSua conferência ficou GUARDADA NO CELULAR e será enviada sozinha quando a internet voltar.\n\nNão feche esta página até aparecer que foi enviada.');
+          return;
+        }
+        alert('Sem sinal, e a conferência não coube na memória do celular (fotos demais). Chegue mais perto do sinal e tente de novo.');
+        return;
+      }
       alert(motivoErro(e));
     });
 }
