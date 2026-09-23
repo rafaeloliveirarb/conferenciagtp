@@ -475,6 +475,29 @@ table.tab{width:100%;border-collapse:collapse}
   .folha__barra{display:none !important}
   .folha{max-width:none;padding:0}
 }
+
+/* ---------- 🤝 Conferências dos produtores ---------- */
+.cp-card{padding:0;overflow:hidden}
+.cp-card--av{border-left:5px solid var(--vermelho)}
+.cp-topo{display:flex;gap:12px;align-items:flex-start;width:100%;background:none;border:0;padding:16px 18px;
+  font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cp-topo:focus-visible{outline:3px solid var(--laranja);outline-offset:-3px}
+.cp-corpo{border-top:1px solid var(--linha);padding:12px 18px 16px;background:#FBFCFE}
+.cp-chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800;white-space:nowrap}
+.cp-chip--ok{background:var(--verde-clr);color:var(--verde)}
+.cp-chip--lar{background:var(--laranja-clr);color:var(--laranja-esc)}
+.cp-chip--av{background:var(--vermelho-clr);color:var(--vermelho)}
+.cp-chip--ex{background:var(--amarelo-clr);color:var(--amarelo)}
+.cp-chip--terc{background:#EDE7F6;color:#5B3A99}
+.cp-estr{display:block;color:#F5A300;font-size:20px;letter-spacing:1px;line-height:1}
+.cp-aval{background:var(--branco);border:1px solid var(--linha);border-radius:var(--r);padding:10px 12px;margin-bottom:8px}
+.cp-aval .cp-estr{display:inline-block;margin-right:8px;vertical-align:middle}
+.cp-item{padding:8px 0;border-bottom:1px solid var(--linha);font-size:14px}
+.cp-item:last-child{border-bottom:0}
+.cp-item__lin{display:flex;gap:10px;align-items:baseline}
+.cp-av{background:var(--vermelho-clr);border-radius:10px;padding:8px 10px;margin-top:6px;color:#8E1F1F;font-size:13px}
+.cp-fotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.cp-foto{width:76px;height:76px;object-fit:cover;border-radius:10px;border:2px solid #fff;cursor:zoom-in;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 </style>
 </head>
 <body>
@@ -736,7 +759,9 @@ const Banco = {
   _erro: function (erro) { throw new Error(Banco.explicar(erro)); },
 
   listarUsuarios: function () {
-    return this.cliente.from('usuarios').select('*').eq('ativo', true).order('nome')
+    /* traz também os inativos: o nome continua aparecendo nas conferências antigas,
+       mas quem está inativo não aparece para escolher nem para entrar */
+    return this.cliente.from('usuarios').select('*').order('nome')
       .then(function (r) { if (r.error) Banco._erro(r.error); return r.data || []; });
   },
 
@@ -2330,7 +2355,7 @@ const App = {
   conferentes: function () {
     /* avulsos (entraram pelo "Outro conferente") não aparecem na lista:
        o nome deles vale nas conferências, mas o cadastro fixo é só da equipe */
-    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso; });
+    return App.usuarios.filter(function (u) { return u.tipo === 'conferente' && !u.avulso && u.ativo !== false; });
   },
 
   /* Mostra o erro na tela sem apagar o que a pessoa estava fazendo. */
@@ -2625,6 +2650,80 @@ var Terceiros = {
     });
   },
 
+  /* Quanto de material terceirizado este evento levou e ainda NÃO foi dado
+     como devolvido ao fornecedor. Busca direto no banco (dado sempre fresco).
+     0 = pode excluir o evento. */
+  pendenteEvento: function (ev) {
+    if (!ev || ev.terceiros_devolvidos_em) return Promise.resolve(0);
+    var cli = Banco.cliente;
+    function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+    return Promise.all([
+      lista(cli.from('conferencias').select('id,tipo').eq('evento_id', ev.id)),
+      lista(cli.from('produtos').select('id,terceirizado').eq('evento_id', ev.id)),
+      lista(cli.from('movimentos_terceiros').select('tipo,quantidade').eq('evento_id', ev.id)).catch(function () { return []; })
+    ]).then(function (r) {
+      var saidas = r[0].filter(function (c) { return c.tipo === 'saida'; }).map(function (c) { return c.id; });
+      var terc100 = {};
+      r[1].forEach(function (p) { if (p.terceirizado) terc100[p.id] = true; });
+      var mov = 0;
+      r[2].forEach(function (m) { if (m.tipo === 'envio') mov += Math.abs(U.num(m.quantidade)); });
+      if (!saidas.length) return mov;
+      return lista(cli.from('itens_conferencia').select('produto_id,quantidade,qtd_terceirizada').in('conferencia_id', saidas))
+        .then(function (itens) {
+          var conf = 0;
+          itens.forEach(function (i) {
+            var t = U.num(i.qtd_terceirizada);
+            if (terc100[i.produto_id]) t = Math.max(t, U.num(i.quantidade));
+            conf += t;
+          });
+          return Math.max(conf, mov);
+        });
+    });
+  },
+
+  /* Antes de excluir um evento: se tem terceirizado sem devolução, trava.
+     Devolve uma promessa: true = pode seguir com a exclusão. */
+  liberaExclusao: function (ev) {
+    return Terceiros.pendenteEvento(ev).then(function (qtd) {
+      if (!qtd) return true;
+      return new Promise(function (resolve) {
+        var m = U.modal({
+          titulo: '🔗 Não dá para excluir este evento',
+          html: '<p>O evento <b>' + U.esc(ev.nome) + '</b> tem <b>' + U.fmt(qtd) + ' unid. de material terceirizado</b> ' +
+            'que ainda não foi devolvido ao fornecedor.</p>' +
+            '<p class="peq mut" style="margin-top:10px">Primeiro devolva o material e dê baixa em ' +
+            '<b>✔ DEVOLVIDO AO FORNECEDOR</b>. Depois disso o evento pode ser excluído.</p>',
+          pe: '<button class="btn btn--branco" data-nao>Voltar</button>' +
+              '<button class="btn btn--verde" data-dev>✔ JÁ DEVOLVI AO FORNECEDOR</button>',
+          travado: true
+        });
+        m.querySelector('[data-nao]').addEventListener('click', function () { m.fechar(); resolve(false); });
+        m.querySelector('[data-dev]').addEventListener('click', function () {
+          m.fechar();
+          U.confirmar('Dar baixa nos terceirizados?',
+            'Confirma que TODO o material terceirizado de "' + ev.nome + '" foi devolvido ao fornecedor?',
+            'SIM, DEVOLVIDO', 'btn--verde')
+            .then(function (ok) {
+              if (!ok) return resolve(false);
+              Banco.atualizarEvento(ev.id, {
+                terceiros_devolvidos_em: new Date().toISOString(),
+                terceiros_devolvidos_por: Sessao.atual ? Sessao.atual.nome : null
+              }).then(function () {
+                ev.terceiros_devolvidos_em = new Date().toISOString();
+                U.aviso('🔗 Devolução registrada. Agora o evento já pode ser excluído.', 'ok', 6000);
+                resolve(false);
+                App.recarregar();
+              }).catch(function (e) { App.falhou(e); resolve(false); });
+            });
+        });
+      });
+    }).catch(function (e) {
+      console.error(e);
+      U.aviso('Não consegui verificar o material terceirizado do evento. Tente de novo.', 'erro', 6000);
+      return false;
+    });
+  },
+
   rotulo: { chegada: '📥 Chegada do fornecedor', envio: '🚚 Enviado para evento', retorno: '↩️ Voltou do evento', devolucao: '📤 Devolvido ao fornecedor' }
 };
 
@@ -2739,6 +2838,596 @@ function nomeCaminhao(caminhoes, id, cavaloId) {
   return txt;
 }
 
+/* ============================================================
+   🖨️ ROMANEIO DO CARREGAMENTO — folha formatada para imprimir
+   ou salvar em PDF (papel do coordenador, vai junto com o caminhão)
+   ============================================================ */
+function imprimirCarregamento(p, cg) {
+  var ev = p.evento;
+  var linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido)
+    .filter(function (l) { return l.prevista > 0 || l.saida !== null; })
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+  var temConf = linhas.some(function (l) { return l.saida !== null; });
+  var cS = Calculo.confDe(p.conferencias, cg.id, 'saida');
+  var totPrev = 0, totSaiu = 0;
+  linhas.forEach(function (l) { totPrev += l.prevista; totSaiu += l.saida || 0; });
+
+  var corpo = '<table><thead><tr><th style="width:26px">#</th><th>Item</th>' +
+      '<th style="text-align:right;width:90px">Quantidade</th>' +
+      '<th style="text-align:right;width:110px">' + (temConf ? 'Carregado' : 'Carregado (✔)') + '</th></tr></thead><tbody>' +
+    linhas.map(function (l, i) {
+      var dif = temConf && l.saida !== null && U.num(l.saida) !== U.num(l.prevista);
+      return '<tr><td class="mut">' + (i + 1) + '</td>' +
+        '<td>' + U.esc(l.nome) + (l.produto && l.produto.terceirizado ? ' <b style="color:#5B3A99">🔗 TERC.</b>' : '') + '</td>' +
+        '<td class="num">' + U.fmt(l.prevista) + ' <span class="mut">' + U.esc(l.unidade) + '</span></td>' +
+        (temConf
+          ? '<td class="num' + (dif ? ' lar' : '') + '">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>'
+          : '<td style="border-bottom:1px solid #C3CDDD">&nbsp;</td>') +
+      '</tr>';
+    }).join('') +
+    '</tbody><tfoot><tr class="tt"><td></td><td><b>TOTAL</b></td>' +
+      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td>' +
+      '<td class="num"><b>' + (temConf ? U.fmt(totSaiu) : '&nbsp;') + '</b></td></tr></tfoot></table>' +
+    ((cg.observacoes || '').trim()
+      ? '<div class="obs"><b>📝 OBSERVAÇÕES DO COORDENADOR:</b><br>' +
+        U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div>'
+      : '') +
+    (temConf && cS
+      ? '<p class="peq-note">Conferência de saída: ' + U.esc(cS.status || '') +
+        ' · ' + U.esc(App.nomeUsuario(cS.conferente_id)) +
+        (cS.finalizada_em ? ' · ' + U.fmtDataHora(cS.finalizada_em) : '') + '</p>'
+      : '<p class="peq-note">Marque a coluna CARREGADO conforme o material sobe no caminhão.</p>') +
+    '<div class="asss">' +
+      '<div class="ass"><span></span>CONFERENTE</div>' +
+      '<div class="ass"><span></span>MOTORISTA</div>' +
+      '<div class="ass"><span></span>COORDENADOR</div>' +
+    '</div>';
+
+  var sub = [];
+  sub.push('<b>Evento:</b> ' + U.esc(ev.nome));
+  if (ev.cliente) sub.push('<b>Cliente:</b> ' + U.esc(ev.cliente));
+  if (ev.local) sub.push('<b>Local:</b> ' + U.esc(ev.local));
+  sub.push('<b>Data:</b> ' + U.fmtData(ev.data));
+  sub.push('<b>Caminhão:</b> ' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)));
+
+  var quem = Sessao.atual ? Sessao.atual.nome : '';
+  var titulo = 'ROMANEIO DE CARGA — CARREG. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '');
+  var pagina = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Carregamento ' + cg.numero + ' — ' + U.esc(ev.nome) + '</title><style>' +
+    '@page{size:A4;margin:13mm 12mm}' +
+    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'body{margin:0;font:11.5px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+    '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+      'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:12px}' +
+    '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;white-space:nowrap}' +
+    '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px}' +
+    '.topo .tit{text-align:right}' +
+    '.topo .tit b{display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase}' +
+    '.topo .tit span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+    '.dados{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;margin-bottom:12px;' +
+      'border:1px solid #DCE3ED;border-radius:8px;padding:9px 12px;background:#F8FAFD}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px}' +
+    'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:6px 8px;font-size:9.5px;' +
+      'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+    'thead{display:table-header-group}' +
+    'td{padding:6px 8px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+    'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+    'tfoot td{background:#0B4F9E;color:#fff;padding:7px 8px}' +
+    '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+    '.mut{color:#8695A6;font-weight:400}.lar{color:#D96A00}' +
+    '.obs{margin-top:12px;border-left:4px solid #F57C00;background:#FFF6EA;padding:9px 12px;font-size:11px;break-inside:avoid}' +
+    '.peq-note{font-size:9.5px;color:#8695A6;margin:8px 0 0}' +
+    '.asss{display:flex;gap:26px;margin-top:44px;break-inside:avoid}' +
+    '.ass{flex:1;text-align:center;font-size:9.5px;font-weight:700;color:#5A6B7D;letter-spacing:.6px}' +
+    '.ass span{display:block;border-top:1px solid #17202B;margin-bottom:5px;padding-top:0;height:0}' +
+    '.rodape{margin-top:26px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+    '</style></head><body>' +
+    '<div class="topo">' +
+      '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFER\u00CANCIA</small></div>' +
+      '<div class="tit"><b>' + titulo + '</b>' +
+        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas</span>' +
+        '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+    '</div>' +
+    '<div class="dados">' + sub.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    corpo +
+    '<div class="rodape"><span>Grupo Tendas Plenart \u00B7 Central de Confer\u00EAncia</span>' +
+      '<span>Romaneio do carregamento ' + cg.numero + ' \u00B7 ' + U.esc(ev.nome) + '</span></div>' +
+    '</body></html>';
+
+  var jan = window.open('', '_blank');
+  if (!jan) return U.aviso('O navegador bloqueou a janela do romaneio. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+  jan.document.write(pagina);
+  jan.document.close();
+  jan.focus();
+  setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+}
+
+/* 🖨️ CHECKLIST TOTAL do evento — folha para imprimir ou salvar em PDF */
+function imprimirChecklistTotal(p) {
+  var ev = p.evento;
+  var linhas = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos)
+    .filter(function (l) { return l.prevista > 0 || l.saida !== null; })
+    .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+  var temSaida = linhas.some(function (l) { return l.saida !== null; });
+  var totPrev = 0, totSaiu = 0, totTerc = 0;
+  linhas.forEach(function (l) {
+    totPrev += l.prevista;
+    totSaiu += (l.saida || 0) + (l.composta || 0);
+    if (l.produto && l.produto.terceirizado) totTerc++;
+  });
+
+  var corpo = '<table><thead><tr><th style="width:26px">#</th><th>Item</th>' +
+      '<th style="width:44px">Un.</th>' +
+      '<th style="text-align:right;width:80px">Previsto</th>' +
+      (temSaida
+        ? '<th style="text-align:right;width:80px">Saiu</th><th style="text-align:right;width:80px">Diferen\u00E7a</th>'
+        : '<th style="text-align:right;width:100px">Separado (\u2714)</th>') +
+    '</tr></thead><tbody>' +
+    linhas.map(function (l, i) {
+      var saiu = (l.saida === null ? null : U.num(l.saida) + (l.composta || 0));
+      var dif = temSaida && saiu !== null ? saiu - l.prevista : null;
+      return '<tr><td class="mut">' + (i + 1) + '</td>' +
+        '<td>' + U.esc(l.nome) +
+          (l.produto && l.produto.terceirizado ? ' <b style="color:#5B3A99">\uD83D\uDD17 TERC.</b>' : '') + '</td>' +
+        '<td class="mut">' + U.esc(l.unidade) + '</td>' +
+        '<td class="num">' + U.fmt(l.prevista) + '</td>' +
+        (temSaida
+          ? '<td class="num" style="font-weight:400">' + (saiu === null ? '\u2014' : U.fmt(saiu)) + '</td>' +
+            '<td class="num ' + (dif === null || dif === 0 ? 'verd' : 'lar') + '">' +
+              (dif === null ? '\u2014' : dif === 0 ? 'OK' : (dif > 0 ? '+' : '') + U.fmt(dif)) + '</td>'
+          : '<td style="border-bottom:1px solid #C3CDDD">&nbsp;</td>') +
+      '</tr>';
+    }).join('') +
+    '</tbody><tfoot><tr><td></td><td><b>TOTAL \u00B7 ' + linhas.length + ' itens' +
+      (totTerc ? ' (' + totTerc + ' terceirizados)' : '') + '</b></td><td></td>' +
+      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td>' +
+      (temSaida ? '<td class="num"><b>' + U.fmt(totSaiu) + '</b></td><td></td>' : '<td></td>') +
+    '</tr></tfoot></table>' +
+    (temSaida
+      ? '<p class="peq-note">"Saiu" soma todas as confer\u00EAncias de sa\u00EDda finalizadas ou em andamento do evento.</p>'
+      : '<p class="peq-note">Use a coluna SEPARADO para marcar o material conforme for separado no galp\u00E3o.</p>') +
+    '<div class="asss">' +
+      '<div class="ass"><span></span>CONFERENTE</div>' +
+      '<div class="ass"><span></span>COORDENADOR</div>' +
+    '</div>';
+
+  var sub = ['<b>Evento:</b> ' + U.esc(ev.nome)];
+  if (ev.cliente) sub.push('<b>Cliente:</b> ' + U.esc(ev.cliente));
+  if (ev.local) sub.push('<b>Local:</b> ' + U.esc(ev.local));
+  sub.push('<b>Data:</b> ' + U.fmtData(ev.data));
+  sub.push('<b>Situa\u00E7\u00E3o:</b> ' + U.esc(ev.status || '\u2014'));
+
+  var quem = Sessao.atual ? Sessao.atual.nome : '';
+  var pagina = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Checklist \u2014 ' + U.esc(ev.nome) + '</title><style>' +
+    '@page{size:A4;margin:13mm 12mm}' +
+    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'body{margin:0;font:11.5px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+    '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+      'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:12px}' +
+    '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;white-space:nowrap}' +
+    '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px}' +
+    '.topo .tit{text-align:right}' +
+    '.topo .tit b{display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase}' +
+    '.topo .tit span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+    '.dados{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;margin-bottom:12px;' +
+      'border:1px solid #DCE3ED;border-radius:8px;padding:9px 12px;background:#F8FAFD}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px}' +
+    'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:6px 8px;font-size:9.5px;' +
+      'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+    'thead{display:table-header-group}' +
+    'td{padding:5.5px 8px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+    'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+    'tfoot td{background:#0B4F9E;color:#fff;padding:7px 8px}' +
+    '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+    '.mut{color:#8695A6;font-weight:400}.lar{color:#D96A00}.verd{color:#1B8A4B}' +
+    'tfoot .num,tfoot .lar,tfoot .verd{color:#fff}' +
+    '.peq-note{font-size:9.5px;color:#8695A6;margin:8px 0 0}' +
+    '.asss{display:flex;gap:26px;margin-top:44px;max-width:440px;break-inside:avoid}' +
+    '.ass{flex:1;text-align:center;font-size:9.5px;font-weight:700;color:#5A6B7D;letter-spacing:.6px}' +
+    '.ass span{display:block;border-top:1px solid #17202B;margin-bottom:5px;height:0}' +
+    '.rodape{margin-top:26px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+    '</style></head><body>' +
+    '<div class="topo">' +
+      '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFER\u00CANCIA</small></div>' +
+      '<div class="tit"><b>CHECKLIST TOTAL DO EVENTO</b>' +
+        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas</span>' +
+        '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+    '</div>' +
+    '<div class="dados">' + sub.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    corpo +
+    '<div class="rodape"><span>Grupo Tendas Plenart \u00B7 Central de Confer\u00EAncia</span>' +
+      '<span>Checklist total \u00B7 ' + U.esc(ev.nome) + '</span></div>' +
+    '</body></html>';
+
+  var jan = window.open('', '_blank');
+  if (!jan) return U.aviso('O navegador bloqueou a janela do checklist. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+  jan.document.write(pagina);
+  jan.document.close();
+  jan.focus();
+  setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+}
+
+/* desmontagem tem começo e fim (às vezes vários dias) */
+function fimDesmontagem(ev) {
+  return String(ev.data_desmontagem_fim || ev.data_desmontagem || '').slice(0, 10);
+}
+function rotuloDesmontagem(ev) {
+  if (!ev.data_desmontagem) return '';
+  var ini = String(ev.data_desmontagem).slice(0, 10);
+  var fim = String(ev.data_desmontagem_fim || '').slice(0, 10);
+  return U.fmtData(ini) + (fim && fim !== ini ? ' a ' + U.fmtData(fim) : '');
+}
+
+/* ============================================================
+   🔍 DISPONIBILIDADE — o checklist deste evento cabe no galpão,
+   contando o que outros eventos das MESMAS DATAS ainda vão levar
+   e o que está na oficina?
+   ============================================================ */
+function verificarDisponibilidade(p) {
+  var ev = p.evento;
+  var m = U.modal({
+    titulo: '🔍 Disponibilidade do material',
+    html: '<p class="mut">Conferindo o estoque e os outros eventos nas mesmas datas…</p>',
+    pe: '<button class="btn btn--branco" data-x>Fechar</button>'
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  var corpo = m.querySelector('.modal__corpo');
+
+  var ini = String(ev.data || '').slice(0, 10);
+  var fim = fimDesmontagem(ev) || String(ev.data || '').slice(0, 10);
+  var outros = App.eventos.filter(function (e) {
+    if (e.id === ev.id) return false;
+    if (e.status === 'Finalizado' || e.status === 'Com divergência') return false;
+    if (!e.data) return true;   /* sem data: por segurança conta como possível conflito */
+    var i2 = String(e.data).slice(0, 10);
+    var f2 = fimDesmontagem(e) || String(e.data).slice(0, 10);
+    if (!ini) return true;
+    return ini <= f2 && i2 <= fim;
+  });
+  var ids = outros.map(function (e) { return e.id; });
+  var nomeOutro = {};
+  outros.forEach(function (e) { nomeOutro[e.id] = e.nome; });
+
+  function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+  Promise.all([
+    Banco.listarEstoque(),
+    lista(Banco.cliente.from('itens_conferencia').select('produto_id,qtd_danificada,manutencao_status').gt('qtd_danificada', 0)).catch(function () { return []; }),
+    lista(Banco.cliente.from('produtos').select('id,nome,evento_id,quantidade_prevista,terceirizado')),
+    ids.length ? lista(Banco.cliente.from('conferencias').select('id,evento_id,tipo').in('evento_id', ids)) : Promise.resolve([])
+  ]).then(function (rr) {
+    var estoque = rr[0] || [], danif = rr[1] || [], todosProd = rr[2] || [], confsOut = rr[3] || [];
+    var saidasOut = confsOut.filter(function (c) { return c.tipo === 'saida'; });
+    var confEv = {};
+    saidasOut.forEach(function (c) { confEv[c.id] = c.evento_id; });
+    var qIt = saidasOut.length
+      ? lista(Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada')
+          .in('conferencia_id', saidasOut.map(function (c) { return c.id; })))
+      : Promise.resolve([]);
+    return qIt.then(function (itensOut) {
+      var nomeProd = {}, prodInfo = {};
+      todosProd.forEach(function (x) { nomeProd[x.id] = x.nome; prodInfo[x.id] = x; });
+
+      var saldoCh = {}, unCh = {};
+      estoque.forEach(function (i) { saldoCh[Estoque.chave(i.nome)] = U.num(i.quantidade); unCh[Estoque.chave(i.nome)] = i.unidade || 'UN'; });
+      var oficinaCh = {};
+      danif.forEach(function (i) {
+        if ((i.manutencao_status || 'pendente') !== 'pendente') return;
+        var nm = nomeProd[i.produto_id]; if (!nm) return;
+        oficinaCh[Estoque.chave(nm)] = (oficinaCh[Estoque.chave(nm)] || 0) + U.num(i.qtd_danificada);
+      });
+
+      /* o que os OUTROS eventos ainda vão tirar do galpão: previsto − o que já saiu */
+      var saiuOut = {};   /* evento|chave -> qtd */
+      itensOut.forEach(function (i) {
+        var evId = confEv[i.conferencia_id]; if (!evId) return;
+        var nm = nomeProd[i.produto_id]; if (!nm) return;
+        var k = evId + '|' + Estoque.chave(nm);
+        saiuOut[k] = (saiuOut[k] || 0) + U.num(i.quantidade) + U.num(i.qtd_danificada);
+      });
+      var promCh = {}, quemCh = {};
+      todosProd.forEach(function (x) {
+        if (ids.indexOf(x.evento_id) < 0 || x.terceirizado) return;
+        var ch = Estoque.chave(x.nome);
+        var falta = Math.max(0, U.num(x.quantidade_prevista) - (saiuOut[x.evento_id + '|' + ch] || 0));
+        if (!(falta > 0)) return;
+        promCh[ch] = (promCh[ch] || 0) + falta;
+        (quemCh[ch] = quemCh[ch] || []).push(nomeOutro[x.evento_id] + ' (' + U.fmt(falta) + ')');
+      });
+
+      /* o que ESTE evento ainda vai tirar */
+      var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+      var conflitos = [], ok = 0, semCadastro = [];
+      linhasEv.forEach(function (l) {
+        if (l.produto && l.produto.terceirizado) return;
+        var falta = Math.max(0, l.prevista - ((l.saida === null ? 0 : l.saida) + (l.composta || 0)));
+        if (!(falta > 0)) return;
+        var ch = Estoque.chave(l.nome);
+        if (saldoCh[ch] === undefined) { semCadastro.push(l.nome); return; }
+        var disp = saldoCh[ch] - (oficinaCh[ch] || 0) - (promCh[ch] || 0);
+        if (falta > disp) {
+          conflitos.push({ nome: l.nome, un: l.unidade, falta: falta, saldo: saldoCh[ch],
+            ofi: oficinaCh[ch] || 0, prom: promCh[ch] || 0, quem: quemCh[ch] || [], deficit: falta - disp });
+        } else ok++;
+      });
+
+      var h2 = '<p class="peq mut" style="margin-bottom:10px">Datas deste evento: <b>' +
+        (ini ? U.fmtData(ini) : '—') + (fim && fim !== ini ? ' a ' + U.fmtData(fim) : '') + '</b> · ' +
+        (outros.length ? 'comparado com ' + outros.length + ' evento(s) aberto(s) nas mesmas datas.' : 'nenhum outro evento aberto nas mesmas datas.') + '</p>';
+      if (!conflitos.length) {
+        h2 += '<div class="aviso aviso--verde"><span class="aviso__ico">✓</span><div>' +
+          '<b>Tudo disponível.</b>O galpão cobre o que este evento ainda precisa levar' +
+          (ok ? ' (' + ok + ' iten(s) conferidos)' : '') + '.</div></div>';
+      } else {
+        h2 += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+          '<b>' + conflitos.length + ' item(ns) NÃO fecham a conta:</b></div></div>' +
+          conflitos.map(function (c) {
+            return '<div style="border:1px solid var(--linha);border-left:4px solid var(--vermelho);border-radius:10px;padding:9px 12px;margin-top:8px">' +
+              '<b>' + U.esc(c.nome) + '</b> — <b style="color:var(--vermelho)">faltam ' + U.fmt(c.deficit) + ' ' + U.esc(c.un || 'UN') + '</b>' +
+              '<span class="peq mut" style="display:block;margin-top:3px">precisa levar ' + U.fmt(c.falta) +
+                ' · no galpão ' + U.fmt(c.saldo) +
+                (c.ofi ? ' · na oficina ' + U.fmt(c.ofi) : '') +
+                (c.prom ? ' · prometido: ' + c.quem.map(U.esc).join(', ') : '') + '</span>' +
+            '</div>';
+          }).join('');
+      }
+      if (semCadastro.length) {
+        h2 += '<p class="peq mut" style="margin-top:10px">⚠ Sem cadastro no estoque (não deu para conferir): ' +
+          semCadastro.slice(0, 8).map(U.esc).join(', ') + (semCadastro.length > 8 ? '…' : '') + '</p>';
+      }
+      corpo.innerHTML = h2;
+    });
+  }).catch(function (e) {
+    console.error(e);
+    corpo.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      '<b>Não consegui verificar.</b>' + U.esc(e.message || '') + '</div></div>';
+  });
+}
+
+/* ============================================================
+   🔁 TRANSFERÊNCIA ENTRE EVENTOS — material que vai direto de um
+   evento pro outro, sem passar pelo galpão. Registra um RETORNO
+   finalizado na origem e uma SAÍDA finalizada no destino: os dois
+   eventos fecham a conta e o estoque não muda (entra e sai igual).
+   ============================================================ */
+function transferirMaterial(p) {
+  var ev = p.evento;
+  var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
+  var naRua = linhasEv.filter(function (l) {
+    if (l.produto && l.produto.terceirizado) return false;
+    var fora = (l.saida === null ? 0 : l.saida) - (l.retorno === null ? 0 : l.retorno);
+    l._fora = Math.max(0, fora);
+    return l._fora > 0;
+  });
+  if (!naRua.length) {
+    return U.aviso('Nada para transferir: este evento não tem material próprio na rua (com saída finalizada).', 'erro', 7000);
+  }
+  var destinos = App.eventos.filter(function (e) {
+    return e.id !== ev.id && e.status !== 'Finalizado' && e.status !== 'Com divergência';
+  });
+  if (!destinos.length) return U.aviso('Nenhum outro evento aberto para receber o material.', 'erro', 6000);
+
+  var m = U.modal({
+    titulo: '🔁 Transferir material',
+    html: '<p class="mut peq" style="margin-bottom:10px">O material sai deste evento direto para o outro, sem voltar ao galpão. ' +
+        'Fica registrado como retorno aqui e saída lá, e o <b>produtor do evento de destino confere a chegada</b> ' +
+        'no link dele, igual a um caminhão normal.</p>' +
+      '<label class="campo"><span class="campo__rot">Evento de destino</span>' +
+        '<select class="entrada" id="tr-dest">' +
+          destinos.map(function (e) {
+            return '<option value="' + e.id + '">' + U.esc(e.nome) + (e.data ? ' — ' + U.fmtData(e.data) : '') + '</option>';
+          }).join('') + '</select></label>' +
+      '<p class="peq mut" style="margin:10px 0 4px">O que vai (máximo = o que está na rua deste evento):</p>' +
+      naRua.map(function (l, i) {
+        return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:6px 0">' +
+          '<span class="peq" style="flex:1;min-width:0">' + U.esc(l.nome) +
+            '<span class="mut" style="display:block">na rua: ' + U.fmt(l._fora) + ' ' + U.esc(l.unidade) + '</span></span>' +
+          '<input class="entrada js-tr-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" max="' + l._fora + '" ' +
+            'placeholder="0" style="width:92px;text-align:center;min-height:44px">' +
+        '</div>';
+      }).join(''),
+    pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+        '<button class="btn btn--laranja" data-ok>🔁 TRANSFERIR</button>',
+    travado: true
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  m.querySelector('[data-ok]').addEventListener('click', function () {
+    var destId = m.querySelector('#tr-dest').value;
+    var dest = destinos.filter(function (e) { return e.id === destId; })[0];
+    var itens = [];
+    U.$$('.js-tr-q', m).forEach(function (c) {
+      var l = naRua[Number(c.dataset.i)];
+      var q = Math.min(U.num(c.value), l._fora);
+      if (q > 0) itens.push({ produto: l.produto, nome: l.nome, unidade: l.unidade, qtd: q });
+    });
+    if (!itens.length) return U.aviso('Informe a quantidade de pelo menos um item.', 'erro', 5000);
+    var totTr = 0; itens.forEach(function (i) { totTr += i.qtd; });
+
+    U.confirmar('Confirmar a transferência?',
+      'Transferir ' + U.fmt(totTr) + ' peça(s) de "' + ev.nome + '" para "' + dest.nome + '"? ' +
+      'Fica registrado nos dois eventos. Não dá para desfazer daqui.', '🔁 SIM, TRANSFERIR', 'btn--laranja')
+      .then(function (sim) {
+        if (!sim) return;
+        var btn = m.querySelector('[data-ok]');
+        btn.disabled = true; btn.textContent = 'Transferindo...';
+        var agora = new Date().toISOString();
+        var obsO = 'TRANSFERÊNCIA de material para "' + dest.nome + '"';
+        var obsD = 'TRANSFERÊNCIA de material vinda de "' + ev.nome + '"';
+        var porChave = {};
+        itens.forEach(function (i) { porChave[Estoque.chave(i.nome)] = (porChave[Estoque.chave(i.nome)] || 0) + i.qtd; });
+        var numOri = 1;
+        p.carregamentos.forEach(function (c) { numOri = Math.max(numOri, U.num(c.numero) + 1); });
+
+        var confOri;
+        /* 1) origem: retorno finalizado (dá entrada no estoque) */
+        Banco.criarCarregamento({
+          evento_id: ev.id, numero: numOri, nome: '🔁 TRANSF. → ' + dest.nome,
+          sentido: 'retorno', status: 'Finalizado'
+        }).then(function (cg) {
+          return Banco.criarConferencia({
+            evento_id: ev.id, carregamento_id: cg.id, tipo: 'retorno', status: 'Finalizado',
+            conferente_id: Sessao.atual.id, finalizada_em: agora, observacao: obsO
+          });
+        }).then(function (c) {
+          confOri = c;
+          return Banco.salvarItens(c.id, itens.map(function (i) {
+            return { produto_id: i.produto.id, quantidade: i.qtd, observacao: obsO };
+          }));
+        }).then(function () {
+          return Banco.sincronizarEstoqueConferencia(confOri.id, ev.id, 'retorno', porChave, Sessao.atual.id, obsO);
+        })
+        /* 2) destino: entra no checklist e sai como saída finalizada */
+        .then(function () {
+          return Banco.acrescentarProdutos(destId, itens.map(function (i) {
+            return { nome: i.nome, quantidade_prevista: i.qtd, unidade: i.unidade, terceirizado: false };
+          }));
+        }).then(function (res) {
+          return Banco.listarCarregamentos(destId).then(function (cgsD) {
+            var numD = 1;
+            cgsD.forEach(function (c) { numD = Math.max(numD, U.num(c.numero) + 1); });
+            return Banco.criarCarregamento({
+              evento_id: destId, numero: numD, nome: '🔁 TRANSF. ← ' + ev.nome,
+              sentido: 'saida', status: 'Finalizado'
+            }).then(function (cgD) {
+              return Banco.criarConferencia({
+                evento_id: destId, carregamento_id: cgD.id, tipo: 'saida', status: 'Finalizado',
+                conferente_id: Sessao.atual.id, finalizada_em: agora, observacao: obsD
+              });
+            }).then(function (cD) {
+              return Banco.salvarItens(cD.id, itens.map(function (i) {
+                var prodD = res.porChave[Estoque.chave(i.nome)];
+                return { produto_id: prodD ? prodD.id : null, quantidade: i.qtd, observacao: obsD };
+              }).filter(function (x) { return x.produto_id; })).then(function () { return cD; });
+            }).then(function (cD) {
+              /* checklist do caminhão da transferência: é isso que faz o
+                 PRODUTOR do destino ver o material chegando e conferir */
+              var linhasPlano = itens.map(function (i) {
+                var prodD = res.porChave[Estoque.chave(i.nome)];
+                return prodD && prodD.id
+                  ? { carregamento_id: cD.carregamento_id, produto_id: prodD.id, quantidade: i.qtd }
+                  : null;
+              }).filter(Boolean);
+              return Banco.salvarPlano(cD.carregamento_id, linhasPlano).then(function () { return cD; });
+            }).then(function (cD) {
+              return Banco.sincronizarEstoqueConferencia(cD.id, destId, 'saida', porChave, Sessao.atual.id, obsD);
+            });
+          });
+        }).then(function () {
+          m.fechar();
+          U.aviso('🔁 ' + U.fmt(totTr) + ' peça(s) transferida(s) para "' + dest.nome + '". ' +
+            'O produtor de lá já vê a chegada no link dele para conferir.', 'ok', 8000);
+          App.recarregar();
+        }).catch(function (e) {
+          btn.disabled = false; btn.textContent = '🔁 TRANSFERIR';
+          App.falhou(e);
+        });
+      });
+  });
+}
+
+/* ============================================================
+   💾 BACKUP DO BANCO — baixa tudo em Excel (consulta) ou JSON
+   (cópia completa de segurança). Busca em blocos de 1000 para
+   não perder linha nenhuma.
+   ============================================================ */
+var TABELAS_BACKUP = ['eventos', 'produtos', 'carregamentos', 'itens_carregamento', 'conferencias',
+  'itens_conferencia', 'conferencias_produtor', 'caminhoes', 'usuarios', 'estoque', 'movimentos_estoque',
+  'fornecedores', 'movimentos_terceiros', 'ferramentas', 'movimentos_ferramentas', 'q30_memorias', 'q30_areas'];
+
+function backupBuscarTudo(tabela) {
+  var todas = [];
+  function passo(de) {
+    return Banco.cliente.from(tabela).select('*').range(de, de + 999).then(function (r) {
+      if (r.error) throw r.error;
+      var d = r.data || [];
+      todas = todas.concat(d);
+      if (d.length === 1000) return passo(de + 1000);
+      return todas;
+    });
+  }
+  return passo(0).catch(function () { return todas; });   /* tabela que não existe: segue com as outras */
+}
+
+function backupBaixarArquivo(conteudo, nome, mime) {
+  var blob = conteudo instanceof Blob ? conteudo : new Blob([conteudo], { type: mime });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+}
+
+/* Excel sem as fotos (senão o arquivo explode); o JSON leva tudo */
+function backupSemFotos(linha) {
+  var c = {};
+  Object.keys(linha).forEach(function (k) {
+    var v = linha[k];
+    if (/_base64$/.test(k)) { c[k] = v ? '[foto]' : null; return; }
+    if (k === 'itens' && Array.isArray(v)) {
+      c[k] = JSON.stringify(v.map(function (i) {
+        var i2 = {}; Object.keys(i).forEach(function (kk) { i2[kk] = i[kk]; });
+        if (i2.avaria && i2.avaria.fotos) {
+          i2.avaria = { qtd: i2.avaria.qtd, descricao: i2.avaria.descricao, fotos: '[' + i2.avaria.fotos.length + ' foto(s)]' };
+        }
+        return i2;
+      }));
+      return;
+    }
+    c[k] = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+  });
+  return c;
+}
+
+function abrirBackup() {
+  var m = U.modal({
+    titulo: '💾 Backup do banco',
+    html: '<p class="mut peq" style="margin-bottom:12px">Baixa uma cópia de TUDO (eventos, conferências, estoque, produtores...). ' +
+        'Guarde o arquivo num lugar seguro — é o seguro contra exclusão errada ou problema no Supabase.</p>' +
+      '<button class="btn btn--verde btn--bloco" id="bk-excel">📗 EXCEL — uma aba por tabela (sem as fotos)</button>' +
+      '<button class="btn btn--bloco" id="bk-json" style="margin-top:8px">🗂 JSON COMPLETO — com fotos (arquivo grande)</button>' +
+      '<p class="peq" id="bk-status" style="margin-top:12px;font-weight:700" hidden></p>',
+    pe: '<button class="btn btn--branco" data-x>Fechar</button>'
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  var st = m.querySelector('#bk-status');
+  function diz(t, cor) { st.hidden = false; st.textContent = t; st.style.color = cor || 'var(--txt-2)'; }
+
+  function buscarTudo() {
+    var dados = {}, fila = TABELAS_BACKUP.slice();
+    function prox() {
+      if (!fila.length) return Promise.resolve(dados);
+      var t = fila.shift();
+      diz('Buscando ' + t + '…');
+      return backupBuscarTudo(t).then(function (linhas) { dados[t] = linhas; return prox(); });
+    }
+    return prox();
+  }
+
+  m.querySelector('#bk-excel').addEventListener('click', function () {
+    if (typeof XLSX === 'undefined') return diz('O gerador de Excel ainda está carregando — tente de novo.', 'var(--vermelho)');
+    buscarTudo().then(function (dados) {
+      diz('Montando o Excel…');
+      var wb = XLSX.utils.book_new();
+      TABELAS_BACKUP.forEach(function (t) {
+        var linhas = (dados[t] || []).map(backupSemFotos);
+        var ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ vazio: 'sem registros' }]);
+        XLSX.utils.book_append_sheet(wb, ws, t.slice(0, 31));
+      });
+      XLSX.writeFile(wb, 'backup-central-' + U.hojeISO() + '.xlsx');
+      var tot = 0; TABELAS_BACKUP.forEach(function (t) { tot += (dados[t] || []).length; });
+      diz('✓ Backup em Excel baixado: ' + U.fmt(tot) + ' registro(s) em ' + TABELAS_BACKUP.length + ' tabelas.', 'var(--verde)');
+    }).catch(function (e) { console.error(e); diz('Não consegui buscar tudo. Verifique a internet e tente de novo.', 'var(--vermelho)'); });
+  });
+
+  m.querySelector('#bk-json').addEventListener('click', function () {
+    buscarTudo().then(function (dados) {
+      diz('Montando o arquivo…');
+      var pacote = { sistema: 'Central de Conferência — Grupo Tendas Plenart', gerado_em: new Date().toISOString(), tabelas: dados };
+      backupBaixarArquivo(JSON.stringify(pacote), 'backup-central-' + U.hojeISO() + '.json', 'application/json');
+      var tot = 0; TABELAS_BACKUP.forEach(function (t) { tot += (dados[t] || []).length; });
+      diz('✓ Backup completo baixado: ' + U.fmt(tot) + ' registro(s). Guarde em lugar seguro.', 'var(--verde)');
+    }).catch(function (e) { console.error(e); diz('Não consegui buscar tudo. Verifique a internet e tente de novo.', 'var(--vermelho)'); });
+  });
+}
+
 /* Pede a senha do coordenador e devolve Promise<boolean>.
    Usada para desbloquear conferências finalizadas. */
 function pedirSenhaCoordenador(titulo, texto) {
@@ -2801,12 +3490,21 @@ function TelaPainel() {
       Banco.listarCaminhoes().catch(function () { return []; }),
       Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_terceirizada')
         .then(function (r) { return r.error ? [] : (r.data || []); })
+        .catch(function () { return []; }),
+      /* ⚠ avarias dos produtores ainda não vistas (sem as fotos: consulta leve) */
+      Banco.cliente.from('conferencias_produtor')
+        .select('id,evento_id,carregamento_id,tipo,responsavel,finalizada_em,qtd_avarias')
+        .gt('qtd_avarias', 0).not('avaria_vista', 'is', true)
+        .then(function (r) { return r.error ? [] : (r.data || []); })
         .catch(function () { return []; })
     ]);
   }).then(function (extra) {
     var todosCarregamentos = extra[0];
     var todosCaminhoes = extra[1];
     var todosItensConf = extra[2];
+    var avariasProd = (extra[3] || []).filter(function (c) {
+      return App.eventos.some(function (e) { return e.id === c.evento_id; });
+    });
 
     /* itens já conferidos (saída) por evento: produto distinto conta 1 */
     var confPorId = {};
@@ -2864,6 +3562,42 @@ function TelaPainel() {
       return tercPorEvento[ev.id] > 0 && !ev.terceiros_devolvidos_em;
     });
 
+    /* ⏰ retornos atrasados: desmontagem passou e o retorno não fechou */
+    var atrasados = App.eventos.filter(function (ev) {
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
+      if (!ev.data_desmontagem || fimDesmontagem(ev) >= U.hojeISO()) return false;
+      var totalItens = App.qtdChecklist(ev.id) || 0;
+      if (totalItens > 0 && faseProgresso(ev.id) === 'retorno' && itensRetornados(ev.id) >= totalItens) return false;
+      return true;
+    }).sort(function (a, b) { return fimDesmontagem(a).localeCompare(fimDesmontagem(b)); });
+    function diasAtraso(ev) {
+      return Math.max(1, Math.floor((Date.now() - new Date(fimDesmontagem(ev) + 'T12:00:00').getTime()) / 86400000));
+    }
+
+    /* 🚨 evento chegando sem preparo: sai em até 3 dias e falta checklist ou caminhão */
+    var limitePrep = (function () {
+      var d = new Date(Date.now() + 3 * 86400000);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    var semPreparo = [];
+    App.eventos.forEach(function (ev) {
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return;
+      var d = String(ev.data || '').slice(0, 10);
+      if (!d || d < U.hojeISO() || d > limitePrep) return;
+      /* se alguma saída já foi finalizada, o material já está saindo: preparado */
+      if (App.conferencias.some(function (c) { return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em; })) return;
+      var falta = [];
+      if (!(App.qtdChecklist(ev.id) > 0)) falta.push('SEM CHECKLIST');
+      var temCam = todosCarregamentos.some(function (cg) {
+        return cg.evento_id === ev.id && cg.sentido !== 'retorno' && cg.caminhao_id;
+      });
+      if (!temCam) falta.push('SEM CAMINHÃO');
+      if (!falta.length) return;
+      var dias = Math.round((new Date(d + 'T12:00:00').getTime() - Date.now()) / 86400000);
+      semPreparo.push({ ev: ev, falta: falta, dias: Math.max(0, dias) });
+    });
+    semPreparo.sort(function (a, b) { return a.dias - b.dias; });
+
     var emAndamento = App.conferencias.filter(function (c) { return c.status === 'Em andamento' || c.status === 'Salvo'; }).length;
     var finalizadas = App.conferencias.filter(function (c) { return c.status === 'Finalizado' || c.status === 'Com divergência'; }).length;
     var divergencias = App.conferencias.filter(function (c) { return c.status === 'Com divergência'; }).length;
@@ -2882,10 +3616,59 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
+        '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
+        '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
+        '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
+        '<button class="btn btn--branco" id="btn-backup">💾 BACKUP</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
       '</div>' +
+
+      (semPreparo.length
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:18px"><span class="aviso__ico">🚨</span><div>' +
+          '<b>' + semPreparo.length + ' evento(s) chegando SEM PREPARO:</b>' +
+          semPreparo.slice(0, 6).map(function (x) {
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(x.ev.nome) + ' — ' +
+                (x.dias === 0 ? '<b style="color:var(--vermelho)">sai HOJE</b>' : 'sai em <b>' + x.dias + ' dia(s)</b>') +
+                ' · <b style="color:var(--vermelho)">' + x.falta.join(' e ') + '</b></span>' +
+              '<button class="btn btn--branco btn--peq js-abrir-atr" data-id="' + x.ev.id + '">RESOLVER</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
+
+      (avariasProd.length
+        ? '<div class="aviso aviso--vermelho" style="margin-bottom:18px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Avaria registrada pelo produtor — ' + avariasProd.length + ' conferência(s):</b>' +
+          avariasProd.slice(0, 6).map(function (c) {
+            var evA = App.eventos.filter(function (e) { return e.id === c.evento_id; })[0];
+            var cgA = todosCarregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(evA ? evA.nome : '—') +
+                (c.tipo === 'sobra' ? ' · sobra' : cgA ? ' · Carreg. ' + cgA.numero : '') +
+                ' — <b>' + U.fmt(c.qtd_avarias) + ' peça(s) avariada(s)</b> por ' + U.esc(c.responsavel || '—') +
+                ' · ' + U.fmtData(c.finalizada_em) + '</span>' +
+              '<button class="btn btn--branco btn--peq js-av-abrir" data-id="' + c.evento_id + '">VER FOTOS</button>' +
+              '<button class="btn btn--verde btn--peq js-av-visto" data-id="' + c.id + '">✔ VISTO</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
+
+      (atrasados.length
+        ? '<div class="aviso aviso--vermelho" style="margin-bottom:18px"><span class="aviso__ico">⏰</span><div>' +
+          '<b>' + atrasados.length + ' evento(s) com RETORNO ATRASADO:</b>' +
+          atrasados.slice(0, 6).map(function (ev) {
+            return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+              '<span style="flex:1;min-width:200px">' + U.esc(ev.nome) + ' — desmontagem ' + rotuloDesmontagem(ev) +
+                ' · <b>há ' + diasAtraso(ev) + ' dia(s)</b></span>' +
+              '<button class="btn btn--branco btn--peq js-abrir-atr" data-id="' + ev.id + '">ABRIR</button>' +
+            '</div>';
+          }).join('') +
+        '</div></div>'
+        : '') +
 
       (tercPendentes.length
         ? '<div class="aviso aviso--amarelo" style="margin-bottom:18px"><span class="aviso__ico">🔗</span><div>' +
@@ -3010,6 +3793,9 @@ function TelaPainel() {
             pct + '%</div>' +
           '<div style="flex:1;min-width:0">' +
             '<p class="evento__nome" style="margin:0">' + U.esc(ev.nome) + '</p>' +
+            (ev.data_desmontagem && atrasados.indexOf(ev) >= 0
+              ? '<p class="peq" style="margin:3px 0 0;color:var(--vermelho);font-weight:800">⏰ RETORNO ATRASADO há ' + diasAtraso(ev) + ' dia(s)</p>'
+              : '') +
             '<p class="peq mut" style="margin:3px 0 0">📅 ' + U.fmtData(ev.data) +
               (ev.conferente_id ? ' · 👤 ' + U.esc(App.nomeUsuario(ev.conferente_id)) : '') +
               (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</p>' +
@@ -3100,6 +3886,9 @@ function TelaPainel() {
       U.$$('.js-del-ev', caixa).forEach(function (b) {
         b.addEventListener('click', function (e) {
           e.stopPropagation();
+          var evDel = App.eventos.filter(function (x) { return x.id === b.dataset.id; })[0];
+          Terceiros.liberaExclusao(evDel).then(function (livre) {
+          if (!livre) return;
           pedirSenhaCoordenador('Excluir evento',
             'Excluir "' + b.dataset.nome + '"? Apaga o checklist, os carregamentos e as conferências. Não dá para desfazer.')
             .then(function (ok) {
@@ -3109,6 +3898,7 @@ function TelaPainel() {
                 App.recarregar();
               }).catch(App.falhou);
             });
+          });
         });
       });
     }
@@ -3144,6 +3934,43 @@ function TelaPainel() {
     U.$('#btn-novo-evento').addEventListener('click', function () { App.abrir(TelaNovoEvento); });
     U.$('#btn-frota').addEventListener('click', function () { App.abrir(TelaFrota); });
     U.$('#btn-estoque').addEventListener('click', function () { App.abrir(TelaEstoque); });
+    U.$$('.js-abrir-atr', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
+    });
+    U.$$('.js-av-abrir', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.id); });
+    });
+    U.$$('.js-av-visto', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        Banco.cliente.from('conferencias_produtor').update({ avaria_vista: true }).eq('id', b.dataset.id)
+          .then(function (r) {
+            if (r.error) throw r.error;
+            U.aviso('✔ Avaria marcada como vista.', 'ok');
+            App.recarregar();
+          })
+          .catch(function (e) { b.disabled = false; App.falhou(e); });
+      });
+    });
+    U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
+    U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
+    U.$('#btn-tv').addEventListener('click', function () { window.open('tv.html', '_blank'); });
+    U.$('#btn-backup').addEventListener('click', abrirBackup);
+
+    /* 🔄 32: o painel se atualiza sozinho a cada 2 minutos (sem atrapalhar:
+       não atualiza com janela aberta, busca digitada ou fora da aba inicial) */
+    if (!App._autoPainel) {
+      App._autoPainel = setInterval(function () {
+        if (App._telaAtual !== TelaPainel) return;
+        if (document.hidden) return;
+        if (U.$('#modais') && U.$('#modais').children.length) return;
+        var busca = U.$('#busca-eventos');
+        if (busca && busca.value.trim()) return;
+        var abaSel = U.$('.aba.is-ativa');
+        if (abaSel && abaSel.dataset.aba && abaSel.dataset.aba !== 'ativos') return;
+        App.recarregar();
+      }, 120000);
+    }
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
     U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
@@ -3280,10 +4107,31 @@ function TelaEstoque() {
   function entrarNoEstoque() {
   tela.innerHTML = U.carregando('Somando o estoque...');
   TelaEstoque._trocarSenha = function () { trocarSenhaEstoque(false); };
-  Promise.all([Banco.listarEstoque(), Banco.listarMovimentos(), App.carregarBase()])
+  Promise.all([Banco.listarEstoque(), Banco.listarMovimentos(), App.carregarBase(),
+    /* 🛠 o que está na oficina (danificado pendente) desconta do disponível */
+    Banco.cliente.from('itens_conferencia').select('produto_id,qtd_danificada,manutencao_status')
+      .gt('qtd_danificada', 0)
+      .then(function (r) { return r.error ? [] : (r.data || []); })
+      .catch(function () { return []; }),
+    Banco.cliente.from('produtos').select('id,nome')
+      .then(function (r) { return r.error ? [] : (r.data || []); })
+      .catch(function () { return []; })
+  ])
     .then(function (r) {
       var cadastro = r[0], movimentos = r[1];
       var saldos = Estoque.saldos(cadastro, movimentos);
+      var oficina = {};   /* chave do item -> qtd danificada esperando conserto */
+      (function () {
+        var nomeProd = {};
+        (r[4] || []).forEach(function (pr) { nomeProd[pr.id] = pr.nome; });
+        (r[3] || []).forEach(function (i) {
+          if ((i.manutencao_status || 'pendente') !== 'pendente') return;
+          var nm = nomeProd[i.produto_id];
+          if (!nm) return;
+          var ch = Estoque.chave(nm);
+          oficina[ch] = (oficina[ch] || 0) + U.num(i.qtd_danificada);
+        });
+      })();
       var emObra = {};   /* saiu e ainda não voltou, por item */
       movimentos.forEach(function (m) {
         if (!(m.estoque_id in emObra)) emObra[m.estoque_id] = 0;
@@ -3409,6 +4257,8 @@ function TelaEstoque() {
       function linhaPeca(i) {
           var saldo = saldos[i.id] || 0;
           var fora = Math.max(0, emObra[i.id] || 0);
+          var ofi = oficina[Estoque.chave(i.nome)] || 0;
+          var disp = saldo - ofi;
           return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '">' +
             '<div class="carga__cam"><span>📦</span>' +
               '<span><b>' + U.esc(i.nome) + '</b>' +
@@ -3423,6 +4273,8 @@ function TelaEstoque() {
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
                   (saldo < 0 ? ' (devendo — lance a quantidade real)' : '') +
                   (fora > 0 ? ' · Em evento: <b style="color:var(--laranja)">' + U.fmt(fora) + '</b>' : '') +
+                  (ofi > 0 ? ' · 🛠 Oficina: <b style="color:var(--vermelho)">' + U.fmt(ofi) + '</b>' +
+                    ' · Disponível de verdade: <b style="color:var(--azul)">' + U.fmt(disp) + '</b>' : '') +
                 '</span></span>' +
               '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
@@ -4618,7 +5470,7 @@ function TelaNovoEvento() {
 
   App.topo('NOVO EVENTO', 'Preencha os dados — o caminhão e o checklist vêm em seguida');
 
-  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), conferente_id: '' };
+  var dados = { nome: '', cliente: '', local: '', data: U.hojeISO(), data_desmontagem: '', data_desmontagem_fim: '', conferente_id: '' };
   var produtos = [];   /* o checklist agora é anexado POR CARREGAMENTO, depois */
 
   desenhar();
@@ -4637,6 +5489,10 @@ function TelaNovoEvento() {
         '<div class="dupla">' +
           '<label class="campo"><span class="campo__rot">Data</span>' +
             '<input class="entrada js-d" data-k="data" type="date" value="' + U.esc(dados.data) + '"></label>' +
+          '<label class="campo"><span class="campo__rot">Desmontagem — começa</span>' +
+            '<input class="entrada js-d" data-k="data_desmontagem" type="date" value="' + U.esc(dados.data_desmontagem) + '"></label>' +
+          '<label class="campo"><span class="campo__rot">Desmontagem — termina</span>' +
+            '<input class="entrada js-d" data-k="data_desmontagem_fim" type="date" value="' + U.esc(dados.data_desmontagem_fim) + '"></label>' +
           '<label class="campo"><span class="campo__rot">Conferente</span>' +
             '<select class="entrada js-d" data-k="conferente_id">' +
               '<option value="">Deixar em aberto</option>' +
@@ -4696,6 +5552,8 @@ function TelaNovoEvento() {
       cliente: dados.cliente.trim(),
       local: dados.local.trim(),
       data: dados.data || U.hojeISO(),
+      data_desmontagem: dados.data_desmontagem || null,
+      data_desmontagem_fim: dados.data_desmontagem_fim || dados.data_desmontagem || null,
       conferente_id: dados.conferente_id || null,
       status: 'Aguardando conferência'
     }).then(function (criado) {
@@ -5057,6 +5915,10 @@ function TelaEvento(eventoId) {
         '<dt>Cliente</dt><dd>' + U.esc(ev.cliente || '—') + '</dd>' +
         '<dt>Local</dt><dd>' + U.esc(ev.local || '—') + '</dd>' +
         '<dt>Data</dt><dd>' + U.fmtData(ev.data) + '</dd>' +
+        '<dt>Desmontagem</dt><dd>' + (ev.data_desmontagem ? rotuloDesmontagem(ev) : '<span class="mut">não informada</span>') +
+          (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência'
+            ? ' <button class="btn btn--branco btn--peq" id="btn-desmontagem" style="margin-left:6px;padding:2px 10px;min-height:30px">✏️</button>'
+            : '') + '</dd>' +
         '<dt>Conferente</dt><dd>' + (ev.conferente_id
           ? U.esc(App.nomeUsuario(ev.conferente_id))
           : '<span style="color:var(--amarelo);font-weight:700">Não designado</span>') + '</dd>' +
@@ -5066,6 +5928,73 @@ function TelaEvento(eventoId) {
           (ev.conferente_id ? 'Trocar conferente' : 'DESIGNAR CONFERENTE') + '</button>'
         : '') +
       '</div></div>';
+
+    /* ⏰ retorno atrasado: passou a desmontagem e o material não voltou todo */
+    var evAberto = ev.status !== 'Finalizado' && ev.status !== 'Com divergência';
+    if (evAberto && ev.data_desmontagem && fimDesmontagem(ev) < U.hojeISO() &&
+        (pctEvento === null || pctEvento < 100)) {
+      var diasAtr = Math.max(1, Math.floor((Date.now() - new Date(fimDesmontagem(ev) + 'T12:00:00').getTime()) / 86400000));
+      h += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⏰</span><div>' +
+        '<b>RETORNO ATRASADO há ' + diasAtr + ' dia' + (diasAtr > 1 ? 's' : '') + '.</b>' +
+        'A desmontagem era ' + rotuloDesmontagem(ev) + ' e o material ainda não voltou todo. ' +
+        'Cobre o retorno e registre quando o caminhão chegar.</div></div>';
+    }
+
+    /* --- 🕓 linha do tempo: tudo que aconteceu no evento, em ordem --- */
+    (function () {
+      var tl = [];
+      function pt(iso, ico, txt) { if (iso) tl.push({ t: String(iso), ico: ico, txt: txt }); }
+      pt(ev.created_at, '📌', 'Evento criado');
+      if (p.produtos.length) {
+        var priCk = p.produtos.map(function (x) { return x.created_at || ''; }).filter(Boolean).sort()[0];
+        pt(priCk, '📋', 'Checklist lançado (' + p.produtos.length + ' produtos)');
+      }
+      p.carregamentos.forEach(function (cg) {
+        pt(cg.created_at, cg.sentido === 'retorno' ? '↩️' : '🚚',
+          (cg.sentido === 'retorno' ? 'Retorno' : 'Carregamento') + ' ' + cg.numero +
+          (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' criado — ' + U.esc(nomeCaminhao(p.caminhoes, cg.caminhao_id, cg.cavalo_id)));
+      });
+      p.conferencias.forEach(function (c) {
+        var cgC = p.carregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+        var rot = (c.tipo === 'retorno' ? 'retorno' : 'saída') + (cgC ? ' — Carreg. ' + cgC.numero : '');
+        pt(c.created_at, '▶️', 'Conferência de ' + rot + ' iniciada por ' + U.esc(App.nomeUsuario(c.conferente_id)));
+        if (c.finalizada_em) pt(c.finalizada_em, c.status === 'Com divergência' ? '🔴' : '✅',
+          'Conferência de ' + rot + ' finalizada (' + U.esc(c.status || '') + ') por ' + U.esc(App.nomeUsuario(c.conferente_id)));
+        (c.correcoes || []).forEach(function (cor) {
+          pt(cor.em, '✏️', 'Correção na conferência de ' + rot + ' por ' + U.esc(cor.nome || '') +
+            (cor.texto ? ': ' + U.esc(cor.texto) : ''));
+        });
+      });
+      (p.confProdutor || []).forEach(function (c) {
+        var cgP = p.carregamentos.filter(function (x) { return x.id === c.carregamento_id; })[0];
+        var nota = ConfProd.nota(c), rr = ConfProd.resumo(c);
+        pt(c.finalizada_em, c.tipo === 'sobra' ? '📦' : '🤝',
+          (c.tipo === 'sobra' ? 'Produtor declarou a sobra' :
+            'Produtor conferiu a chegada' + (cgP ? ' — Carreg. ' + cgP.numero : '')) +
+          ' (' + U.esc(c.responsavel || '—') + ')' +
+          (nota ? ' · ' + ConfProd.estrelas(nota) : '') +
+          ((rr.qtdAvariada || U.num(c.qtd_avarias)) ? ' · <b style="color:var(--vermelho)">' + U.fmt(rr.qtdAvariada || U.num(c.qtd_avarias)) + ' avariada(s)</b>' : ''));
+      });
+      (ev.notas_fiscais || []).forEach(function (n, i) {
+        pt(n.em, '🧾', 'Nota fiscal anexada' + (n.nome ? ': ' + U.esc(n.nome) : ''));
+      });
+      pt(ev.terceiros_devolvidos_em, '🔗', 'Terceirizados devolvidos ao fornecedor' +
+        (ev.terceiros_devolvidos_por ? ' (' + U.esc(ev.terceiros_devolvidos_por) + ')' : ''));
+      pt(ev.encerrado_em, '🏁', 'Evento encerrado — ' + U.esc(ev.status || ''));
+      tl.sort(function (a, b) { return a.t.localeCompare(b.t); });
+
+      var aberta = !!TelaEvento._tlAberta;
+      h += '<div class="cartao"><div class="cartao__topo" id="tl-topo" style="cursor:pointer;user-select:none">' +
+        '<h3>🕓 Linha do tempo</h3>' +
+        '<span class="peq" style="color:var(--azul);font-weight:800">' + tl.length + ' registro(s) ' + (aberta ? '▲' : '▼') + '</span></div>' +
+        '<div class="cartao__corpo" id="tl-corpo"' + (aberta ? '' : ' hidden') + '>' +
+        (tl.length ? tl.map(function (x) {
+          return '<div class="peq" style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+            '<span style="flex:none;min-width:118px;color:var(--txt-3);font-variant-numeric:tabular-nums">' + U.fmtDataHora(x.t) + '</span>' +
+            '<span style="flex:none">' + x.ico + '</span><span style="flex:1;min-width:0">' + x.txt + '</span></div>';
+        }).join('') : '<p class="peq mut">Nada registrado ainda.</p>') +
+        '</div></div>';
+    })();
 
     /* --- 🤝 produtor: link externo + o que ele enviou (POR CARREGAMENTO) --- */
     if (ehCoord) {
@@ -5087,43 +6016,28 @@ function TelaEvento(eventoId) {
                   return '<p class="peq mut" style="margin-top:8px">🚚 Carreg. ' + cg.numero +
                     (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ': <b>produtor ainda não conferiu</b></p>';
                 }
-                var difs = (c.itens || []).filter(function (i2) { return U.num(i2.qtd) !== U.num(i2.previsto); });
-                var tot = 0;
-                (c.itens || []).forEach(function (i2) { tot += U.num(i2.qtd); });
+                var tot = ConfProd.resumo(c).pecas, notaC = ConfProd.nota(c);
                 return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
-                  '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px">' +
-                    '🚚 Carreg. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' · ' + U.fmt(tot) + ' peças · ' +
-                    U.esc(c.responsavel || '—') + ' · ' + U.fmtData(c.finalizada_em) + '</div>' +
-                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
-                    (difs.length
-                      ? difs.map(function (i2) {
-                          return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                            '<span>' + U.esc(i2.nome) + '</span><b style="color:var(--laranja)">chegou ' +
-                            U.fmt(i2.qtd) + ' de ' + U.fmt(i2.previsto) + '</b></div>';
-                        }).join('')
-                      : '<p class="peq" style="color:var(--verde);font-weight:700;padding:8px 0">✓ Produtor confirmou tudo conforme enviado.</p>') +
-                  '</div>' +
-                  (c.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(c.observacao) + '</p>' : '') +
+                  '<div class="peq" style="background:var(--azul-clr);color:var(--azul);font-weight:800;padding:6px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+                    '<span style="flex:1">🚚 Carreg. ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') + ' · ' + U.fmt(tot) + ' peças · ' +
+                    U.esc(c.responsavel || '—') + ' · ' + U.fmtData(c.finalizada_em) + '</span>' +
+                    (notaC ? '<span style="color:#F5A300;font-size:16px;letter-spacing:1px">' + ConfProd.estrelas(notaC) + '</span>' : '') + '</div>' +
+                  '<div style="padding:8px 12px 0;display:flex;gap:6px;flex-wrap:wrap">' + ConfProd.chips(c) + '</div>' +
+                  '<div style="max-height:320px;overflow:auto;padding:6px 12px 10px">' + ConfProd.detalhe(c) + '</div>' +
                 '</div>';
               }).join('')
             : '<p class="peq mut" style="margin-top:8px">Nenhum carregamento criado ainda.</p>') +
 
           (sob
             ? (function () {
-                var itensSob = (sob.itens || []).filter(function (i2) { return U.num(i2.qtd) > 0; });
-                var totS = 0;
-                itensSob.forEach(function (i2) { totS += U.num(i2.qtd); });
+                var totS = ConfProd.resumo(sob).pecas;
                 return '<div style="margin-top:10px;border:1px solid var(--linha);border-radius:10px;overflow:hidden">' +
                   '<div class="peq" style="background:#FFF4E5;color:var(--laranja);font-weight:800;padding:6px 12px">' +
                     '📦 Sobra declarada · ' + U.fmt(totS) + ' peças · ' + U.esc(sob.responsavel || '—') +
                     ' · ' + U.fmtData(sob.finalizada_em) + '</div>' +
-                  '<div style="max-height:200px;overflow:auto;padding:2px 12px">' +
-                    (itensSob.map(function (i2) {
-                      return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--linha)">' +
-                        '<span>' + U.esc(i2.nome) + '</span><b>' + U.fmt(i2.qtd) + ' ' + U.esc(i2.unidade || 'UN') + '</b></div>';
-                    }).join('') || '<p class="peq mut" style="padding:8px 0">Nenhuma sobra declarada.</p>') +
-                  '</div>' +
-                  (sob.observacao ? '<p class="peq" style="padding:8px 12px">📝 ' + U.esc(sob.observacao) + '</p>' : '') +
+                  '<p class="peq mut" style="padding:6px 12px 0">ℹ️ Informativo: a sobra do produtor não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' +
+                  (ConfProd.chips(sob) ? '<div style="padding:8px 12px 0;display:flex;gap:6px;flex-wrap:wrap">' + ConfProd.chips(sob) + '</div>' : '') +
+                  '<div style="max-height:320px;overflow:auto;padding:6px 12px 10px">' + ConfProd.detalhe(sob) + '</div>' +
                 '</div>';
               })()
             : '<p class="peq mut" style="margin-top:8px">📦 Sobra: <b>ainda não declarada</b></p>') +
@@ -5131,6 +6045,102 @@ function TelaEvento(eventoId) {
           '<button class="btn btn--branco btn--bloco btn--peq" id="btn-link-produtor" style="margin-top:12px">' +
             '🔗 ' + (ev.token_produtor ? 'VER / COPIAR O LINK DO PRODUTOR' : 'GERAR LINK DO PRODUTOR') + '</button>' +
         '</div></div>';
+
+      /* --- 🔎 PRODUTOR × GALPÃO: cruza os números e mostra onde o material sumiu --- */
+      (function () {
+        var chegadas = cps.filter(function (c) { return c.tipo !== 'sobra'; });
+        var sobras = cps.filter(function (c) { return c.tipo === 'sobra'; });
+        if (!chegadas.length && !sobras.length) return;
+
+        /* galpão, somado por nome */
+        var galpao = {};
+        linhas.forEach(function (l) {
+          var ch = Estoque.chave(l.nome);
+          var g = galpao[ch] || (galpao[ch] = { nome: l.nome, un: l.unidade || 'UN', saiu: 0, voltou: 0 });
+          g.saiu += (l.saida === null ? 0 : l.saida) + (l.composta || 0);
+          g.voltou += l.retorno === null ? 0 : l.retorno;
+        });
+        var temSaidaG = linhas.some(function (l) { return l.saida !== null; });
+        var temRetornoG = linhas.some(function (l) { return l.retorno !== null; });
+
+        /* produtor, somado por nome */
+        function somaProdutor(lista) {
+          var m2 = {};
+          lista.forEach(function (c) {
+            (c.itens || []).forEach(function (i2) {
+              var ch = Estoque.chave(i2.nome);
+              var b = m2[ch] || (m2[ch] = { nome: i2.nome, un: i2.unidade || 'UN', qtd: 0 });
+              b.qtd += U.num(i2.qtd);
+            });
+          });
+          return m2;
+        }
+        var chegouProd = somaProdutor(chegadas);
+        var sobraProd = somaProdutor(sobras);
+
+        function blocoCruza(titulo, ladoA, rotA, ladoB, rotB, dicaSumiu, dicaSobrou) {
+          var chaves = {};
+          Object.keys(ladoA).forEach(function (k) { chaves[k] = 1; });
+          Object.keys(ladoB).forEach(function (k) { chaves[k] = 1; });
+          var difs = [], bateu = 0;
+          Object.keys(chaves).forEach(function (k) {
+            var a = ladoA[k], b = ladoB[k];
+            var va = a ? (a.saiu !== undefined ? a.saiu : a.qtd !== undefined ? a.qtd : a.voltou) : 0;
+            var vb = b ? (b.saiu !== undefined ? b.saiu : b.qtd !== undefined ? b.qtd : b.voltou) : 0;
+            if (!(va > 0) && !(vb > 0)) return;
+            var d = vb - va;
+            if (d === 0) { bateu++; return; }
+            difs.push({ nome: (a || b).nome, un: (a || b).un, va: va, vb: vb, d: d });
+          });
+          if (!difs.length && !bateu) return '';
+          var h3 = '<p class="peq" style="margin:12px 0 4px;font-weight:800;color:var(--azul)">' + titulo + '</p>';
+          if (difs.length) {
+            difs.sort(function (x, y) { return Math.abs(y.d) - Math.abs(x.d); });
+            h3 += difs.map(function (x) {
+              return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;' +
+                'padding:6px 10px;border:1px solid var(--linha);border-left:4px solid ' +
+                (x.d < 0 ? 'var(--vermelho)' : 'var(--laranja)') + ';border-radius:8px;margin-top:6px">' +
+                '<span style="flex:1;min-width:150px"><b>' + U.esc(x.nome) + '</b>' +
+                  '<span class="mut" style="display:block">' + rotA + ': ' + U.fmt(x.va) + ' · ' + rotB + ': ' + U.fmt(x.vb) + '</span></span>' +
+                '<b style="flex:none;color:' + (x.d < 0 ? 'var(--vermelho)' : 'var(--laranja)') + '">' +
+                  (x.d < 0 ? '✖ ' + U.fmt(-x.d) + ' ' + U.esc(x.un) + ' ' + dicaSumiu
+                           : '+' + U.fmt(x.d) + ' ' + U.esc(x.un) + ' ' + dicaSobrou) + '</b>' +
+              '</div>';
+            }).join('');
+          }
+          if (bateu) {
+            h3 += '<p class="peq" style="margin-top:6px;color:var(--verde);font-weight:700">✓ ' + bateu +
+              ' item(ns) bateram certinho.</p>';
+          }
+          return h3;
+        }
+
+        var corpoX = '';
+        if (chegadas.length && temSaidaG) {
+          corpoX += blocoCruza('🚚 IDA — saiu do galpão × o produtor recebeu',
+            galpao, 'saiu do galpão',
+            (function () { var m3 = {}; Object.keys(chegouProd).forEach(function (k) { m3[k] = chegouProd[k]; }); return m3; })(), 'produtor recebeu',
+            'sumiu no caminho de ida', 'chegou a mais');
+        }
+        if (sobras.length && temRetornoG) {
+          corpoX += blocoCruza('↩️ VOLTA — o produtor deixou na sobra × voltou ao galpão',
+            (function () { var m4 = {}; Object.keys(sobraProd).forEach(function (k) { m4[k] = sobraProd[k]; }); return m4; })(), 'sobra declarada',
+            (function () { var m5 = {}; Object.keys(galpao).forEach(function (k) { if (galpao[k].voltou > 0 || sobraProd[k]) m5[k] = { nome: galpao[k].nome, un: galpao[k].un, qtd: galpao[k].voltou }; }); return m5; })(), 'voltou ao galpão',
+            'sumiu no caminho de volta', 'voltou a mais');
+        }
+        if (!corpoX) {
+          corpoX = '<p class="peq mut">O cruzamento aparece quando os dois lados existem: ' +
+            'saída finalizada + chegada do produtor (ida), e sobra do produtor + retorno no galpão (volta).</p>';
+        }
+        var abertoX = !!TelaEvento._pxAberta;
+        h += '<div class="cartao"><div class="cartao__topo" id="px-topo" style="cursor:pointer;user-select:none">' +
+          '<h3>🔎 Produtor × Galpão</h3>' +
+          '<span class="peq" style="color:var(--azul);font-weight:800">onde o material sumiu ' + (abertoX ? '▲' : '▼') + '</span></div>' +
+          '<div class="cartao__corpo" id="px-corpo"' + (abertoX ? '' : ' hidden') + '>' +
+          '<p class="peq mut" style="margin:0 0 4px">Cruza o que o galpão registrou com o que o produtor conferiu no evento. ' +
+            'Diferença na IDA = problema no transporte ou no carregamento. Diferença na VOLTA = ficou no evento ou se perdeu no caminho.</p>' +
+          corpoX + '</div></div>';
+      })();
     }
 
     /* --- nota fiscal (o coordenador anexa; todos podem abrir/imprimir) --- */
@@ -5202,7 +6212,10 @@ function TelaEvento(eventoId) {
 
       h += '<div class="cartao"><div class="cartao__topo"><h3>' +
           (eventoPorCaminhao ? '📋 Checklist total do evento' : 'Produtos do checklist') + '</h3>' +
-        '<span class="mut peq">' + p.produtos.length + ' itens</span></div>' +
+        '<span style="display:flex;gap:8px;align-items:center">' +
+          '<span class="mut peq">' + p.produtos.length + ' itens</span>' +
+          '<button class="btn btn--branco btn--peq" id="btn-imp-checklist">🖨️ Imprimir / PDF</button>' +
+        '</span></div>' +
         (eventoPorCaminhao
           ? '<div class="aviso aviso--azul" style="margin:12px 14px 0"><span class="aviso__ico">🔒</span><div>' +
             '<b>Soma dos checklists de todos os carregamentos</b> — só para consulta. ' +
@@ -5264,6 +6277,13 @@ function TelaEvento(eventoId) {
             'Se algum produto estiver errado, avise ele — assim a contagem sempre é comparada com a lista original.</p>') +
         '</div>' +
       '</div>';
+
+      if (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência') {
+        h += '<div class="btn-linha" style="margin-top:2px">' +
+          '<button class="btn btn--branco" id="btn-disponibilidade">🔍 VERIFICAR DISPONIBILIDADE (conflito de datas)</button>' +
+          '<button class="btn btn--branco" id="btn-transferir">🔁 TRANSFERIR MATERIAL P/ OUTRO EVENTO</button>' +
+        '</div>';
+      }
     }
 
     /* --- carregamentos: valem MESMO sem checklist no evento, porque é
@@ -5369,6 +6389,7 @@ function TelaEvento(eventoId) {
                 '<button class="btn btn--branco btn--peq js-mais-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">📎 + Checklist</button>' +
                 '<button class="btn btn--branco btn--peq js-digitar-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '">✏️ + Digitar item</button>'
               : '') +
+            (ehCoord ? '<button class="btn btn--branco btn--peq js-imp-cg" data-cg="' + cg.id + '">🖨️ Imprimir</button>' : '') +
             (!saidaFinal && !eventoFechado ? '<button class="btn btn--branco btn--peq js-trocar-cam" data-cg="' + cg.id + '">Trocar caminhão</button>' : '') +
             (ehCoord && !eventoFechado ? '<button class="btn btn--branco btn--peq js-excluir-cg" data-cg="' + cg.id + '" data-num="' + cg.numero + '" style="color:var(--vermelho);border-color:var(--vermelho)">Excluir</button>' : '') +
             '</span>' +
@@ -5628,6 +6649,7 @@ function TelaEvento(eventoId) {
     }
 
     /* 🔗 LINK DO PRODUTOR: página externa de chegada e sobra */
+    ConfProd.ligarFotos(tela);
     var btnProd = U.$('#btn-link-produtor', tela);
     if (btnProd) btnProd.addEventListener('click', function () {
       var gerar = ev.token_produtor
@@ -6512,6 +7534,8 @@ function TelaEvento(eventoId) {
     var excluirEv = U.$('#btn-excluir-evento', tela);
     if (excluirEv) excluirEv.addEventListener('click', function () {
       var nCg = p.carregamentos.length, nCf = p.conferencias.length;
+      Terceiros.liberaExclusao(ev).then(function (livre) {
+      if (!livre) return;
       pedirSenhaCoordenador('Excluir evento',
         'Isto apaga o evento "' + ev.nome + '" INTEIRO: checklist (' + p.produtos.length + ' produtos)' +
         (nCg ? ', ' + nCg + ' carregamento' + (nCg > 1 ? 's' : '') : '') +
@@ -6527,7 +7551,63 @@ function TelaEvento(eventoId) {
             })
             .catch(App.falhou);
         });
+      });
     });
+
+    var btnDisp = U.$('#btn-disponibilidade', tela);
+    if (btnDisp) btnDisp.addEventListener('click', function () { verificarDisponibilidade(p); });
+    var btnTransf = U.$('#btn-transferir', tela);
+    if (btnTransf) btnTransf.addEventListener('click', function () { transferirMaterial(p); });
+
+    var pxTopo = U.$('#px-topo', tela);
+    if (pxTopo) pxTopo.addEventListener('click', function () {
+      var corpoP = U.$('#px-corpo', tela);
+      TelaEvento._pxAberta = corpoP.hidden;
+      corpoP.hidden = !corpoP.hidden;
+      pxTopo.querySelector('span').innerHTML = pxTopo.querySelector('span').innerHTML
+        .replace(corpoP.hidden ? '▲' : '▼', corpoP.hidden ? '▼' : '▲');
+    });
+
+    var tlTopo = U.$('#tl-topo', tela);
+    if (tlTopo) tlTopo.addEventListener('click', function () {
+      var corpo = U.$('#tl-corpo', tela);
+      TelaEvento._tlAberta = corpo.hidden;
+      corpo.hidden = !corpo.hidden;
+      tlTopo.querySelector('span').innerHTML = tlTopo.querySelector('span').innerHTML
+        .replace(corpo.hidden ? '▲' : '▼', corpo.hidden ? '▼' : '▲');
+    });
+
+    var btnDesm = U.$('#btn-desmontagem', tela);
+    if (btnDesm) btnDesm.addEventListener('click', function () {
+      var m = U.modal({
+        titulo: '⏰ Período da desmontagem',
+        html: '<p class="mut peq" style="margin-bottom:10px">Quando o evento desmonta e o material volta — pode levar vários dias. ' +
+          'Passou do FIM sem retorno completo, o evento fica marcado como <b>RETORNO ATRASADO</b> no painel.</p>' +
+          '<label class="campo"><span class="campo__rot">Começa</span>' +
+            '<input class="entrada" id="desm-data" type="date" value="' + U.esc(String(ev.data_desmontagem || '').slice(0, 10)) + '"></label>' +
+          '<label class="campo" style="margin-top:8px"><span class="campo__rot">Termina</span>' +
+            '<input class="entrada" id="desm-fim" type="date" value="' + U.esc(String(ev.data_desmontagem_fim || ev.data_desmontagem || '').slice(0, 10)) + '"></label>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button>' +
+            '<button class="btn btn--verde" data-ok>SALVAR</button>',
+        travado: true
+      });
+      m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+      m.querySelector('[data-ok]').addEventListener('click', function () {
+        var v = m.querySelector('#desm-data').value || null;
+        var vf = m.querySelector('#desm-fim').value || v;
+        if (v && vf && vf < v) { var x = v; v = vf; vf = x; }   /* trocou as datas: arruma sozinho */
+        Banco.atualizarEvento(eventoId, { data_desmontagem: v, data_desmontagem_fim: v ? vf : null })
+          .then(function () {
+            m.fechar();
+            U.aviso('⏰ Desmontagem ' + (v ? 'marcada: ' + U.fmtData(v) + (vf && vf !== v ? ' a ' + U.fmtData(vf) : '') : 'removida') + '.', 'ok');
+            App.recarregar();
+          })
+          .catch(App.falhou);
+      });
+    });
+
+    var impCk = U.$('#btn-imp-checklist', tela);
+    if (impCk) impCk.addEventListener('click', function () { imprimirChecklistTotal(p); });
 
     var excluirCk = U.$('#btn-excluir-checklist', tela);
     if (excluirCk) excluirCk.addEventListener('click', function () {
@@ -6643,6 +7723,13 @@ function TelaEvento(eventoId) {
         App.abrir(TelaConferencia, { eventoId: eventoId, carregamentoId: b.dataset.cg, tipo: b.dataset.tipo });
       });
     });
+    U.$$('.js-imp-cg', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cg = p.carregamentos.filter(function (c) { return c.id === b.dataset.cg; })[0];
+        if (cg) imprimirCarregamento(p, cg);
+      });
+    });
+
     U.$$('.js-pdf', tela).forEach(function (b) {
       b.addEventListener('click', function () { Relatorio.conferencia(p, b.dataset.cg, b.dataset.tipo); });
     });
@@ -9199,17 +10286,43 @@ function TelaRelatorios() {
     /* ---------- as cinco abas ---------- */
     var exportLinhas = [];   /* preenchido por cada aba para o Excel/imprimir */
     var exportTitulo = '';
+    var dadosSaidas = null;  /* snapshot da aba de saídas para o relatório impresso */
+
+    /* barra e regras do período — usadas por todas as abas */
+    function rotuloPeriodo() {
+      return (periodoDe || periodoAte)
+        ? (periodoDe ? U.fmtData(periodoDe) : 'início') + ' a ' + (periodoAte ? U.fmtData(periodoAte) : 'hoje')
+        : 'todo o histórico';
+    }
+    function noPeriodo(d) {
+      d = String(d || '').slice(0, 10);
+      if (periodoDe && (!d || d < periodoDe)) return false;
+      if (periodoAte && (!d || d > periodoAte)) return false;
+      return true;
+    }
+    function barraPeriodo() {
+      return '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
+        '<span class="peq mut" style="flex:none">📅 Período</span>' +
+        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<span class="peq mut" style="flex:none">até</span>' +
+        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
+        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
+        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
+      '</div></div>';
+    }
 
     function abaMaterial() {
       exportTitulo = 'Material na rua';
-      exportLinhas = [['Evento', 'Cliente', 'Item', 'Saiu', 'Voltou', 'Fora']];
-      var cards = '', totalFora = 0, eventosFora = 0;
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Cliente', 'Item', 'Saiu', 'Voltou', 'Fora']];
+      var cards = '', totalFora = 0, eventosFora = 0, ocultos = 0, ocultosQtd = 0;
       App.eventos.forEach(function (ev) {
         if (ev.pendencia_resolvida_em) return;
         if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
         var fora = porNomeDe(ev).filter(function (b) { return b.fora > 0; });
         if (!fora.length) return;
         var t = 0; fora.forEach(function (b) { t += b.fora; });
+        if (!noPeriodo(ev.data || ev.created_at)) { ocultos++; ocultosQtd += t; return; }
         totalFora += t; eventosFora++;
         fora.forEach(function (b) { exportLinhas.push([ev.nome, ev.cliente || '', b.nome, b.saiu, b.voltou, b.fora]); });
         cards += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer">' +
@@ -9223,23 +10336,53 @@ function TelaRelatorios() {
                 ' · <b style="color:var(--laranja)">' + U.fmt(b.fora) + ' fora</b></span></div>';
             }).join('') + '</div></div>';
       });
-      return '<div class="dupla" style="margin-bottom:16px">' +
-        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalFora) + '</p><p class="mut peq">Peças na rua agora</p></div>' +
+      return barraPeriodo() +
+        '<div class="dupla" style="margin-bottom:16px">' +
+        '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalFora) + '</p><p class="mut peq">Peças na rua · ' + U.esc(rotuloPeriodo()) + '</p></div>' +
         '<div class="cartao" style="text-align:center;padding:18px 10px"><p style="font-size:34px;font-weight:900;color:var(--azul)">' + eventosFora + '</p><p class="mut peq">Eventos com material fora</p></div>' +
-      '</div>' + (cards || '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada na rua</h3><p>Todo material voltou para o galpão.</p></div>');
+      '</div>' +
+      (ocultos
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:14px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Fora do período escolhido ainda tem ' + ocultos + ' evento(s) com ' + U.fmt(ocultosQtd) +
+          ' peça(s) na rua.</b>Toque em <b>TUDO</b> para ver o total.</div></div>'
+        : '') +
+      (cards || '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada na rua neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>');
     }
 
     function abaCarregamentos() {
       exportTitulo = 'Carregamentos';
       exportLinhas = [['Evento', 'Carreg.', 'Nome', 'Sentido', 'Caminhão', 'Status', 'Itens no checklist']];
-      var h = '';
+      var rotPeriodo = (periodoDe || periodoAte)
+        ? (periodoDe ? U.fmtData(periodoDe) : 'início') + ' a ' + (periodoAte ? U.fmtData(periodoAte) : 'hoje')
+        : 'todo o histórico';
+      exportLinhas.unshift(['Período', rotPeriodo]);
+
+      /* barra do período: mesma da aba de saídas (os botões já funcionam) */
+      var h = barraPeriodo();
+
+      var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      var grupos = {}, totalEv = 0, totalCg = 0;
       App.eventos.forEach(function (ev) {
         var cgs = (cgPorEvento[ev.id] || []).filter(function () { return casaBusca(ev.nome + ' ' + (ev.cliente || '')); });
         if (!cgs.length) return;
-        h += '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
+        var d = String(ev.data || ev.created_at || '').slice(0, 10);
+        if (periodoDe && (!d || d < periodoDe)) return;
+        if (periodoAte && (!d || d > periodoAte)) return;
+        var chave = d && d.length >= 7 ? d.slice(0, 7) : '0000-00';
+        (grupos[chave] = grupos[chave] || []).push({ ev: ev, cgs: cgs, d: d });
+        totalEv++; totalCg += cgs.length;
+      });
+
+      h += '<p class="peq mut" style="margin:0 0 10px"><b>' + totalEv + '</b> evento(s) · <b>' + totalCg +
+        '</b> carregamento(s) · ' + U.esc(rotPeriodo) + '. Toque no evento para abrir os caminhões.</p>';
+
+      function cartaoEv(item) {
+        var ev = item.ev, cgs = item.cgs;
+        return '<div class="cartao"><div class="cartao__topo js-rel-tg" style="cursor:pointer;user-select:none">' +
           '<h3><span class="js-rel-seta" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>' +
           U.esc(ev.nome) + '</h3>' +
-          '<span class="mut peq">' + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo" hidden>' +
+          '<span class="mut peq">' + (item.d ? U.fmtData(item.d) + ' · ' : '') + cgs.length + ' carregamento(s)</span></div><div class="cartao__corpo" hidden>' +
           cgs.map(function (cg) {
             var conf = Calculo.confDe(App.conferencias, cg.id, cg.sentido === 'retorno' ? 'retorno' : 'saida');
             var qtdItens = todosPlanos.filter(function (pl) { return pl.carregamento_id === cg.id; }).length;
@@ -9250,17 +10393,36 @@ function TelaRelatorios() {
                 (cg.nome ? ' · <b>' + U.esc(cg.nome) + '</b>' : '') + ' · ' + U.esc(nomeCam(cg.caminhao_id, cg.cavalo_id)) + '</span>' +
               '<span>' + (conf ? U.esc(conf.status) : '<span class="mut">não iniciada</span>') +
                 (qtdItens ? ' · ' + qtdItens + ' itens' : '') + '</span></div>';
-          }).join('') + '</div></div>';
-      });
-      return h || '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento</h3></div>';
+          }).join('') +
+          '<button class="btn btn--branco btn--bloco btn--peq js-rel-abrir" data-id="' + ev.id + '" style="margin-top:10px">ABRIR O EVENTO</button>' +
+          '</div></div>';
+      }
+
+      var meses = Object.keys(grupos).sort().reverse();
+      if (!meses.length) {
+        return h + '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum carregamento neste período</h3>' +
+          '<p>Mude as datas acima ou toque em <b>Tudo</b> para ver o histórico completo.</p></div>';
+      }
+      h += meses.map(function (ch) {
+        var partes = ch.split('-');
+        var titulo = ch === '0000-00' ? 'Sem data' : (MESES[Number(partes[1]) - 1] || '') + ' de ' + partes[0];
+        var lista = grupos[ch].slice().sort(function (a, b) { return (b.d || '').localeCompare(a.d || ''); });
+        var nCg = 0;
+        lista.forEach(function (x) { nCg += x.cgs.length; });
+        return '<h2 class="secao__tit" style="margin-top:20px">📅 ' + U.esc(titulo) +
+          ' <span class="n">' + lista.length + ' evento(s) · ' + nCg + ' carreg.</span></h2>' +
+          lista.map(cartaoEv).join('');
+      }).join('');
+      return h;
     }
 
     function abaPerdas() {
       exportTitulo = 'Perdas e quebras';
-      exportLinhas = [['Evento', 'Item', 'Danificado', 'Não voltou (evento encerrado)']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Item', 'Danificado', 'Não voltou (evento encerrado)']];
       var h = '', total = 0;
       App.eventos.forEach(function (ev) {
         if (!casaBusca(ev.nome + ' ' + (ev.cliente || ''))) return;
+        if (!noPeriodo(ev.data || ev.created_at)) return;
         var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
         var linhasEv = porNomeDe(ev).filter(function (b) { return b.dano > 0 || (fechado && b.fora > 0 && !ev.pendencia_resolvida_em); });
         if (!linhasEv.length) return;
@@ -9281,20 +10443,25 @@ function TelaRelatorios() {
               '</span></div>';
           }).join('') + '</div></div>';
       });
-      return '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
+      return barraPeriodo() +
+        '<div class="cartao" style="text-align:center;padding:18px 10px;margin-bottom:16px">' +
         '<p style="font-size:34px;font-weight:900;color:var(--vermelho)">' + U.fmt(total) + '</p>' +
-        '<p class="mut peq">Peças danificadas ou perdidas</p></div>' +
-        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda registrada</h3></div>');
+        '<p class="mut peq">Peças danificadas ou perdidas · ' + U.esc(rotuloPeriodo()) + '</p></div>' +
+        (h || '<div class="vazio"><p class="vazio__ico">💚</p><h3>Nenhuma perda neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>');
     }
 
     function abaHistorico() {
       exportTitulo = 'Histórico por evento';
-      exportLinhas = [['Evento', 'Cliente', 'Data', 'Status', 'Enviado', 'Retornado']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Cliente', 'Data', 'Status', 'Enviado', 'Retornado']];
       var fechados = App.eventos.filter(function (ev) {
-        return (ev.status === 'Finalizado' || ev.status === 'Com divergência') && casaBusca(ev.nome + ' ' + (ev.cliente || ''));
-      });
-      if (!fechados.length) return '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado ainda</h3></div>';
-      return fechados.map(function (ev) {
+        return (ev.status === 'Finalizado' || ev.status === 'Com divergência') &&
+          casaBusca(ev.nome + ' ' + (ev.cliente || '')) &&
+          noPeriodo(ev.data || ev.encerrado_em || ev.created_at);
+      }).sort(function (a, b) { return String(b.data || '').localeCompare(String(a.data || '')); });
+      if (!fechados.length) return barraPeriodo() +
+        '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado neste período</h3>' +
+        '<p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
+      return barraPeriodo() + fechados.map(function (ev) {
         var t = Calculo.totaisEvento(prodPorEvento[ev.id] || [], cgPorEvento[ev.id] || [],
           App.conferencias.filter(function (c) { return c.evento_id === ev.id; }),
           itensPorEvento[ev.id] || [], planoPorEvento[ev.id] || []);
@@ -9308,9 +10475,10 @@ function TelaRelatorios() {
 
     function abaGiro() {
       exportTitulo = 'Giro de peças';
-      exportLinhas = [['Item', 'Saiu no total', 'Eventos em que saiu']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Item', 'Saiu no total', 'Eventos em que saiu']];
       var mapa = {};
       App.eventos.forEach(function (ev) {
+        if (!noPeriodo(ev.data || ev.created_at)) return;
         porNomeDe(ev).forEach(function (b) {
           if (!(b.saiu > 0)) return;
           var m = mapa[Estoque.chave(b.nome)] || (mapa[Estoque.chave(b.nome)] = { nome: b.nome, saiu: 0, eventos: 0 });
@@ -9320,9 +10488,11 @@ function TelaRelatorios() {
       var lista = Object.keys(mapa).map(function (k) { return mapa[k]; })
         .filter(function (m) { return casaBusca(m.nome); })
         .sort(function (a, b) { return b.saiu - a.saiu; }).slice(0, 60);
-      if (!lista.length) return '<div class="vazio"><p class="vazio__ico">🔄</p><h3>Sem movimento ainda</h3></div>';
+      if (!lista.length) return barraPeriodo() +
+        '<div class="vazio"><p class="vazio__ico">🔄</p><h3>Sem movimento neste período</h3>' +
+        '<p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
       var max = lista[0].saiu || 1;
-      return '<div class="cartao"><div class="cartao__topo"><h3>O que mais roda no galpão</h3>' +
+      return barraPeriodo() + '<div class="cartao"><div class="cartao__topo"><h3>O que mais roda no galpão · ' + U.esc(rotuloPeriodo()) + '</h3>' +
         '<span class="mut peq">top ' + lista.length + '</span></div><div class="cartao__corpo">' +
         lista.map(function (m, i) {
           exportLinhas.push([m.nome, m.saiu, m.eventos]);
@@ -9339,9 +10509,9 @@ function TelaRelatorios() {
        o que já foi consertado e o que virou sucata. */
     function abaManutencao() {
       exportTitulo = 'Manutenção';
-      exportLinhas = [['Evento', 'Item', 'Qtd', 'Situação', 'Defeito', 'Resolvido por', 'Quando']];
+      exportLinhas = [['Período', rotuloPeriodo()], ['Evento', 'Item', 'Qtd', 'Situação', 'Defeito', 'Resolvido por', 'Quando']];
 
-      var pendentes = [], resolvidos = [];
+      var pendentes = [], resolvidos = [], mntOcultos = 0;
       todosItens.forEach(function (i) {
         var q = U.num(i.qtd_danificada);
         if (!(q > 0)) return;
@@ -9350,6 +10520,10 @@ function TelaRelatorios() {
         var prod = todosProdutos.filter(function (p) { return p.id === i.produto_id; })[0];
         var nome = prod ? prod.nome : 'Item';
         if (!casaBusca((ev ? ev.nome : '') + ' ' + nome)) return;
+        if (!noPeriodo(ev ? (ev.data || ev.created_at) : '')) {
+          if ((i.manutencao_status || 'pendente') === 'pendente') mntOcultos += q;
+          return;
+        }
         var reg = {
           id: i.id, nome: nome, qtd: q, evNome: ev ? ev.nome : '—', evId: evId,
           defeito: i.dano_descricao || '', foto: i.dano_foto_base64 || null,
@@ -9391,7 +10565,13 @@ function TelaRelatorios() {
         '</div>';
       }
 
-      return '<div class="dupla" style="margin-bottom:16px">' +
+      return barraPeriodo() +
+      (mntOcultos
+        ? '<div class="aviso aviso--amarelo" style="margin-bottom:14px"><span class="aviso__ico">⚠</span><div>' +
+          '<b>Fora do período escolhido ainda tem ' + U.fmt(mntOcultos) + ' peça(s) na oficina.</b>' +
+          'Toque em <b>TUDO</b> para ver todas.</div></div>'
+        : '') +
+      '<div class="dupla" style="margin-bottom:16px">' +
           '<div class="cartao" style="text-align:center;padding:18px 10px">' +
             '<p style="font-size:34px;font-weight:900;color:var(--laranja)">' + U.fmt(totalPend) + '</p>' +
             '<p class="mut peq">Peças na oficina agora</p></div>' +
@@ -9435,6 +10615,23 @@ function TelaRelatorios() {
         (itensPorConf[i.conferencia_id] = itensPorConf[i.conferencia_id] || []).push(i);
       });
 
+      /* onde a peça está HOJE: saiu x voltou por evento+item, no histórico todo
+         (sem o filtro do período, senão a conta de "ainda no evento" engana) */
+      var vida = {};   /* evento_id -> chave do item -> {saiu, voltou} */
+      App.conferencias.forEach(function (c) {
+        if (!c.finalizada_em || (c.tipo !== 'saida' && c.tipo !== 'retorno')) return;
+        (itensPorConf[c.id] || []).forEach(function (i) {
+          var p = prodPorId[i.produto_id];
+          if (!p) return;
+          var q = U.num(i.quantidade) + U.num(i.qtd_danificada);
+          if (!(q > 0)) return;
+          var ch = Estoque.chave(p.nome);
+          var bEv = vida[c.evento_id] || (vida[c.evento_id] = {});
+          var b = bEv[ch] || (bEv[ch] = { saiu: 0, voltou: 0 });
+          if (c.tipo === 'saida') b.saiu += q; else b.voltou += q;
+        });
+      });
+
       var mapa = {}, porEvento = {}, totalPecas = 0, nConfs = 0;
       App.conferencias.forEach(function (c) {
         if (c.tipo !== 'saida' || !c.finalizada_em) return;
@@ -9452,9 +10649,9 @@ function TelaRelatorios() {
           if (!casaBusca(p.nome + ' ' + (ev ? ev.nome : ''))) return;
           contou = true;
           var ch = Estoque.chave(p.nome);
-          var m = mapa[ch] || (mapa[ch] = { nome: p.nome, unidade: p.unidade || 'UN', saiu: 0, evs: {} });
+          var m = mapa[ch] || (mapa[ch] = { ch: ch, nome: p.nome, unidade: p.unidade || 'UN', saiu: 0, evs: {} });
           m.saiu += q;
-          m.evs[c.evento_id] = true;
+          m.evs[c.evento_id] = (m.evs[c.evento_id] || 0) + q;
           totalPecas += q;
           var pe = porEvento[c.evento_id] ||
             (porEvento[c.evento_id] = { id: c.evento_id, nome: ev ? ev.nome : 'Evento apagado', data: d, qtd: 0 });
@@ -9472,15 +10669,11 @@ function TelaRelatorios() {
       var eventosLista = Object.keys(porEvento).map(function (k) { return porEvento[k]; })
         .sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
 
-      var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
-        '<span class="peq mut" style="flex:none">📅 Período</span>' +
-        '<input class="entrada" type="date" id="sp-de" value="' + U.esc(periodoDe) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<span class="peq mut" style="flex:none">até</span>' +
-        '<input class="entrada" type="date" id="sp-ate" value="' + U.esc(periodoAte) + '" style="min-height:46px;width:160px;flex:none">' +
-        '<button class="btn btn--branco btn--peq" id="sp-mes" style="flex:none">Este mês</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-30" style="flex:none">Últimos 30 dias</button>' +
-        '<button class="btn btn--branco btn--peq" id="sp-tudo" style="flex:none">Tudo</button>' +
-      '</div></div>' +
+      /* guarda tudo para o relatório impresso da diretoria */
+      dadosSaidas = { rotPeriodo: rotPeriodo, ranking: ranking, eventosLista: eventosLista,
+        vida: vida, totalPecas: totalPecas, nConfs: nConfs, evPorId: evPorId };
+
+      var h = barraPeriodo() +
 
       '<div class="dupla" style="margin-bottom:16px">' +
         '<div class="cartao" style="text-align:center;padding:18px 10px">' +
@@ -9496,20 +10689,56 @@ function TelaRelatorios() {
           '<p>Mude as datas acima ou toque em <b>Tudo</b> para ver o histórico completo.</p></div>';
       }
 
+      /* detalhe de UM item: em quais eventos ele está e o que já voltou */
+      function detalheItem(m) {
+        var linhasEv = Object.keys(m.evs).map(function (evId) {
+          var ev = evPorId[evId];
+          var v = (vida[evId] || {})[m.ch] || { saiu: 0, voltou: 0 };
+          var fora = Math.max(0, v.saiu - v.voltou);
+          var fechado = ev && (ev.status === 'Finalizado' || ev.status === 'Com divergência');
+          return { id: evId, nome: ev ? ev.nome : 'Evento apagado', data: ev ? ev.data : '',
+            noPeriodo: m.evs[evId], fora: fora, fechado: fechado, semEv: !ev };
+        }).sort(function (a, b) { return b.fora - a.fora || b.noPeriodo - a.noPeriodo; });
+
+        return linhasEv.map(function (e) {
+          var onde = e.fora > 0
+            ? (e.fechado
+              ? '<b style="color:var(--vermelho)">✖ ' + U.fmt(e.fora) + ' não voltou (evento encerrado)</b>'
+              : '<b style="color:var(--laranja)">📍 ainda no evento: ' + U.fmt(e.fora) + ' ' + U.esc(m.unidade) + '</b>')
+            : '<b style="color:var(--verde)">✓ tudo voltou para o galpão</b>';
+          return '<div class="peq' + (e.semEv ? '' : ' js-rel-abrir') + '" data-id="' + e.id + '" ' +
+            'style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;' +
+            'border-bottom:1px solid var(--linha);cursor:pointer;background:var(--branco);border-radius:8px;margin-top:4px">' +
+            '<span style="flex:1;min-width:160px">' + U.esc(e.nome) +
+              (e.data ? ' <span class="mut">· ' + U.fmtData(e.data) + '</span>' : '') +
+              '<span class="mut" style="display:block">saiu ' + U.fmt(e.noPeriodo) + ' ' + U.esc(m.unidade) + ' no período</span></span>' +
+            '<span style="flex:none;text-align:right">' + onde + (e.semEv ? '' : '<span class="mut" style="display:block">abrir evento ›</span>') + '</span>' +
+          '</div>';
+        }).join('');
+      }
+
       var max = ranking[0].saiu || 1;
       h += '<div class="cartao"><div class="cartao__topo"><h3>🏆 O que mais saiu no período</h3>' +
-        '<span class="mut peq">' + ranking.length + ' item(ns)</span></div>' +
+        '<span class="mut peq">' + ranking.length + ' item(ns) · toque para ver onde está</span></div>' +
         '<div class="cartao__corpo" style="max-height:56vh;overflow:auto">' +
         ranking.map(function (m, i) {
           exportLinhas.push([m.nome, m.unidade, m.saiu, m.eventos]);
-          return '<div style="padding:6px 0;border-bottom:1px solid var(--linha)">' +
+          var foraTotal = 0;
+          Object.keys(m.evs).forEach(function (evId) {
+            var v = (vida[evId] || {})[m.ch] || { saiu: 0, voltou: 0 };
+            foraTotal += Math.max(0, v.saiu - v.voltou);
+          });
+          return '<div class="js-sp-item" data-i="' + i + '" style="padding:6px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
             '<div class="peq" style="display:flex;justify-content:space-between;gap:10px">' +
-              '<span>' + (i + 1) + 'º ' + U.esc(m.nome) + '</span>' +
+              '<span>' + (i + 1) + 'º ' + U.esc(m.nome) +
+                (foraTotal > 0 ? ' <b style="color:var(--laranja)">· 📍 ' + U.fmt(foraTotal) + ' na rua</b>' : '') + '</span>' +
               '<b style="flex:none">' + U.fmt(m.saiu) + ' ' + U.esc(m.unidade) +
-                ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s)</span></b></div>' +
+                ' <span class="mut" style="font-weight:400">em ' + m.eventos + ' evento(s) ▾</span></b></div>' +
             '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:4px">' +
               '<div style="height:6px;border-radius:4px;background:var(--laranja);width:' +
                 Math.max(2, Math.round(m.saiu / max * 100)) + '%"></div></div>' +
+            '<div class="js-sp-det" hidden style="background:var(--fundo);border-radius:10px;padding:4px 6px 8px;margin:8px 0 4px">' +
+              detalheItem(m) + '</div>' +
           '</div>';
         }).join('') +
       '</div></div>';
@@ -9527,6 +10756,67 @@ function TelaRelatorios() {
       return h;
     }
 
+    /* 👷 produtividade dos conferentes no período */
+    function abaConferentes() {
+      exportTitulo = 'Conferentes';
+      exportLinhas = [['Período', rotuloPeriodo()],
+        ['Conferente', 'Conferências', 'Saídas', 'Retornos', 'Divergências', 'Tempo médio']];
+      var evPorId2 = {};
+      App.eventos.forEach(function (e) { evPorId2[e.id] = e; });
+      var porConf = {};
+      App.conferencias.forEach(function (c) {
+        if (!c.finalizada_em || !c.conferente_id) return;
+        if (!noPeriodo(c.finalizada_em)) return;
+        var b = porConf[c.conferente_id] || (porConf[c.conferente_id] = {
+          nome: App.nomeUsuario(c.conferente_id), total: 0, saidas: 0, retornos: 0,
+          diverg: 0, corrigidas: 0, somaMin: 0, comTempo: 0
+        });
+        b.total++;
+        if (c.tipo === 'retorno') b.retornos++; else b.saidas++;
+        if (c.status === 'Com divergência') b.diverg++;
+        if ((c.correcoes || []).length) b.corrigidas++;
+        if (c.created_at) {
+          var min = (new Date(c.finalizada_em) - new Date(c.created_at)) / 60000;
+          if (min > 0 && min < 60 * 24) { b.somaMin += min; b.comTempo++; }   /* acima de 1 dia não conta (ficou aberta) */
+        }
+      });
+      var lista = Object.keys(porConf).map(function (k) { return porConf[k]; })
+        .filter(function (b) { return casaBusca(b.nome); })
+        .sort(function (a, b) { return b.total - a.total; });
+      if (!lista.length) {
+        return barraPeriodo() + '<div class="vazio"><p class="vazio__ico">👷</p>' +
+          '<h3>Nenhuma conferência finalizada neste período</h3><p>Mude as datas acima ou toque em <b>Tudo</b>.</p></div>';
+      }
+      function tempoTxt(b) {
+        if (!b.comTempo) return '—';
+        var m = Math.round(b.somaMin / b.comTempo);
+        return m >= 60 ? Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') : m + ' min';
+      }
+      var max = lista[0].total || 1;
+      return barraPeriodo() +
+        '<div class="cartao"><div class="cartao__topo"><h3>👷 Produtividade dos conferentes</h3>' +
+          '<span class="mut peq">' + U.esc(rotuloPeriodo()) + '</span></div><div class="cartao__corpo">' +
+        lista.map(function (b) {
+          exportLinhas.push([b.nome, b.total, b.saidas, b.retornos, b.diverg, tempoTxt(b)]);
+          var pctDiv = b.total ? Math.round(b.diverg / b.total * 100) : 0;
+          return '<div style="padding:9px 0;border-bottom:1px solid var(--linha)">' +
+            '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+              '<b>' + U.esc(b.nome) + '</b>' +
+              '<span><b>' + b.total + '</b> conferência(s) · ' + b.saidas + ' saída(s) · ' + b.retornos + ' retorno(s)' +
+                ' · ⏱ ' + tempoTxt(b) +
+                ' · <b style="color:' + (pctDiv > 20 ? 'var(--vermelho)' : pctDiv > 0 ? 'var(--laranja)' : 'var(--verde)') + '">' +
+                  b.diverg + ' divergência(s)' + (b.total ? ' (' + pctDiv + '%)' : '') + '</b>' +
+                (b.corrigidas ? ' · ✏️ ' + b.corrigidas + ' corrigida(s)' : '') + '</span></div>' +
+            '<div style="height:6px;background:var(--fundo);border-radius:4px;margin-top:5px">' +
+              '<div style="height:6px;border-radius:4px;background:var(--azul);width:' +
+                Math.max(2, Math.round(b.total / max * 100)) + '%"></div></div>' +
+          '</div>';
+        }).join('') +
+        '<p class="peq mut" style="margin-top:10px">⏱ Tempo médio entre abrir e finalizar a conferência ' +
+          '(conferências que ficaram abertas mais de 1 dia não entram na média).</p>' +
+        '</div></div>';
+    }
+
     var ABAS = {
       saidas: { rot: '📤 Saídas no período', fn: abaSaidas },
       material: { rot: '🚧 Material na rua', fn: abaMaterial },
@@ -9534,7 +10824,8 @@ function TelaRelatorios() {
       perdas: { rot: '🔧 Perdas e quebras', fn: abaPerdas },
       manutencao: { rot: '🛠️ Manutenção', fn: abaManutencao },
       historico: { rot: '🗂️ Histórico por evento', fn: abaHistorico },
-      giro: { rot: '🔄 Giro de peças', fn: abaGiro }
+      giro: { rot: '🔄 Giro de peças', fn: abaGiro },
+      conferentes: { rot: '👷 Conferentes', fn: abaConferentes }
     };
     var abaAtiva = 'saidas';
 
@@ -9602,6 +10893,15 @@ function TelaRelatorios() {
           if (seta) seta.style.transform = corpo.hidden ? '' : 'rotate(90deg)';
         });
       });
+      /* 📤 ranking de saídas: toque no item abre onde cada peça está */
+      U.$$('.js-sp-item', tela).forEach(function (linha) {
+        linha.addEventListener('click', function (e) {
+          if (e.target.closest('.js-rel-abrir')) return;   /* toque no evento: só abre o evento */
+          var det = linha.querySelector('.js-sp-det');
+          if (det) det.hidden = !det.hidden;
+        });
+      });
+
       U.$$('.js-rel-abrir', tela).forEach(function (c) {
         c.addEventListener('click', function () { App.abrir(TelaEvento, c.dataset.id); });
       });
@@ -9668,25 +10968,168 @@ function TelaRelatorios() {
       U.aviso('📗 Planilha baixada — abre direto no Excel.', 'ok', 4000);
     }
 
-    /* 🖨️ Imprimir: PDF simples da aba atual */
-    function imprimir() {
-      if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
-        return U.aviso('O gerador de PDF ainda está carregando — tente de novo em instantes.', 'erro', 5000);
+    /* 🖨️ Imprimir: relatório com a cara da empresa, pronto para a diretoria.
+       Abre a janela de impressão do navegador — de lá dá para imprimir
+       ou salvar em PDF. */
+    function paginaImpressao(tituloRel, corpo) {
+      var quem = Sessao.atual ? Sessao.atual.nome : '';
+      return '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>' + U.esc(tituloRel) + '</title><style>' +
+        '@page{size:A4;margin:13mm 12mm}' +
+        '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+        'body{margin:0;font:11px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+        '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;' +
+          'border-bottom:3px solid #F57C00;padding-bottom:10px;margin-bottom:16px}' +
+        '.topo .marca{font-size:19px;font-weight:900;color:#0B4F9E;letter-spacing:.5px;white-space:nowrap}' +
+        '.topo .marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px;margin-top:1px}' +
+        '.topo .info{text-align:right}' +
+        '.topo .info b{display:block;font-size:13px;color:#0B4F9E;text-transform:uppercase}' +
+        '.topo .info span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+        '.kpis{display:flex;gap:8px;margin-bottom:16px}' +
+        '.kpi{flex:1;border:1px solid #DCE3ED;border-top:4px solid #0B4F9E;border-radius:8px;padding:9px 10px;text-align:center}' +
+        '.kpi.lar{border-top-color:#F57C00}' +
+        '.kpi .n{font-size:21px;font-weight:900;color:#0B4F9E;line-height:1.1}' +
+        '.kpi.lar .n{color:#F57C00}' +
+        '.kpi .r{font-size:8.5px;color:#5A6B7D;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}' +
+        'h2{font-size:13px;color:#0B4F9E;margin:18px 0 2px;text-transform:uppercase;letter-spacing:.4px}' +
+        'h2+.fil{height:2px;width:52px;background:#F57C00;border:0;margin:0 0 8px;border-radius:2px}' +
+        'table{width:100%;border-collapse:collapse;font-size:10px}' +
+        'thead th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:5px 7px;font-size:9px;' +
+          'text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #0B4F9E}' +
+        'td{padding:4.5px 7px;border-bottom:1px solid #E4EAF2;vertical-align:top}' +
+        'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+        '.num{text-align:right;white-space:nowrap;font-weight:700}' +
+        '.mut{color:#8695A6;font-weight:400}' +
+        '.lar{color:#D96A00}.verm{color:#C62828}.verd{color:#1B8A4B}' +
+        '.barra{height:6px;background:#EEF2F7;border-radius:3px;min-width:70px}' +
+        '.barra i{display:block;height:6px;border-radius:3px;background:#F57C00}' +
+        '.sec{break-inside:avoid}' +
+        '.evcab td{background:#0B4F9E !important;color:#fff;font-weight:800;font-size:10.5px;padding:6px 8px}' +
+        '.evcab td small{font-weight:400;opacity:.85}' +
+        '.rodape{margin-top:22px;padding-top:8px;border-top:1px solid #DCE3ED;display:flex;' +
+          'justify-content:space-between;font-size:8.5px;color:#8695A6}' +
+        '</style></head><body>' +
+        '<div class="topo">' +
+          '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFERÊNCIA</small></div>' +
+          '<div class="info"><b>' + U.esc(tituloRel) + '</b>' +
+            (abaAtiva === 'saidas' && dadosSaidas ? '<span style="font-size:10.5px;color:#17202B;font-weight:700">Período: ' + U.esc(dadosSaidas.rotPeriodo) + '</span>' : '') +
+            '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
+        '</div>' +
+        corpo +
+        '<div class="rodape"><span>Grupo Tendas Plenart · Central de Conferência</span>' +
+          '<span>Documento gerado pelo sistema · ' + U.fmtDataHora(new Date().toISOString()) + '</span></div>' +
+        '</body></html>';
+    }
+
+    /* corpo padrão: a tabela da aba atual, arrumada */
+    function corpoTabela() {
+      if (!exportLinhas.length) return '<p>Nada para mostrar nesta aba.</p>';
+      var rows = exportLinhas.slice(), pre = '';
+      if (rows.length && rows[0][0] === 'Período') {
+        pre = '<p style="font-size:10px;color:#5A6B7D;margin:0 0 8px"><b>Período:</b> ' + U.esc(rows[0][1]) + '</p>';
+        rows.shift();
       }
-      var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
-      doc.setFont(undefined, 'bold'); doc.setFontSize(13);
-      doc.text('GRUPO TENDAS PLENART — ' + exportTitulo.toUpperCase(), 12, 16);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(8);
-      doc.text('Gerado em ' + U.fmtDataHora(new Date().toISOString()), 12, 21);
-      var y = 30;
-      exportLinhas.forEach(function (l, i) {
-        if (y > 285) { doc.addPage(); y = 14; }
-        doc.setFont(undefined, i === 0 ? 'bold' : 'normal');
-        doc.setFontSize(7.5);
-        doc.text(l.map(String).join('  |  ').slice(0, 130), 12, y);
-        y += 4.2;
+      if (!rows.length) return pre + '<p>Nada para mostrar nesta aba.</p>';
+      var cab = rows[0], linhas = rows.slice(1);
+      return pre + '<table><thead><tr>' + cab.map(function (c) { return '<th>' + U.esc(c) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + linhas.map(function (l) {
+          return '<tr>' + l.map(function (c) {
+            var ehNum = typeof c === 'number';
+            return '<td' + (ehNum ? ' class="num"' : '') + '>' + (ehNum ? U.fmt(c) : U.esc(c)) + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    /* corpo do relatório de SAÍDAS: resumo, ranking e o detalhe por evento */
+    function corpoSaidas() {
+      var D = dadosSaidas;
+      var foraDe = function (evId, ch) {
+        var v = (D.vida[evId] || {})[ch] || { saiu: 0, voltou: 0 };
+        return Math.max(0, v.saiu - v.voltou);
+      };
+      var naRua = 0;
+      D.ranking.forEach(function (m) {
+        Object.keys(m.evs).forEach(function (evId) { naRua += foraDe(evId, m.ch); });
       });
-      doc.save('relatorio-' + exportTitulo.toLowerCase().replace(/\s+/g, '-') + '.pdf');
+
+      var h = '<div class="kpis">' +
+        '<div class="kpi lar"><div class="n">' + U.fmt(D.totalPecas) + '</div><div class="r">Peças saíram</div></div>' +
+        '<div class="kpi"><div class="n">' + D.eventosLista.length + '</div><div class="r">Eventos atendidos</div></div>' +
+        '<div class="kpi"><div class="n">' + D.nConfs + '</div><div class="r">Caminhões de saída</div></div>' +
+        '<div class="kpi"><div class="n">' + D.ranking.length + '</div><div class="r">Itens diferentes</div></div>' +
+        '<div class="kpi lar"><div class="n">' + U.fmt(naRua) + '</div><div class="r">Peças ainda na rua</div></div>' +
+      '</div>' +
+      '<p style="font-size:10px;color:#5A6B7D;margin:0 0 4px"><b>Período:</b> ' + U.esc(D.rotPeriodo) +
+        ' · "Ainda na rua" considera o histórico completo de saídas e retornos de cada evento, não só o período.</p>';
+
+      /* eventos atendidos */
+      h += '<div class="sec"><h2>Eventos atendidos no período</h2><hr class="fil">' +
+        '<table><thead><tr><th>Evento</th><th>Cliente</th><th>Data</th><th>Situação</th>' +
+          '<th style="text-align:right">Peças saídas</th></tr></thead><tbody>' +
+        D.eventosLista.map(function (e) {
+          var ev = D.evPorId[e.id];
+          return '<tr><td><b>' + U.esc(e.nome) + '</b></td>' +
+            '<td>' + U.esc(ev && ev.cliente || '—') + '</td>' +
+            '<td>' + U.fmtData(e.data) + '</td>' +
+            '<td>' + U.esc(ev && ev.status || '—') + '</td>' +
+            '<td class="num">' + U.fmt(e.qtd) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+
+      /* ranking */
+      var max = D.ranking.length ? (D.ranking[0].saiu || 1) : 1;
+      h += '<h2>O que mais saiu no período</h2><hr class="fil">' +
+        '<table><thead><tr><th style="width:22px">#</th><th>Item</th><th style="width:90px"></th>' +
+          '<th style="text-align:right">Saiu</th><th style="text-align:right">Eventos</th>' +
+          '<th style="text-align:right">Ainda na rua</th></tr></thead><tbody>' +
+        D.ranking.map(function (m, i) {
+          var fora = 0;
+          Object.keys(m.evs).forEach(function (evId) { fora += foraDe(evId, m.ch); });
+          return '<tr><td class="mut">' + (i + 1) + 'º</td>' +
+            '<td>' + U.esc(m.nome) + '</td>' +
+            '<td><div class="barra"><i style="width:' + Math.max(2, Math.round(m.saiu / max * 100)) + '%"></i></div></td>' +
+            '<td class="num">' + U.fmt(m.saiu) + ' <span class="mut">' + U.esc(m.unidade) + '</span></td>' +
+            '<td class="num" style="font-weight:400">' + m.eventos + '</td>' +
+            '<td class="num ' + (fora > 0 ? 'lar' : 'verd') + '">' + (fora > 0 ? U.fmt(fora) : '✓ voltou') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      /* detalhe por evento */
+      h += '<h2>Detalhe por evento — onde cada peça está</h2><hr class="fil">' +
+        '<table><thead><tr><th>Item</th><th style="text-align:right">Saiu no período</th>' +
+          '<th style="text-align:right">Voltou</th><th style="text-align:right">Ainda no evento</th></tr></thead><tbody>' +
+        D.eventosLista.map(function (e) {
+          var ev = D.evPorId[e.id];
+          var fechado = ev && (ev.status === 'Finalizado' || ev.status === 'Com divergência');
+          var itens = D.ranking.filter(function (m) { return m.evs[e.id]; })
+            .sort(function (a, b) { return (b.evs[e.id] || 0) - (a.evs[e.id] || 0); });
+          return '<tr class="evcab"><td colspan="4">' + U.esc(e.nome) +
+              ' <small>· ' + U.fmtData(e.data) + (ev && ev.cliente ? ' · ' + U.esc(ev.cliente) : '') +
+              ' · ' + U.esc(ev && ev.status || '') + '</small></td></tr>' +
+            itens.map(function (m) {
+              var v = (D.vida[e.id] || {})[m.ch] || { saiu: 0, voltou: 0 };
+              var fora = Math.max(0, v.saiu - v.voltou);
+              var celFora = fora > 0
+                ? '<td class="num ' + (fechado ? 'verm' : 'lar') + '">' + U.fmt(fora) +
+                  (fechado ? ' <span class="mut">(não voltou)</span>' : '') + '</td>'
+                : '<td class="num verd">✓</td>';
+              return '<tr><td>' + U.esc(m.nome) + '</td>' +
+                '<td class="num" style="font-weight:400">' + U.fmt(m.evs[e.id]) + ' ' + U.esc(m.unidade) + '</td>' +
+                '<td class="num" style="font-weight:400">' + U.fmt(Math.min(v.voltou, v.saiu)) + '</td>' +
+                celFora + '</tr>';
+            }).join('');
+        }).join('') + '</tbody></table>';
+
+      return h;
+    }
+
+    function imprimir() {
+      var ehSaidas = abaAtiva === 'saidas' && dadosSaidas;
+      var titulo = ehSaidas ? 'Relatório de Saídas de Material' : exportTitulo;
+      var corpo = ehSaidas ? corpoSaidas() : corpoTabela();
+      var jan = window.open('', '_blank');
+      if (!jan) return U.aviso('O navegador bloqueou a janela do relatório. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+      jan.document.write(paginaImpressao(titulo, corpo));
+      jan.document.close();
+      jan.focus();
+      setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
     }
 
     desenhar();
@@ -9697,6 +11140,302 @@ function TelaRelatorios() {
    TELA: PENDÊNCIAS DE RETORNO — o que saiu e ainda não voltou,
    por evento e por item. A lista de cobrança pronta.
    ============================================================ */
+/* ============================================================
+   🤝 Conferências dos PRODUTORES (página externa produtor.html)
+   Chegada por caminhão (com avaria + foto e avaliação do
+   carregamento) e sobra do evento (com produtos acrescentados).
+   ============================================================ */
+var ConfProd = {
+  _RE: /⭐ AVALIAÇÃO DO CARREGAMENTO: (\d)\/5(?: — ([^\n]*))?\n?/,
+
+  nota: function (c) {
+    if (c && c.avaliacao && U.num(c.avaliacao.nota)) return U.num(c.avaliacao.nota);
+    var m = c && c.observacao ? String(c.observacao).match(ConfProd._RE) : null;
+    return m ? U.num(m[1]) : 0;
+  },
+  comentario: function (c) {
+    if (c && c.avaliacao && U.num(c.avaliacao.nota)) return c.avaliacao.comentario || '';
+    var m = c && c.observacao ? String(c.observacao).match(ConfProd._RE) : null;
+    return m ? (m[2] || '') : '';
+  },
+  /* observação sem a linha da avaliação (quando ela foi gravada ali) */
+  obs: function (c) {
+    return String((c && c.observacao) || '').replace(ConfProd._RE, '').trim();
+  },
+  estrelas: function (n) {
+    var s = '';
+    for (var k = 1; k <= 5; k++) s += k <= n ? '★' : '☆';
+    return s;
+  },
+  resumo: function (c) {
+    var r = { pecas: 0, difs: 0, avarias: 0, qtdAvariada: 0, extras: 0, fotos: 0, terc: 0, qtdTerc: 0 };
+    (c.itens || []).forEach(function (i) {
+      r.pecas += U.num(i.qtd);
+      if (i.terceirizado) { r.terc++; r.qtdTerc += U.num(i.qtd); }
+      if (i.extra) r.extras++;
+      else if (c.tipo !== 'sobra' && U.num(i.qtd) !== U.num(i.previsto)) r.difs++;
+      if (i.avaria && U.num(i.avaria.qtd) > 0) {
+        r.avarias++;
+        r.qtdAvariada += U.num(i.avaria.qtd);
+        r.fotos += (i.avaria.fotos || []).length;
+      }
+    });
+    return r;
+  },
+
+  chips: function (c) {
+    var r = ConfProd.resumo(c), h = '';
+    if (c.tipo !== 'sobra') {
+      h += r.difs
+        ? '<span class="cp-chip cp-chip--lar">' + r.difs + ' diferença' + (r.difs > 1 ? 's' : '') + '</span>'
+        : '<span class="cp-chip cp-chip--ok">✓ bateu com o enviado</span>';
+    }
+    if (r.avarias) h += '<span class="cp-chip cp-chip--av">⚠️ ' + U.fmt(r.qtdAvariada) + ' avariada' + (r.qtdAvariada > 1 ? 's' : '') + '</span>';
+    if (r.terc) h += '<span class="cp-chip cp-chip--terc">🔗 ' + U.fmt(r.qtdTerc) + ' terceirizado' + (r.qtdTerc > 1 ? 's' : '') + '</span>';
+    if (r.extras) h += '<span class="cp-chip cp-chip--ex">➕ ' + r.extras + ' acrescentado' + (r.extras > 1 ? 's' : '') + '</span>';
+    return h;
+  },
+
+  /* detalhe completo: itens, avarias com fotos, acrescentados, avaliação, observação */
+  detalhe: function (c) {
+    var chegada = c.tipo !== 'sobra';
+    var itens = (c.itens || []).filter(function (i) {
+      return chegada || U.num(i.qtd) > 0 || (i.avaria && U.num(i.avaria.qtd) > 0);
+    });
+    /* primeiro o que precisa de atenção: avaria, diferença, acrescentado */
+    function peso(i) {
+      if (i.avaria && U.num(i.avaria.qtd) > 0) return 0;
+      if (chegada && !i.extra && U.num(i.qtd) !== U.num(i.previsto)) return 1;
+      if (i.extra) return 2;
+      if (i.terceirizado) return 3;
+      return 4;
+    }
+    itens = itens.slice().sort(function (a, b) {
+      return peso(a) - peso(b) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
+    });
+    var nota = ConfProd.nota(c), com = ConfProd.comentario(c), obs = ConfProd.obs(c);
+    var h = '';
+    if (chegada) {
+      h += '<div class="cp-aval">' +
+        (nota
+          ? '<span class="cp-estr">' + ConfProd.estrelas(nota) + '</span><b>' + nota + '/5 · avaliação do carregamento</b>' +
+            (com ? '<p class="peq" style="margin:4px 0 0">💬 ' + U.esc(com) + '</p>' : '')
+          : '<span class="peq mut">Sem avaliação do carregamento (conferência enviada antes da avaliação existir).</span>') +
+      '</div>';
+    }
+    h += itens.length ? itens.map(function (i) {
+      var av = i.avaria && U.num(i.avaria.qtd) > 0 ? i.avaria : null;
+      var dif = chegada && !i.extra && U.num(i.qtd) !== U.num(i.previsto);
+      var lado = chegada && !i.extra
+        ? '<b style="white-space:nowrap;' + (dif ? 'color:var(--laranja)' : 'color:var(--verde)') + '">' +
+            (dif ? 'chegou ' + U.fmt(i.qtd) + ' de ' + U.fmt(i.previsto) : '✓ ' + U.fmt(i.qtd)) + ' ' + U.esc(i.unidade || 'UN') + '</b>'
+        : '<b style="white-space:nowrap">' + U.fmt(i.qtd) + ' ' + U.esc(i.unidade || 'UN') + '</b>';
+      return '<div class="cp-item">' +
+        '<div class="cp-item__lin"><span style="flex:1;min-width:0">' + U.esc(i.nome) +
+          (i.terceirizado ? ' <span class="cp-chip cp-chip--terc">🔗 terceirizado</span>' : '') +
+          (i.extra ? ' <span class="cp-chip cp-chip--ex">acrescentado pelo produtor</span>' : '') + '</span>' + lado + '</div>' +
+        (av
+          ? '<div class="cp-av"><b>⚠️ ' + U.fmt(av.qtd) + ' avariada' + (U.num(av.qtd) > 1 ? 's' : '') + '</b>' +
+              (av.descricao ? ' — ' + U.esc(av.descricao) : '') +
+              '<div class="cp-fotos">' + (av.fotos || []).map(function (f, k) {
+                return '<img class="cp-foto js-cp-foto" src="' + U.esc(f) + '" alt="Foto da avaria ' + (k + 1) + ' de ' + U.esc(i.nome) + '">';
+              }).join('') + '</div></div>'
+          : '') +
+      '</div>';
+    }).join('') : '<p class="peq mut" style="padding:8px 0">' + (chegada ? 'Nenhum item informado.' : 'Nenhuma sobra declarada.') + '</p>';
+    if (obs) h += '<p class="peq" style="margin-top:10px">📝 ' + U.esc(obs) + '</p>';
+    return h;
+  },
+
+  ligarFotos: function (ctx) {
+    U.$$('.js-cp-foto', ctx).forEach(function (img) {
+      if (img._ligada) return;
+      img._ligada = true;
+      img.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var m = U.modal({
+          titulo: '📷 Foto da avaria',
+          html: '<img src="' + U.esc(img.src) + '" alt="" style="width:100%;border-radius:12px;display:block">',
+          pe: '<button class="btn btn--branco" data-fechar>Fechar</button>'
+        });
+        m.querySelector('[data-fechar]').addEventListener('click', function () { m.fechar(); });
+      });
+    });
+  }
+};
+
+function TelaProdutores() {
+  App.topo('CONFERÊNCIAS DOS PRODUTORES', 'O que os produtores conferiram nos eventos');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando as conferências dos produtores...');
+
+  Promise.all([
+    App.carregarBase(),
+    Banco.cliente.from('conferencias_produtor').select('*').order('finalizada_em', { ascending: false })
+      .then(function (r) { if (r.error) throw r.error; return r.data || []; }),
+    Banco.listarCarregamentos().catch(function () { return []; }),
+    Banco.listarCaminhoes().catch(function () { return []; })
+  ]).then(function (rr) {
+    var cps = rr[1], cgs = rr[2], cams = rr[3];
+    var evPorId = {}, cgPorId = {};
+    App.eventos.forEach(function (e) { evPorId[e.id] = e; });
+    cgs.forEach(function (c) { cgPorId[c.id] = c; });
+    cps = cps.filter(function (c) { return evPorId[c.evento_id]; });   /* evento excluído some */
+
+    function nomeCam(cg) {
+      if (!cg) return '';
+      var c = cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+      if (!c) return '';
+      var t = (c.tipo || 'Caminhão') + (c.placa ? ' ' + c.placa : '');
+      var cav = cg.cavalo_id ? cams.filter(function (x) { return x.id === cg.cavalo_id; })[0] : null;
+      return cav ? t + ' + cavalo ' + cav.placa : t;
+    }
+
+    /* caminhões que já saíram (saída finalizada) e o produtor ainda não conferiu */
+    var chegFeita = {};
+    cps.forEach(function (c) { if (c.tipo !== 'sobra' && c.carregamento_id) chegFeita[c.carregamento_id] = true; });
+    var aguardando = cgs.filter(function (cg) {
+      var ev = evPorId[cg.evento_id];
+      if (!ev || !ev.token_produtor) return false;
+      if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
+      if ((cg.sentido || 'saida') !== 'saida' || chegFeita[cg.id]) return false;
+      return App.conferencias.some(function (c) {
+        return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em;
+      });
+    });
+
+    var comAvaria = cps.filter(function (c) { return ConfProd.resumo(c).avarias > 0; });
+    var notas = cps.map(ConfProd.nota).filter(function (n) { return n > 0; });
+    var media = notas.length ? notas.reduce(function (a, b) { return a + b; }, 0) / notas.length : 0;
+
+    var h = '<div class="indicadores">' +
+        '<div class="ind"><p class="ind__num">' + cps.length + '</p><p class="ind__rot">Conferências recebidas</p></div>' +
+        '<div class="ind ind--vermelho"><p class="ind__num">' + comAvaria.length + '</p><p class="ind__rot">Com avaria</p></div>' +
+        '<div class="ind ind--laranja"><p class="ind__num">' + (media ? media.toFixed(1).replace('.', ',') : '—') + '</p>' +
+          '<p class="ind__rot">Nota média do carregamento' + (notas.length ? ' (' + notas.length + ')' : '') + '</p></div>' +
+        '<div class="ind ind--verde"><p class="ind__num">' + aguardando.length + '</p><p class="ind__rot">Caminhões aguardando o produtor</p></div>' +
+      '</div>' +
+      '<div class="abas" style="flex-wrap:wrap">' +
+        '<button class="aba is-ativa" data-aba="todas">📋 Todas<span class="n">' + cps.length + '</span></button>' +
+        '<button class="aba" data-aba="avaria">⚠️ Com avaria<span class="n">' + comAvaria.length + '</span></button>' +
+        '<button class="aba" data-aba="terc">🔗 Terceirizado<span class="n">' + cps.filter(function (c) { return ConfProd.resumo(c).terc > 0; }).length + '</span></button>' +
+        '<button class="aba" data-aba="sobra">📦 Sobras<span class="n">' + cps.filter(function (c) { return c.tipo === 'sobra'; }).length + '</span></button>' +
+        '<button class="aba" data-aba="aguardando">⏳ Aguardando<span class="n">' + aguardando.length + '</span></button>' +
+      '</div>' +
+      '<input class="entrada" id="busca-cp" placeholder="🔎 Buscar por evento, produtor, produto, caminhão..." style="min-height:48px;margin-bottom:14px">' +
+      '<div id="lista-cp"></div>';
+    tela.innerHTML = h;
+
+    var abaAt = 'todas', busca = '', abertos = {};
+
+    function casa(alvo) {
+      if (!busca) return true;
+      alvo = alvo.toLowerCase();
+      return busca.split(/\s+/).every(function (t) { return alvo.indexOf(t) >= 0; });
+    }
+
+    function cartao(c) {
+      var ev = evPorId[c.evento_id], cg = cgPorId[c.carregamento_id];
+      var sobra = c.tipo === 'sobra', nota = ConfProd.nota(c), aberto = !!abertos[c.id];
+      var titulo = sobra ? '📦 Sobra do evento'
+        : '🚚 Carregamento ' + (cg ? cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') : '') +
+          (nomeCam(cg) ? ' <span class="peq mut" style="font-weight:600">· ' + U.esc(nomeCam(cg)) + '</span>' : '');
+      return '<div class="evento cp-card' + (ConfProd.resumo(c).avarias ? ' cp-card--av' : '') + '">' +
+        '<button class="cp-topo js-cp-abrir" data-id="' + c.id + '" aria-expanded="' + aberto + '">' +
+          '<span style="flex:1;min-width:0;text-align:left">' +
+            '<span class="evento__nome" style="display:block;font-size:18px">' + U.esc(ev.nome) + '</span>' +
+            '<span style="display:block;font-weight:700;margin-top:2px">' + titulo + '</span>' +
+            '<span class="peq mut" style="display:block;margin-top:2px">👤 ' + U.esc(c.responsavel || '—') +
+              ' · ' + U.fmtDataHora(c.finalizada_em || c.created_at) +
+              (ev.cliente ? ' · ' + U.esc(ev.cliente) : '') + '</span>' +
+            '<span style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">' + ConfProd.chips(c) + '</span>' +
+          '</span>' +
+          '<span style="flex:none;text-align:right">' +
+            (!sobra ? (nota ? '<span class="cp-estr" title="' + nota + '/5">' + ConfProd.estrelas(nota) + '</span>'
+                            : '<span class="peq mut">sem nota</span>') : '') +
+            '<span class="peq" style="display:block;color:var(--azul);font-weight:800;margin-top:6px">' + (aberto ? 'FECHAR ▲' : 'VER ▼') + '</span>' +
+          '</span>' +
+        '</button>' +
+        (aberto
+          ? '<div class="cp-corpo">' +
+              (sobra ? '<p class="peq mut" style="margin-bottom:8px">ℹ️ Informativo: não mexe no estoque. O material só volta para o estoque quando o conferente registrar o retorno.</p>' : '') +
+              ConfProd.detalhe(c) +
+              '<button class="btn btn--branco btn--bloco btn--peq js-cp-ev" data-ev="' + c.evento_id + '" style="margin-top:12px">ABRIR O EVENTO</button>' +
+            '</div>'
+          : '') +
+      '</div>';
+    }
+
+    function desenharLista() {
+      var caixa = U.$('#lista-cp', tela);
+      if (abaAt === 'aguardando') {
+        var lista = aguardando.filter(function (cg) {
+          var ev = evPorId[cg.evento_id];
+          return casa([ev.nome, ev.cliente, nomeCam(cg), cg.nome].join(' '));
+        });
+        caixa.innerHTML = lista.length ? lista.map(function (cg) {
+          var ev = evPorId[cg.evento_id];
+          var saida = App.conferencias.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida'; })[0];
+          return '<div class="evento" style="padding:14px 18px">' +
+            '<p class="evento__nome" style="font-size:17px;margin:0">' + U.esc(ev.nome) + '</p>' +
+            '<p style="font-weight:700;margin:2px 0 0">🚚 Carregamento ' + cg.numero + (cg.nome ? ' · ' + U.esc(cg.nome) : '') +
+              (nomeCam(cg) ? ' <span class="peq mut">· ' + U.esc(nomeCam(cg)) + '</span>' : '') + '</p>' +
+            '<p class="peq mut" style="margin:2px 0 8px">Saiu do galpão em ' + U.fmtDataHora(saida && saida.finalizada_em) +
+              ' · produtor ainda não conferiu a chegada</p>' +
+            '<button class="btn btn--branco btn--peq js-cp-ev" data-ev="' + ev.id + '">ABRIR O EVENTO</button>' +
+          '</div>';
+        }).join('') : '<div class="vazio"><p class="vazio__ico">✅</p><h3>Nenhum caminhão aguardando</h3>' +
+          '<p>Todo caminhão que saiu (em evento com link do produtor) já foi conferido na chegada.</p></div>';
+      } else {
+        var itensLista = cps.filter(function (c) {
+          if (abaAt === 'avaria' && !ConfProd.resumo(c).avarias) return false;
+          if (abaAt === 'sobra' && c.tipo !== 'sobra') return false;
+          if (abaAt === 'terc' && !ConfProd.resumo(c).terc) return false;
+          var ev = evPorId[c.evento_id], cg = cgPorId[c.carregamento_id];
+          return casa([ev.nome, ev.cliente, ev.local, c.responsavel, nomeCam(cg),
+            (c.itens || []).map(function (i) { return i.nome; }).join(' ')].join(' '));
+        });
+        caixa.innerHTML = itensLista.length ? itensLista.map(cartao).join('')
+          : busca
+            ? '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3><p>Nenhuma conferência combina com "' + U.esc(busca) + '".</p></div>'
+            : '<div class="vazio"><p class="vazio__ico">🤝</p><h3>' +
+                (abaAt === 'avaria' ? 'Nenhuma avaria registrada' : abaAt === 'terc' ? 'Nenhum terceirizado conferido pelo produtor' : abaAt === 'sobra' ? 'Nenhuma sobra declarada' : 'Nenhuma conferência de produtor ainda') + '</h3>' +
+                '<p>Gere o link na tela do evento (🔗 LINK DO PRODUTOR) e mande para quem recebe o material. O que ele enviar aparece aqui.</p></div>';
+      }
+      U.$$('.js-cp-abrir', caixa).forEach(function (b) {
+        b.addEventListener('click', function () {
+          abertos[b.dataset.id] = !abertos[b.dataset.id];
+          desenharLista();
+        });
+      });
+      U.$$('.js-cp-ev', caixa).forEach(function (b) {
+        b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.ev); });
+      });
+      ConfProd.ligarFotos(caixa);
+    }
+
+    desenharLista();
+
+    U.$$('.aba', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        U.$$('.aba', tela).forEach(function (x) { x.classList.remove('is-ativa'); });
+        b.classList.add('is-ativa');
+        abaAt = b.dataset.aba;
+        desenharLista();
+      });
+    });
+    U.$('#busca-cp', tela).addEventListener('input', function () {
+      busca = this.value.trim().toLowerCase();
+      desenharLista();
+    });
+  }).catch(function (e) {
+    console.error(e);
+    tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      '<b>Não foi possível carregar as conferências dos produtores.</b>' + U.esc(e.message || '') + '</div></div>' +
+      '<button class="btn btn--bloco" onclick="App.recarregar()">Tentar de novo</button>';
+  });
+}
+
 function TelaPendencias() {
   App.topo('PENDÊNCIAS DE RETORNO', 'O que ainda não voltou para o galpão');
   var tela = U.$('#tela');
@@ -10530,7 +12269,7 @@ const Relatorio = {
           campo.focus();
           return;
         }
-        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador'; })[0];
+        var coord = App.usuarios.filter(function (u) { return u.tipo === 'coordenador' && u.ativo !== false; })[0];
         if (!coord) return U.aviso('O usuário coordenador não está cadastrado no Supabase. Rode o SQL de instalação.', 'erro', 7000);
         Sessao.entrar(coord);
         m.fechar();
@@ -10628,6 +12367,9 @@ const Relatorio = {
           var igual = App.usuarios.filter(function (u) {
             return u.nome.trim().toUpperCase() === nome.toUpperCase();
           })[0];
+          if (igual && igual.ativo === false) {
+            return U.aviso('Este nome não está mais ativo como conferente. Fale com o coordenador.', 'erro', 6000);
+          }
           if (igual) { m2.fechar(); return entrarComo(igual); }
 
           var botao = m2.querySelector('[data-ok]');
