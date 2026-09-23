@@ -82,6 +82,7 @@ button{font:inherit;color:inherit}
 .btn--branco{background:var(--branco);color:var(--azul);border-color:var(--linha)}
 .btn--branco:hover{border-color:var(--azul)}
 .btn--verde{background:var(--verde)}
+.btn--azul{background:var(--azul);color:#fff}
 .btn--vermelho{background:var(--vermelho)}
 .btn--bloco{width:100%}
 .btn--gg{padding:22px;font-size:19px;border-radius:14px;min-height:72px}
@@ -3496,9 +3497,14 @@ function TelaPainel() {
         .select('id,evento_id,carregamento_id,tipo,responsavel,finalizada_em,qtd_avarias')
         .gt('qtd_avarias', 0).not('avaria_vista', 'is', true)
         .then(function (r) { return r.error ? [] : (r.data || []); })
-        .catch(function () { return []; })
+        .catch(function () { return []; }),
+      /* 🏗️ demandas do pátio (quem carrega): null = tabela ainda não criada */
+      Banco.cliente.from('patio_demanda').select('chave,evento_id,tipo,data,colaboradores')
+        .then(function (r) { return r.error ? null : (r.data || []); })
+        .catch(function () { return null; })
     ]);
   }).then(function (extra) {
+    var demandasPatio = extra[4];
     var todosCarregamentos = extra[0];
     var todosCaminhoes = extra[1];
     var todosItensConf = extra[2];
@@ -3592,6 +3598,10 @@ function TelaPainel() {
         return cg.evento_id === ev.id && cg.sentido !== 'retorno' && cg.caminhao_id;
       });
       if (!temCam) falta.push('SEM CAMINHÃO');
+      if (demandasPatio) {
+        var dmP = demandasPatio.filter(function (x) { return x.chave === ev.id + '|carregamento'; })[0];
+        if (!dmP || !(dmP.colaboradores || []).length) falta.push('SEM EQUIPE DO PÁTIO');
+      }
       if (!falta.length) return;
       var dias = Math.round((new Date(d + 'T12:00:00').getTime() - Date.now()) / 86400000);
       semPreparo.push({ ev: ev, falta: falta, dias: Math.max(0, dias) });
@@ -3616,6 +3626,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
         '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
+        '<button class="btn btn--azul" id="btn-patio">🏗️ DEMANDA DO PÁTIO</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
         '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
@@ -3952,6 +3963,7 @@ function TelaPainel() {
           .catch(function (e) { b.disabled = false; App.falhou(e); });
       });
     });
+    U.$('#btn-patio').addEventListener('click', function () { App.abrir(TelaPatio); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
     U.$('#btn-tv').addEventListener('click', function () { window.open('tv.html', '_blank'); });
@@ -11434,6 +11446,803 @@ function TelaProdutores() {
       '<b>Não foi possível carregar as conferências dos produtores.</b>' + U.esc(e.message || '') + '</div></div>' +
       '<button class="btn btn--bloco" onclick="App.recarregar()">Tentar de novo</button>';
   });
+}
+
+/* ============================================================
+   🏗️ DEMANDA DO PÁTIO — presença da equipe do galpão, folgas,
+   e quem faz cada CARREGAMENTO e DESCARREGAMENTO do dia.
+   Evento criado já aparece aqui (na data dele) para o
+   coordenador escolher a equipe.
+   Tabelas: patio_colaboradores, patio_presenca, patio_demanda
+   ============================================================ */
+var Patio = {
+  STATUS: [
+    { k: 'TRABALHOU', ab: 'T',  cor: '#1B8A4B', fundo: '#E3F4EA', livre: true },
+    { k: 'PLANTÃO',   ab: 'PL', cor: '#0E7C86', fundo: '#DDF3F4', livre: true },
+    { k: 'FOLGA',     ab: 'F',  cor: '#0B4F9E', fundo: '#E3EDFA', livre: false },
+    { k: 'FÉRIAS',    ab: 'FÉ', cor: '#6B3FA8', fundo: '#EFE7FA', livre: false },
+    { k: 'EXTERNO',   ab: 'EX', cor: '#C26100', fundo: '#FFEFD9', livre: false },
+    { k: 'ATESTADO',  ab: 'AT', cor: '#9A6B00', fundo: '#FFF4CC', livre: false },
+    { k: 'FALTA',     ab: 'FA', cor: '#C62828', fundo: '#FDE4E4', livre: false },
+    { k: 'DESLIGADO', ab: 'DS', cor: '#5A6B7D', fundo: '#E7ECF2', livre: false }
+  ],
+  st: function (k) { return Patio.STATUS.filter(function (s) { return s.k === k; })[0] || null; },
+  livre: function (k) { var s = Patio.st(k); return !s || s.livre; },   /* sem marcação conta como disponível */
+
+  /* texto da planilha → status do sistema */
+  normStatus: function (t) {
+    var s = String(t || '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (!s) return null;
+    if (/^TRABALH/.test(s)) return 'TRABALHOU';
+    if (/^FOLG/.test(s)) return 'FOLGA';
+    if (/^FERIA/.test(s)) return 'FÉRIAS';
+    if (/^EXT/.test(s)) return 'EXTERNO';
+    if (/^ATEST/.test(s)) return 'ATESTADO';
+    if (/^FALT/.test(s)) return 'FALTA';
+    if (/^PLANT/.test(s)) return 'PLANTÃO';
+    if (/^(DEMIT|DMIT|DESLIG)/.test(s)) return 'DESLIGADO';
+    return null;
+  },
+  normNome: function (n) { return String(n || '').trim().replace(/\s+/g, ' ').toUpperCase(); },
+  /* diferença de no máximo 1 letra: "MARCO ANTONIO" x "MARCOS ANTONIO" */
+  quaseIgual: function (a, b) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    var i = 0, j = 0, dif = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++dif > 1) return false;
+      if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+    }
+    return dif + (a.length - i) + (b.length - j) <= 1;
+  },
+
+  isoMais: function (iso, n) {
+    var d = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  },
+  DIAS: ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'],
+  MESES: ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'],
+  diaSemana: function (iso) { return Patio.DIAS[new Date(String(iso).slice(0, 10) + 'T12:00:00').getDay()]; },
+  rotDia: function (iso) {
+    var h = U.hojeISO();
+    if (iso === h) return 'HOJE';
+    if (iso === Patio.isoMais(h, 1)) return 'AMANHÃ';
+    if (iso === Patio.isoMais(h, -1)) return 'ONTEM';
+    return Patio.diaSemana(iso) + ' ' + U.fmtData(iso).slice(0, 5);
+  },
+
+  /* data padrão da demanda: carregamento = data do evento;
+     descarregamento = fim da desmontagem */
+  dataPadrao: function (ev, tipo) {
+    if (tipo === 'descarregamento') return fimDesmontagem(ev) || '';
+    return String(ev.data || '').slice(0, 10);
+  },
+
+  /* ---------- banco ---------- */
+  lista: function (q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); },
+  colaboradores: function () {
+    return Patio.lista(Banco.cliente.from('patio_colaboradores').select('*').order('nome'));
+  },
+  presenca: function (de, ate) {
+    /* busca em blocos de 1000 */
+    var todas = [];
+    function passo(ini) {
+      return Banco.cliente.from('patio_presenca').select('*').gte('data', de).lte('data', ate)
+        .range(ini, ini + 999).then(function (r) {
+          if (r.error) throw r.error;
+          todas = todas.concat(r.data || []);
+          return (r.data || []).length === 1000 ? passo(ini + 1000) : todas;
+        });
+    }
+    return passo(0);
+  },
+  demandas: function () { return Patio.lista(Banco.cliente.from('patio_demanda').select('*')); },
+  gravarPresenca: function (linhas) {
+    if (!linhas.length) return Promise.resolve();
+    var lotes = [];
+    for (var i = 0; i < linhas.length; i += 500) lotes.push(linhas.slice(i, i + 500));
+    return lotes.reduce(function (p, lote) {
+      return p.then(function () {
+        return Banco.cliente.from('patio_presenca').upsert(lote).then(function (r) { if (r.error) throw r.error; });
+      });
+    }, Promise.resolve());
+  },
+  apagarPresenca: function (chave) {
+    return Banco.cliente.from('patio_presenca').delete().eq('chave', chave)
+      .then(function (r) { if (r.error) throw r.error; });
+  },
+  linhaPresenca: function (data, colabId, status) {
+    return { chave: data + '|' + colabId, data: data, colaborador_id: colabId, status: status,
+      atualizado_em: new Date().toISOString() };
+  },
+  gravarDemanda: function (d) {
+    d.atualizado_em = new Date().toISOString();
+    d.atualizado_por = Sessao.atual ? Sessao.atual.nome : null;
+    return Banco.cliente.from('patio_demanda').upsert(d).then(function (r) { if (r.error) throw r.error; });
+  },
+
+  /* ---------- importar a PLANILHA_CONTROLE_PÁTIO.xlsx ---------- */
+  importarPlanilha: function (arquivo, colabsAtuais, aviso) {
+    return arquivo.arrayBuffer().then(function (buf) {
+      var wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      var meses = [];   /* { ano, mes, linhas:[{nome, dias:[...]}] } */
+      wb.SheetNames.forEach(function (nomeAba) {
+        var n = nomeAba.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        var mes = -1;
+        ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO']
+          .forEach(function (m, i) { if (n.indexOf(m) >= 0) mes = i + 1; });
+        var ano = (n.match(/20\d\d/) || [])[0];
+        if (mes < 0 || !ano) return;
+        var rows = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { header: 1, defval: null, raw: true });
+        var ini = false, linhas = [];
+        for (var r = 0; r < rows.length; r++) {
+          var a = rows[r][0];
+          if (typeof a === 'string' && /^COLABORADOR/i.test(a.trim())) { ini = true; continue; }
+          if (!ini || typeof a !== 'string' || !a.trim()) continue;
+          if (Patio.normStatus(a)) break;   /* legenda no rodapé: acabou a lista */
+          linhas.push({ nome: Patio.normNome(a), dias: rows[r].slice(1) });
+        }
+        if (linhas.length) meses.push({ ano: Number(ano), mes: mes, linhas: linhas });
+      });
+      if (!meses.length) throw new Error('Não achei nenhuma aba de mês (ex.: SETEMBRO2026) com a lista de COLABORADOR.');
+      meses.sort(function (a, b) { return (a.ano * 100 + a.mes) - (b.ano * 100 + b.mes); });
+      var ultimo = meses[meses.length - 1];
+
+      /* junta nomes escritos de jeito diferente (1 letra de diferença) */
+      var freq = {};
+      meses.forEach(function (m) { m.linhas.forEach(function (l) { freq[l.nome] = (freq[l.nome] || 0) + 1; }); });
+      var canon = {};
+      Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; }).forEach(function (nm) {
+        var ja = Object.keys(canon).filter(function (c) { return canon[c] === c && Patio.quaseIgual(c, nm); })[0];
+        canon[nm] = ja || nm;
+      });
+      /* casa com quem já está cadastrado */
+      var porNome = {};
+      (colabsAtuais || []).forEach(function (c) { porNome[Patio.normNome(c.nome)] = c; });
+      function achaCadastrado(nm) {
+        if (porNome[nm]) return porNome[nm];
+        var k = Object.keys(porNome).filter(function (x) { return Patio.quaseIgual(x, nm); })[0];
+        return k ? porNome[k] : null;
+      }
+      var noUltimo = {};
+      ultimo.linhas.forEach(function (l) { noUltimo[canon[l.nome]] = true; });
+
+      var nomesFinais = Object.keys(canon).filter(function (k) { return canon[k] === k; });
+      var novos = nomesFinais.filter(function (nm) { return !achaCadastrado(nm); })
+        .map(function (nm) { return { nome: nm, ativo: !!noUltimo[nm] }; });
+      aviso('Cadastrando ' + novos.length + ' colaborador(es)…');
+      var criar = novos.length
+        ? Banco.cliente.from('patio_colaboradores').insert(novos).select().then(function (r) {
+            if (r.error) throw r.error;
+            (r.data || []).forEach(function (c) { porNome[Patio.normNome(c.nome)] = c; });
+          })
+        : Promise.resolve();
+      return criar.then(function () {
+        /* ativo = aparece no mês mais recente da planilha */
+        var mudarAtivo = nomesFinais.map(function (nm) {
+          var c = achaCadastrado(nm);
+          if (!c || c.ativo === !!noUltimo[nm]) return null;
+          return Banco.cliente.from('patio_colaboradores').update({ ativo: !!noUltimo[nm] }).eq('id', c.id);
+        }).filter(Boolean);
+        return Promise.all(mudarAtivo);
+      }).then(function () {
+        var linhasP = [], porChave = {};
+        meses.forEach(function (m) {
+          var nDias = new Date(m.ano, m.mes, 0).getDate();
+          m.linhas.forEach(function (l) {
+            var c = achaCadastrado(canon[l.nome]);
+            if (!c) return;
+            for (var d = 1; d <= nDias; d++) {
+              var st = Patio.normStatus(l.dias[d - 1]);
+              if (!st) continue;
+              var iso = m.ano + '-' + String(m.mes).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+              var lp = Patio.linhaPresenca(iso, c.id, st);
+              porChave[lp.chave] = lp;   /* mesma pessoa+dia duas vezes: vale a última */
+            }
+          });
+        });
+        Object.keys(porChave).forEach(function (k) { linhasP.push(porChave[k]); });
+        aviso('Gravando ' + U.fmt(linhasP.length) + ' marcações de presença…');
+        return Patio.gravarPresenca(linhasP).then(function () {
+          return { meses: meses.length, colaboradores: nomesFinais.length, novos: novos.length, marcacoes: linhasP.length };
+        });
+      });
+    });
+  },
+
+  /* ---------- Excel do mês no mesmo formato da planilha ---------- */
+  excelMes: function (ano, mes, colabs, pres) {
+    var nDias = new Date(ano, mes, 0).getDate();
+    var linhas = [['CONTROLE DE PRESENÇA:'], [''], [''], ['COLABORADOR']];
+    for (var d = 1; d <= nDias; d++) {
+      var iso = ano + '-' + String(mes).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      linhas[2].push(Patio.diaSemana(iso));
+      linhas[3].push(String(d).padStart(2, '0') + '/' + String(mes).padStart(2, '0'));
+    }
+    var mapa = {};
+    pres.forEach(function (p) { mapa[p.chave] = p.status; });
+    colabs.forEach(function (c) {
+      var l = [c.nome];
+      for (var d2 = 1; d2 <= nDias; d2++) {
+        var iso2 = ano + '-' + String(mes).padStart(2, '0') + '-' + String(d2).padStart(2, '0');
+        l.push(mapa[iso2 + '|' + c.id] || '');
+      }
+      linhas.push(l);
+    });
+    linhas.push([]);
+    Patio.STATUS.forEach(function (s) { linhas.push([s.k]); });
+    var ws = XLSX.utils.aoa_to_sheet(linhas);
+    ws['!cols'] = [{ wch: 28 }].concat(new Array(nDias).fill({ wch: 11 }));
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, (Patio.MESES[mes - 1] + '.' + ano).slice(0, 31));
+    XLSX.writeFile(wb, 'PRESENCA_PATIO_' + Patio.MESES[mes - 1] + '_' + ano + '.xlsx');
+  }
+};
+
+function TelaPatio() {
+  App.topo('DEMANDA DO PÁTIO', 'Equipe do galpão · carregamentos e descarregamentos');
+  var tela = U.$('#tela');
+  if (!Sessao.ehCoordenador()) {
+    tela.innerHTML = '<div class="aviso aviso--amarelo"><span class="aviso__ico">🔒</span><div>' +
+      '<b>Só o coordenador mexe na demanda do pátio.</b></div></div>';
+    return;
+  }
+  TelaPatio._aba = TelaPatio._aba || 'dia';
+  TelaPatio._dia = TelaPatio._dia || U.hojeISO();
+  TelaPatio._mes = TelaPatio._mes || U.hojeISO().slice(0, 7);
+  TelaPatio._pincel = TelaPatio._pincel || 'TRABALHOU';
+  tela.innerHTML = U.carregando('Montando a demanda do pátio...');
+
+  var colabs = [], pres = [], dems = [], cgs = [], cams = [];
+  var ativos = [];
+
+  function abas() {
+    var A = [['dia', '📋 Demanda do dia'], ['presenca', '🗓️ Presença do mês'], ['folgas', '🛌 Folgas'], ['colab', '👥 Colaboradores']];
+    return '<div class="abas" style="flex-wrap:wrap">' + A.map(function (a) {
+      return '<button class="aba' + (TelaPatio._aba === a[0] ? ' is-ativa' : '') + '" data-aba="' + a[0] + '">' + a[1] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function faixa() {
+    var de, ate;
+    if (TelaPatio._aba === 'presenca') {
+      var p = TelaPatio._mes.split('-');
+      de = TelaPatio._mes + '-01';
+      ate = TelaPatio._mes + '-' + String(new Date(Number(p[0]), Number(p[1]), 0).getDate()).padStart(2, '0');
+    } else if (TelaPatio._aba === 'folgas') {
+      de = U.hojeISO(); ate = Patio.isoMais(de, 13);
+    } else {
+      de = TelaPatio._dia; ate = Patio.isoMais(TelaPatio._dia, 3);
+    }
+    return [de, ate];
+  }
+
+  function carregar() {
+    var f = faixa();
+    return Promise.all([
+      App.carregarBase(),
+      Patio.colaboradores(),
+      Patio.presenca(f[0], f[1]),
+      Patio.demandas(),
+      Banco.listarCarregamentos().catch(function () { return []; }),
+      Banco.listarCaminhoes().catch(function () { return []; })
+    ]).then(function (r) {
+      colabs = r[1]; pres = r[2]; dems = r[3]; cgs = r[4]; cams = r[5];
+      ativos = colabs.filter(function (c) { return c.ativo !== false; });
+      desenhar();
+    }).catch(function (e) {
+      console.error(e);
+      var m = (e && e.message) || '';
+      tela.innerHTML = abas() + '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+        (/does not exist|schema cache|Could not find the table/i.test(m)
+          ? '<b>Falta criar as tabelas do pátio no Supabase.</b>Rode o arquivo <b>patio.sql</b> (SQL Editor → New query → colar → Run) e abra de novo.'
+          : '<b>Não consegui carregar a demanda do pátio.</b>' + U.esc(m)) + '</div></div>';
+      ligarAbas();
+    });
+  }
+
+  function statusDe(data, colabId) {
+    var p = pres.filter(function (x) { return x.chave === data + '|' + colabId; })[0];
+    return p ? p.status : '';
+  }
+  function nomeColab(id) {
+    var c = colabs.filter(function (x) { return x.id === id; })[0];
+    return c ? c.nome : '?';
+  }
+  function demandaDe(evId, tipo) {
+    return dems.filter(function (d) { return d.chave === evId + '|' + tipo; })[0] || null;
+  }
+  function dataDemanda(ev, tipo) {
+    var d = demandaDe(ev.id, tipo);
+    return (d && d.data) ? String(d.data).slice(0, 10) : Patio.dataPadrao(ev, tipo);
+  }
+  /* demandas (carregamento/descarregamento) de um dia */
+  function demandasDoDia(dia, tipo) {
+    return App.eventos.filter(function (ev) { return dataDemanda(ev, tipo) === dia; })
+      .map(function (ev) { return { ev: ev, tipo: tipo, dem: demandaDe(ev.id, tipo) }; });
+  }
+  /* quem já está escalado num dia: colabId -> [nomes de evento] */
+  function escaladosNoDia(dia) {
+    var m = {};
+    ['carregamento', 'descarregamento'].forEach(function (tipo) {
+      demandasDoDia(dia, tipo).forEach(function (x) {
+        ((x.dem && x.dem.colaboradores) || []).forEach(function (id) {
+          (m[id] = m[id] || []).push((tipo === 'carregamento' ? '🚚 ' : '↩️ ') + x.ev.nome);
+        });
+      });
+    });
+    return m;
+  }
+  function chipStatus(k) {
+    var s = Patio.st(k);
+    if (!s) return '<span class="terc-tag" style="background:#F1F4F8;border-color:#DCE3ED;color:var(--txt-3)">sem marcação</span>';
+    return '<span class="terc-tag" style="background:' + s.fundo + ';border-color:' + s.fundo + ';color:' + s.cor + ';font-weight:800">' + s.k + '</span>';
+  }
+
+  function desenhar() {
+    var h = abas();
+    if (TelaPatio._aba === 'dia') h += telaDia();
+    else if (TelaPatio._aba === 'presenca') h += telaPresenca();
+    else if (TelaPatio._aba === 'folgas') h += telaFolgas();
+    else h += telaColab();
+    tela.innerHTML = h;
+    ligarAbas();
+    ligar();
+  }
+
+  /* ================= 📋 DEMANDA DO DIA ================= */
+  function cartaoDemanda(x) {
+    var ev = x.ev, tipo = x.tipo, dem = x.dem;
+    var equipe = (dem && dem.colaboradores) || [];
+    var fechado = ev.status === 'Finalizado' || ev.status === 'Com divergência';
+    var saidas = cgs.filter(function (c) { return c.evento_id === ev.id && c.sentido !== 'retorno'; });
+    var feito;
+    if (tipo === 'carregamento') {
+      var fins = saidas.filter(function (cg) {
+        return App.conferencias.some(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida' && c.finalizada_em; });
+      }).length;
+      feito = saidas.length && fins === saidas.length ? '✓ SAIU TUDO' : fins ? fins + '/' + saidas.length + ' caminhões saíram' : '';
+    } else {
+      feito = fechado ? '✓ EVENTO ENCERRADO'
+        : App.conferencias.some(function (c) { return c.evento_id === ev.id && c.tipo === 'retorno' && c.finalizada_em; })
+          ? '↩️ retorno registrado' : '';
+    }
+    return '<div class="carga" style="margin-bottom:10px">' +
+      '<div class="carga__topo"><span class="carga__tit">' + (tipo === 'carregamento' ? '🚚 ' : '↩️ ') + U.esc(ev.nome) + '</span>' +
+        (feito ? '<span class="terc-tag" style="background:var(--verde-clr);border-color:var(--verde-clr);color:var(--verde);font-weight:800">' + feito + '</span>' : '') +
+      '</div>' +
+      '<div style="padding:6px 14px 12px">' +
+        '<p class="peq mut" style="margin:0 0 6px">' +
+          [ev.cliente, ev.local].filter(Boolean).map(U.esc).join(' · ') +
+          (tipo === 'descarregamento' && ev.data_desmontagem ? (ev.cliente || ev.local ? ' · ' : '') + 'desmontagem ' + rotuloDesmontagem(ev) : '') +
+          (saidas.length ? ' · ' + saidas.map(function (cg) { return U.esc(nomeCaminhao(cams, cg.caminhao_id, cg.cavalo_id)); }).join(' / ') : '') +
+        '</p>' +
+        (equipe.length
+          ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">' + equipe.map(function (id) {
+              var st = statusDe(x.data || TelaPatio._dia, id);
+              var ruim = st && !Patio.livre(st);
+              return '<span class="terc-tag" style="font-weight:800;' + (ruim
+                ? 'background:#FDE4E4;border-color:#F5C6C6;color:var(--vermelho)">⚠ ' : 'background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">👷 ') +
+                U.esc(nomeColab(id)) + (ruim ? ' (' + st + ')' : '') + '</span>';
+            }).join('') + '</div>'
+          : '<p class="peq" style="margin:0 0 8px;color:var(--vermelho);font-weight:800">⚠ SEM EQUIPE ESCOLHIDA</p>') +
+        (dem && dem.obs ? '<p class="peq" style="margin:0 0 8px">📝 ' + U.esc(dem.obs) + '</p>' : '') +
+        '<div class="btn-linha">' +
+          '<button class="btn ' + (equipe.length ? 'btn--branco' : 'btn--laranja') + ' btn--peq js-equipe" data-ev="' + ev.id + '" data-tipo="' + tipo + '">' +
+            (equipe.length ? '✏️ TROCAR EQUIPE (' + equipe.length + ')' : '👷 ESCOLHER EQUIPE') + '</button>' +
+          '<button class="btn btn--branco btn--peq js-abrir-ev" data-ev="' + ev.id + '">ABRIR EVENTO</button>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  function telaDia() {
+    var dia = TelaPatio._dia;
+    var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<button class="btn btn--branco btn--peq" id="pt-ant">◀</button>' +
+      '<input class="entrada" type="date" id="pt-dia" value="' + dia + '" style="min-height:44px;width:170px;flex:none">' +
+      '<button class="btn btn--branco btn--peq" id="pt-prox">▶</button>' +
+      '<button class="btn btn--branco btn--peq" id="pt-hoje">HOJE</button>' +
+      '<b style="margin-left:auto;font-size:20px;color:var(--azul)">' + Patio.rotDia(dia) + ' · ' + U.fmtData(dia) + '</b>' +
+    '</div></div>';
+
+    /* pendências: próximos 3 dias sem equipe */
+    var pend = [];
+    for (var i = 0; i <= 3; i++) {
+      var d = Patio.isoMais(U.hojeISO(), i);
+      ['carregamento', 'descarregamento'].forEach(function (tipo) {
+        demandasDoDia(d, tipo).forEach(function (x) {
+          var fechado = x.ev.status === 'Finalizado' || x.ev.status === 'Com divergência';
+          if (fechado) return;
+          if (!x.dem || !(x.dem.colaboradores || []).length) pend.push({ d: d, tipo: tipo, ev: x.ev });
+        });
+      });
+    }
+    if (pend.length) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">👷</span><div>' +
+        '<b>' + pend.length + ' demanda(s) nos próximos dias SEM EQUIPE:</b>' +
+        pend.slice(0, 8).map(function (p) {
+          return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">' +
+            '<span style="flex:1;min-width:180px">' + Patio.rotDia(p.d) + ' — ' + (p.tipo === 'carregamento' ? '🚚 carregamento' : '↩️ descarregamento') +
+              ' · <b>' + U.esc(p.ev.nome) + '</b></span>' +
+            '<button class="btn btn--branco btn--peq js-ir-dia" data-dia="' + p.d + '">VER</button></div>';
+        }).join('') + '</div></div>';
+    }
+
+    /* resumo e folgas do dia */
+    var cont = {}, semMarc = 0, deFolga = [];
+    ativos.forEach(function (c) {
+      var st = statusDe(dia, c.id);
+      if (!st) { semMarc++; return; }
+      cont[st] = (cont[st] || 0) + 1;
+      if (!Patio.livre(st)) deFolga.push({ c: c, st: st });
+    });
+    var disp = ativos.length - deFolga.length;
+    h += '<div class="indicadores">' +
+      '<div class="ind ind--verde"><p class="ind__num">' + disp + '</p><p class="ind__rot">Disponíveis</p></div>' +
+      '<div class="ind"><p class="ind__num">' + (cont['FOLGA'] || 0) + '</p><p class="ind__rot">De folga</p></div>' +
+      '<div class="ind ind--laranja"><p class="ind__num">' + ((cont['FÉRIAS'] || 0) + (cont['EXTERNO'] || 0) + (cont['ATESTADO'] || 0)) + '</p><p class="ind__rot">Férias · externo · atestado</p></div>' +
+      '<div class="ind ind--vermelho"><p class="ind__num">' + (cont['FALTA'] || 0) + '</p><p class="ind__rot">Faltas</p></div>' +
+    '</div>';
+    if (deFolga.length) {
+      h += '<div class="aviso aviso--azul"><span class="aviso__ico">🛌</span><div><b>Fora do pátio ' + Patio.rotDia(dia).toLowerCase() + ':</b> ' +
+        deFolga.map(function (x) { return U.esc(x.c.nome) + ' <span class="mut">(' + x.st + ')</span>'; }).join(' · ') + '</div></div>';
+    }
+
+    /* carregamentos e descarregamentos do dia */
+    var carr = demandasDoDia(dia, 'carregamento');
+    var desc = demandasDoDia(dia, 'descarregamento');
+    h += '<h2 class="secao__tit">🚚 Carregamentos do dia <span class="n">' + carr.length + '</span></h2>' +
+      (carr.length ? carr.map(function (x) { x.data = dia; return cartaoDemanda(x); }).join('')
+        : '<p class="peq mut">Nenhum evento com carregamento nesse dia. Evento novo aparece aqui sozinho, na data dele.</p>');
+    h += '<h2 class="secao__tit" style="margin-top:22px">↩️ Descarregamentos do dia <span class="n">' + desc.length + '</span></h2>' +
+      (desc.length ? desc.map(function (x) { x.data = dia; return cartaoDemanda(x); }).join('')
+        : '<p class="peq mut">Nenhum descarregamento nesse dia. Aparece aqui pelo fim da desmontagem do evento.</p>');
+
+    /* presença do dia */
+    var esc = escaladosNoDia(dia);
+    h += '<h2 class="secao__tit" style="margin-top:22px">👥 Presença do dia <span class="n">' + ativos.length + '</span></h2>' +
+      '<div class="cartao"><div class="cartao__corpo">' +
+      (semMarc ? '<button class="btn btn--verde btn--bloco btn--peq" id="pt-todos" style="margin-bottom:10px">✔ MARCAR OS ' + semMarc + ' SEM MARCAÇÃO COMO TRABALHOU</button>' : '') +
+      (ativos.length ? ativos.map(function (c) {
+        var st = statusDe(dia, c.id);
+        return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--linha)">' +
+          '<span style="flex:1;min-width:170px"><b class="peq">' + U.esc(c.nome) + '</b>' +
+            (esc[c.id] ? '<span class="peq" style="display:block;color:var(--azul)">' + esc[c.id].map(U.esc).join(' · ') + '</span>' : '') + '</span>' +
+          '<select class="entrada js-st-dia" data-colab="' + c.id + '" style="width:150px;min-height:40px;padding:6px 8px;font-weight:700;' +
+            (st ? 'color:' + Patio.st(st).cor + ';background:' + Patio.st(st).fundo : '') + '">' +
+            '<option value="">— sem marcação —</option>' +
+            Patio.STATUS.map(function (s) { return '<option value="' + s.k + '"' + (s.k === st ? ' selected' : '') + '>' + s.k + '</option>'; }).join('') +
+          '</select></div>';
+      }).join('') : '<p class="peq mut">Nenhum colaborador cadastrado. Vá em 👥 Colaboradores e importe a planilha.</p>') +
+      '</div></div>';
+    return h;
+  }
+
+  /* ================= 🗓️ PRESENÇA DO MÊS ================= */
+  function telaPresenca() {
+    var p = TelaPatio._mes.split('-'), ano = Number(p[0]), mes = Number(p[1]);
+    var nDias = new Date(ano, mes, 0).getDate();
+    var h = '<div class="cartao"><div class="cartao__corpo" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<button class="btn btn--branco btn--peq" id="pm-ant">◀</button>' +
+      '<b style="font-size:19px;color:var(--azul);min-width:190px;text-align:center">' + Patio.MESES[mes - 1] + ' ' + ano + '</b>' +
+      '<button class="btn btn--branco btn--peq" id="pm-prox">▶</button>' +
+      '<button class="btn btn--verde btn--peq" id="pm-excel" style="margin-left:auto">📗 EXCEL DO MÊS</button>' +
+    '</div></div>';
+    h += '<div class="cartao"><div class="cartao__corpo">' +
+      '<p class="peq mut" style="margin:0 0 8px">Escolha o status e toque nas células. Tocar de novo com o mesmo status apaga.</p>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">' + Patio.STATUS.map(function (s) {
+        var on = TelaPatio._pincel === s.k;
+        return '<button class="btn btn--peq js-pincel" data-st="' + s.k + '" style="min-height:36px;padding:4px 12px;' +
+          'background:' + (on ? s.cor : s.fundo) + ';color:' + (on ? '#fff' : s.cor) + ';border:2px solid ' + s.cor + '">' +
+          s.ab + ' · ' + s.k + '</button>';
+      }).join('') + '</div></div></div>';
+
+    var mapa = {};
+    pres.forEach(function (x) { mapa[x.chave] = x.status; });
+    var lista = colabs.filter(function (c) {
+      if (c.ativo !== false) return true;
+      for (var d = 1; d <= nDias; d++) {   /* inativo só aparece se tiver marcação no mês */
+        if (mapa[TelaPatio._mes + '-' + String(d).padStart(2, '0') + '|' + c.id]) return true;
+      }
+      return false;
+    });
+    h += '<div class="tabela-rolagem" style="border:1px solid var(--linha);border-radius:12px;background:var(--branco)">' +
+      '<table style="border-collapse:collapse;font-size:12px;min-width:100%">' +
+      '<thead><tr><th style="position:sticky;left:0;background:#E8F0FA;z-index:2;text-align:left;padding:6px 8px;min-width:170px">COLABORADOR</th>';
+    for (var d = 1; d <= nDias; d++) {
+      var iso = TelaPatio._mes + '-' + String(d).padStart(2, '0');
+      var fds = /SÁB|DOM/.test(Patio.diaSemana(iso));
+      var hoje = iso === U.hojeISO();
+      h += '<th style="padding:4px 2px;min-width:30px;text-align:center;background:' + (hoje ? '#FFE9CF' : fds ? '#F1F4F8' : '#E8F0FA') + ';color:var(--azul)">' +
+        '<span style="display:block;font-size:9px;opacity:.75">' + Patio.diaSemana(iso).slice(0, 3) + '</span>' + d + '</th>';
+    }
+    h += '<th style="padding:4px 6px;background:#E8F0FA">T</th><th style="padding:4px 6px;background:#E8F0FA">F</th><th style="padding:4px 6px;background:#E8F0FA">FA</th></tr></thead><tbody>';
+    lista.forEach(function (c) {
+      var t = 0, f = 0, fa = 0;
+      h += '<tr><td style="position:sticky;left:0;background:#fff;z-index:1;padding:5px 8px;border-bottom:1px solid var(--linha);font-weight:700;white-space:nowrap' +
+        (c.ativo === false ? ';color:var(--txt-3)' : '') + '">' + U.esc(c.nome) + '</td>';
+      for (var d2 = 1; d2 <= nDias; d2++) {
+        var iso2 = TelaPatio._mes + '-' + String(d2).padStart(2, '0');
+        var st = mapa[iso2 + '|' + c.id] || '';
+        var s = Patio.st(st);
+        if (st === 'TRABALHOU' || st === 'PLANTÃO') t++;
+        if (st === 'FOLGA') f++;
+        if (st === 'FALTA') fa++;
+        h += '<td class="js-cel" data-dia="' + iso2 + '" data-colab="' + c.id + '" title="' + U.esc(c.nome) + ' · ' + U.fmtData(iso2) + (st ? ' · ' + st : '') + '" ' +
+          'style="cursor:pointer;text-align:center;padding:5px 1px;border-bottom:1px solid var(--linha);border-left:1px solid #F1F4F8;font-weight:800;' +
+          (s ? 'background:' + s.fundo + ';color:' + s.cor : 'color:#C3CDDD') + '">' + (s ? s.ab : '·') + '</td>';
+      }
+      h += '<td style="text-align:center;font-weight:800;color:var(--verde)">' + t + '</td>' +
+        '<td style="text-align:center;font-weight:800;color:var(--azul)">' + f + '</td>' +
+        '<td style="text-align:center;font-weight:800;color:var(--vermelho)">' + fa + '</td></tr>';
+    });
+    h += '</tbody></table></div>' +
+      (lista.length ? '' : '<p class="peq mut" style="margin-top:10px">Nenhum colaborador. Vá em 👥 Colaboradores e importe a planilha.</p>');
+    return h;
+  }
+
+  /* ================= 🛌 FOLGAS ================= */
+  function telaFolgas() {
+    var h = '<p class="peq mut" style="margin:0 0 10px">Quem está fora do pátio nos próximos 14 dias (folga, férias, externo, atestado, falta).</p>';
+    for (var i = 0; i < 14; i++) {
+      var d = Patio.isoMais(U.hojeISO(), i);
+      var fora = [];
+      ativos.forEach(function (c) {
+        var st = statusDe(d, c.id);
+        if (st && !Patio.livre(st)) fora.push({ c: c, st: st });
+      });
+      var marcados = ativos.filter(function (c) { return statusDe(d, c.id); }).length;
+      h += '<div class="cartao" style="margin-bottom:8px"><div class="cartao__corpo" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">' +
+        '<b style="min-width:120px;color:' + (i === 0 ? 'var(--laranja)' : 'var(--azul)') + '">' + Patio.rotDia(d) +
+          '<span class="peq mut" style="display:block;font-weight:400">' + U.fmtData(d) + '</span></b>' +
+        '<span style="flex:1;min-width:200px;display:flex;flex-wrap:wrap;gap:6px">' +
+          (fora.length ? fora.map(function (x) {
+            var s = Patio.st(x.st);
+            return '<span class="terc-tag" style="background:' + s.fundo + ';border-color:' + s.fundo + ';color:' + s.cor + ';font-weight:800">' +
+              U.esc(x.c.nome) + ' · ' + x.st + '</span>';
+          }).join('') : '<span class="peq mut">' + (marcados ? 'Ninguém de folga.' : 'Escala desse dia ainda não marcada.') + '</span>') +
+        '</span></div></div>';
+    }
+    return h;
+  }
+
+  /* ================= 👥 COLABORADORES ================= */
+  function telaColab() {
+    var h = '<div class="cartao"><div class="cartao__topo"><h3>📥 Importar a planilha de presença</h3></div><div class="cartao__corpo">' +
+      '<p class="peq mut" style="margin:0 0 10px">Escolha a <b>PLANILHA_CONTROLE_PÁTIO.xlsx</b> (uma aba por mês). ' +
+        'Cadastra os colaboradores e traz toda a presença marcada. Pode importar de novo depois: atualiza sem duplicar.</p>' +
+      '<button class="btn btn--laranja btn--bloco" id="pc-importar">📥 IMPORTAR PLANILHA (.xlsx)</button>' +
+      '<input type="file" id="pc-arquivo" accept=".xlsx,.xls" hidden>' +
+      '<p class="peq" id="pc-status" style="margin-top:10px;font-weight:700" hidden></p>' +
+    '</div></div>';
+    h += '<div class="cartao"><div class="cartao__topo"><h3>➕ Novo colaborador</h3></div><div class="cartao__corpo" style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<input class="entrada" id="pc-nome" placeholder="NOME DO COLABORADOR" style="flex:1;min-width:200px;text-transform:uppercase">' +
+      '<button class="btn btn--verde" id="pc-add">CADASTRAR</button></div></div>';
+    h += '<h2 class="secao__tit">Equipe do pátio <span class="n">' + ativos.length + ' ativo(s)</span></h2>' +
+      '<div class="cartao"><div class="cartao__corpo">' +
+      (colabs.length ? colabs.map(function (c) {
+        return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha)">' +
+          '<span style="flex:1;font-weight:700' + (c.ativo === false ? ';color:var(--txt-3);text-decoration:line-through' : '') + '">' + U.esc(c.nome) + '</span>' +
+          '<button class="btn btn--branco btn--peq js-pc-ativo" data-id="' + c.id + '" data-ativo="' + (c.ativo === false ? '0' : '1') + '">' +
+            (c.ativo === false ? '↺ REATIVAR' : 'DESATIVAR') + '</button></div>';
+      }).join('') : '<p class="peq mut">Ninguém cadastrado ainda. Importe a planilha acima.</p>') +
+      '</div></div>';
+    return h;
+  }
+
+  /* ================= escolher equipe ================= */
+  function escolherEquipe(evId, tipo) {
+    var ev = App.eventos.filter(function (e) { return e.id === evId; })[0];
+    if (!ev) return;
+    var dem = demandaDe(evId, tipo);
+    var sel = {};
+    ((dem && dem.colaboradores) || []).forEach(function (id) { sel[id] = true; });
+    var m = U.modal({
+      titulo: '👷 Equipe — ' + (tipo === 'carregamento' ? 'CARREGAMENTO' : 'DESCARREGAMENTO') + ' · ' + ev.nome,
+      html: '<label class="campo"><span class="campo__rot">Dia do ' + tipo + '</span>' +
+          '<input class="entrada" type="date" id="eq-data" value="' + U.esc(dataDemanda(ev, tipo)) + '"></label>' +
+        '<p class="peq mut" style="margin:10px 0 4px">Marque quem vai fazer. Quem está de folga, férias ou fora nesse dia fica bloqueado.</p>' +
+        '<div id="eq-lista"><p class="mut">Carregando a escala do dia…</p></div>' +
+        '<label class="campo" style="margin-top:10px"><span class="campo__rot">Observação (opcional)</span>' +
+          '<input class="entrada" id="eq-obs" value="' + U.esc((dem && dem.obs) || '') + '" placeholder="Ex.: chegar 6h, levar empilhadeira"></label>',
+      pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR EQUIPE</button>',
+      travado: true
+    });
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+    var caixa = m.querySelector('#eq-lista');
+
+    function montarLista() {
+      var dia = m.querySelector('#eq-data').value;
+      if (!dia) { caixa.innerHTML = '<p class="peq mut">Escolha o dia.</p>'; return; }
+      Patio.presenca(dia, dia).then(function (pd) {
+        var stDia = {};
+        pd.forEach(function (x) { stDia[x.colaborador_id] = x.status; });
+        /* quem já está em outra demanda nesse dia */
+        var outros = {};
+        dems.forEach(function (d) {
+          if (d.chave === evId + '|' + tipo) return;
+          var ev2 = App.eventos.filter(function (e) { return e.id === d.evento_id; })[0];
+          if (!ev2) return;
+          if (((d.data && String(d.data).slice(0, 10)) || Patio.dataPadrao(ev2, d.tipo)) !== dia) return;
+          (d.colaboradores || []).forEach(function (id) { (outros[id] = outros[id] || []).push(ev2.nome); });
+        });
+        caixa.innerHTML = ativos.map(function (c) {
+          var st = stDia[c.id] || '';
+          var bloq = st && !Patio.livre(st);
+          return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
+            (bloq ? 'opacity:.55' : 'cursor:pointer') + '">' +
+            '<input type="checkbox" class="js-eq" value="' + c.id + '" style="width:20px;height:20px"' +
+              (sel[c.id] && !bloq ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
+            '<span style="flex:1"><b class="peq">' + U.esc(c.nome) + '</b>' +
+              (outros[c.id] ? '<span class="peq" style="display:block;color:var(--laranja)">já em: ' + outros[c.id].map(U.esc).join(', ') + '</span>' : '') +
+            '</span>' + chipStatus(st) + '</label>';
+        }).join('') || '<p class="peq mut">Nenhum colaborador ativo. Cadastre em 👥 Colaboradores.</p>';
+        U.$$('.js-eq', caixa).forEach(function (cb) {
+          cb.addEventListener('change', function () { sel[cb.value] = cb.checked; });
+        });
+      }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
+    }
+    montarLista();
+    m.querySelector('#eq-data').addEventListener('change', montarLista);
+
+    m.querySelector('[data-ok]').addEventListener('click', function () {
+      var dia = m.querySelector('#eq-data').value;
+      if (!dia) return U.aviso('Escolha o dia.', 'erro');
+      var ids = U.$$('.js-eq', caixa).filter(function (cb) { return cb.checked && !cb.disabled; }).map(function (cb) { return cb.value; });
+      var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+      Patio.gravarDemanda({
+        chave: evId + '|' + tipo, evento_id: evId, tipo: tipo, data: dia,
+        colaboradores: ids, obs: (m.querySelector('#eq-obs').value || '').trim() || null
+      }).then(function () {
+        m.fechar();
+        U.aviso('👷 Equipe salva: ' + ids.length + ' pessoa(s) no ' + tipo + ' de ' + ev.nome + '.', 'ok', 5000);
+        carregar();
+      }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR EQUIPE'; App.falhou(e); });
+    });
+  }
+
+  /* ================= ligações ================= */
+  function ligarAbas() {
+    U.$$('.aba', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (TelaPatio._aba === b.dataset.aba) return;
+        TelaPatio._aba = b.dataset.aba;
+        tela.innerHTML = abas() + U.carregando('Carregando...');
+        carregar();
+      });
+    });
+  }
+
+  function marcar(dia, colabId, status) {
+    var chave = dia + '|' + colabId;
+    pres = pres.filter(function (x) { return x.chave !== chave; });
+    if (status) {
+      var lp = Patio.linhaPresenca(dia, colabId, status);
+      pres.push(lp);
+      return Patio.gravarPresenca([lp]);
+    }
+    return Patio.apagarPresenca(chave);
+  }
+
+  function ligar() {
+    function irDia(d) { TelaPatio._dia = d; tela.innerHTML = abas() + U.carregando('Carregando...'); carregar(); }
+    var ant = U.$('#pt-ant', tela);
+    if (ant) {
+      ant.addEventListener('click', function () { irDia(Patio.isoMais(TelaPatio._dia, -1)); });
+      U.$('#pt-prox', tela).addEventListener('click', function () { irDia(Patio.isoMais(TelaPatio._dia, 1)); });
+      U.$('#pt-hoje', tela).addEventListener('click', function () { irDia(U.hojeISO()); });
+      U.$('#pt-dia', tela).addEventListener('change', function () { if (this.value) irDia(this.value); });
+    }
+    U.$$('.js-ir-dia', tela).forEach(function (b) { b.addEventListener('click', function () { irDia(b.dataset.dia); }); });
+    U.$$('.js-equipe', tela).forEach(function (b) {
+      b.addEventListener('click', function () { escolherEquipe(b.dataset.ev, b.dataset.tipo); });
+    });
+    U.$$('.js-abrir-ev', tela).forEach(function (b) {
+      b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.ev); });
+    });
+    U.$$('.js-st-dia', tela).forEach(function (s) {
+      s.addEventListener('change', function () {
+        var v = s.value;
+        var st = Patio.st(v);
+        s.style.color = st ? st.cor : ''; s.style.background = st ? st.fundo : '';
+        marcar(TelaPatio._dia, s.dataset.colab, v).then(function () { desenhar(); }).catch(App.falhou);
+      });
+    });
+    var todos = U.$('#pt-todos', tela);
+    if (todos) todos.addEventListener('click', function () {
+      var linhas = ativos.filter(function (c) { return !statusDe(TelaPatio._dia, c.id); })
+        .map(function (c) { return Patio.linhaPresenca(TelaPatio._dia, c.id, 'TRABALHOU'); });
+      todos.disabled = true;
+      Patio.gravarPresenca(linhas).then(function () {
+        pres = pres.concat(linhas);
+        U.aviso('✔ ' + linhas.length + ' marcado(s) como TRABALHOU.', 'ok');
+        desenhar();
+      }).catch(function (e) { todos.disabled = false; App.falhou(e); });
+    });
+
+    /* presença do mês */
+    function irMes(n) {
+      var p = TelaPatio._mes.split('-');
+      var d = new Date(Number(p[0]), Number(p[1]) - 1 + n, 1);
+      TelaPatio._mes = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      tela.innerHTML = abas() + U.carregando('Carregando...');
+      carregar();
+    }
+    var pma = U.$('#pm-ant', tela);
+    if (pma) {
+      pma.addEventListener('click', function () { irMes(-1); });
+      U.$('#pm-prox', tela).addEventListener('click', function () { irMes(1); });
+      U.$('#pm-excel', tela).addEventListener('click', function () {
+        if (typeof XLSX === 'undefined') return U.aviso('O gerador de Excel ainda está carregando.', 'erro');
+        var p = TelaPatio._mes.split('-');
+        var lista = colabs.filter(function (c) {
+          return c.ativo !== false || pres.some(function (x) { return x.colaborador_id === c.id; });
+        });
+        Patio.excelMes(Number(p[0]), Number(p[1]), lista, pres);
+      });
+    }
+    U.$$('.js-pincel', tela).forEach(function (b) {
+      b.addEventListener('click', function () { TelaPatio._pincel = b.dataset.st; desenhar(); });
+    });
+    U.$$('.js-cel', tela).forEach(function (td) {
+      td.addEventListener('click', function () {
+        var dia = td.dataset.dia, id = td.dataset.colab;
+        var atual = statusDe(dia, id);
+        var novo = atual === TelaPatio._pincel ? '' : TelaPatio._pincel;
+        var s = Patio.st(novo);
+        td.textContent = s ? s.ab : '·';
+        td.style.background = s ? s.fundo : '';
+        td.style.color = s ? s.cor : '#C3CDDD';
+        marcar(dia, id, novo).catch(function (e) { App.falhou(e); desenhar(); });
+      });
+    });
+
+    /* colaboradores */
+    var imp = U.$('#pc-importar', tela);
+    if (imp) {
+      var arq = U.$('#pc-arquivo', tela), stx = U.$('#pc-status', tela);
+      var diz = function (t, cor) { stx.hidden = false; stx.textContent = t; stx.style.color = cor || 'var(--txt-2)'; };
+      imp.addEventListener('click', function () { arq.click(); });
+      arq.addEventListener('change', function () {
+        if (!arq.files || !arq.files[0]) return;
+        if (typeof XLSX === 'undefined') return diz('O leitor de Excel ainda está carregando — tente de novo.', 'var(--vermelho)');
+        imp.disabled = true;
+        diz('Lendo a planilha…');
+        Patio.importarPlanilha(arq.files[0], colabs, diz).then(function (r) {
+          diz('✓ Importado: ' + r.meses + ' mês(es), ' + r.colaboradores + ' colaborador(es) (' + r.novos + ' novo(s)), ' +
+            U.fmt(r.marcacoes) + ' marcações de presença.', 'var(--verde)');
+          imp.disabled = false; arq.value = '';
+          setTimeout(carregar, 1200);
+        }).catch(function (e) {
+          console.error(e); imp.disabled = false; arq.value = '';
+          diz('Não consegui importar: ' + (e.message || e), 'var(--vermelho)');
+        });
+      });
+      U.$('#pc-add', tela).addEventListener('click', function () {
+        var nome = Patio.normNome(U.$('#pc-nome', tela).value);
+        if (nome.length < 3) return U.aviso('Escreva o nome do colaborador.', 'erro');
+        if (colabs.some(function (c) { return Patio.normNome(c.nome) === nome; })) return U.aviso('Esse nome já está cadastrado.', 'erro');
+        Banco.cliente.from('patio_colaboradores').insert({ nome: nome, ativo: true }).then(function (r) {
+          if (r.error) throw r.error;
+          U.aviso('✓ ' + nome + ' cadastrado.', 'ok');
+          carregar();
+        }).catch(App.falhou);
+      });
+      U.$$('.js-pc-ativo', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var ativar = b.dataset.ativo === '0';
+          Banco.cliente.from('patio_colaboradores').update({ ativo: ativar }).eq('id', b.dataset.id).then(function (r) {
+            if (r.error) throw r.error;
+            carregar();
+          }).catch(App.falhou);
+        });
+      });
+    }
+  }
+
+  carregar();
 }
 
 function TelaPendencias() {

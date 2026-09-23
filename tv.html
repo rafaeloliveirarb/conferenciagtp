@@ -105,11 +105,12 @@
       lista(cli.from("carregamentos").select("id,evento_id,numero,nome,sentido,caminhao_id,cavalo_id")),
       lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,status,finalizada_em")),
       lista(cli.from("caminhoes").select("id,tipo,placa")),
-      lista(cli.from("conferencias_produtor").select("id,evento_id,tipo,responsavel,finalizada_em,qtd_avarias")
-        .gt("qtd_avarias", 0).not("avaria_vista", "is", true)).catch(function () { return []; }),
-      lista(cli.from("produtos").select("evento_id")).catch(function () { return []; })
+      lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
+      lista(cli.from("patio_presenca").select("data,colaborador_id,status")
+        .gte("data", hojeISO(0)).lte("data", hojeISO(3))).catch(function () { return []; }),
+      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores")).catch(function () { return []; })
     ]).then(function (rr) {
-      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5]);
+      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6]);
       $("erro").hidden = true;
       $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
     }).catch(function (e) {
@@ -119,11 +120,21 @@
     });
   }
 
-  function desenhar(eventos, cgs, confs, cams, avarias, prods) {
-    var hoje = hojeISO(0), limite = hojeISO(3);
-    var evPorId = {}, temCk = {};
+  function desenhar(eventos, cgs, confs, cams, colabs, pres, dems) {
+    var hoje = hojeISO(0);
+    var evPorId = {}, nomeColab = {};
     eventos.forEach(function (e) { evPorId[e.id] = e; });
-    prods.forEach(function (p) { temCk[p.evento_id] = (temCk[p.evento_id] || 0) + 1; });
+    colabs.forEach(function (c) { nomeColab[c.id] = c.nome; });
+    function equipeDe(evId, tipo) {
+      var d = dems.filter(function (x) { return x.evento_id === evId && x.tipo === tipo; })[0];
+      return ((d && d.colaboradores) || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+    }
+    function fimDesm(e) { return String(e.data_desmontagem_fim || e.data_desmontagem || "").slice(0, 10); }
+    function dataDem(e, tipo) {
+      var d = dems.filter(function (x) { return x.evento_id === e.id && x.tipo === tipo; })[0];
+      if (d && d.data) return String(d.data).slice(0, 10);
+      return tipo === "descarregamento" ? fimDesm(e) : String(e.data || "").slice(0, 10);
+    }
     function aberto(e) { return e.status !== "Finalizado" && e.status !== "Com divergência"; }
     function nomeCam(cg) {
       var c = cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
@@ -135,27 +146,32 @@
 
     /* SAINDO HOJE / AMANHÃ: eventos com data hoje..amanhã, com os caminhões */
     var saindo = eventos.filter(function (e) {
-      var d = String(e.data || "").slice(0, 10);
+      var d = dataDem(e, "carregamento");
       return aberto(e) && d >= hoje && d <= hojeISO(1);
-    }).sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+    }).sort(function (a, b) { return dataDem(a, "carregamento").localeCompare(dataDem(b, "carregamento")); });
+
+    /* DESCARREGANDO: fim da desmontagem (ou data que o coordenador marcou) hoje/amanhã */
+    var voltando = eventos.filter(function (e) {
+      var d = dataDem(e, "descarregamento");
+      return aberto(e) && d && d >= hoje && d <= hojeISO(1);
+    });
+
+    /* FOLGA: quem está fora do pátio hoje e nos próximos 3 dias */
+    var foraPorDia = [];
+    for (var i = 0; i <= 3; i++) {
+      var dd = hojeISO(i);
+      var fora = pres.filter(function (p) {
+        return String(p.data).slice(0, 10) === dd && ["FOLGA", "FÉRIAS", "EXTERNO", "ATESTADO", "FALTA"].indexOf(p.status) >= 0 &&
+          nomeColab[p.colaborador_id];
+      }).map(function (p) { return { nome: nomeColab[p.colaborador_id], st: p.status }; })
+        .sort(function (a, b) { return a.nome.localeCompare(b.nome); });
+      foraPorDia.push({ d: dd, fora: fora });
+    }
 
     /* ATRASADOS: fim da desmontagem passou e não encerrou */
     var atrasados = eventos.filter(function (e) {
       if (!aberto(e) || !e.data_desmontagem) return false;
       return String(e.data_desmontagem_fim || e.data_desmontagem).slice(0, 10) < hoje;
-    });
-
-    /* SEM PREPARO: sai em até 3 dias sem checklist ou caminhão */
-    var semPrep = [];
-    eventos.forEach(function (e) {
-      if (!aberto(e)) return;
-      var d = String(e.data || "").slice(0, 10);
-      if (!d || d < hoje || d > limite) return;
-      if (confs.some(function (c) { return c.evento_id === e.id && c.tipo === "saida" && c.finalizada_em; })) return;
-      var falta = [];
-      if (!temCk[e.id]) falta.push("SEM CHECKLIST");
-      if (!cgs.some(function (cg) { return cg.evento_id === e.id && cg.sentido !== "retorno" && cg.caminhao_id; })) falta.push("SEM CAMINHÃO");
-      if (falta.length) semPrep.push({ e: e, falta: falta });
     });
 
     /* NA RUA: eventos abertos com saída finalizada (material fora) */
@@ -169,8 +185,13 @@
       (saindo.length ? saindo.map(function (e) {
         var cgsE = cgs.filter(function (c) { return c.evento_id === e.id && c.sentido !== "retorno"; });
         return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
-          '<div class="sub">' + (String(e.data).slice(0, 10) === hoje ? "HOJE" : "AMANHÃ") +
+          '<div class="sub">' + (dataDem(e, "carregamento") === hoje ? "HOJE" : "AMANHÃ") +
             (e.local ? " · " + esc(e.local) : "") + "</div>" +
+          (function () {
+            var eq = equipeDe(e.id, "carregamento");
+            return eq.length ? '<div class="sub" style="color:#BFD6F5">👷 ' + eq.map(esc).join(" · ") + "</div>"
+              : '<div class="sub" style="color:#FFB4AE;font-weight:800">👷 SEM EQUIPE ESCOLHIDA</div>';
+          })() +
           (cgsE.length ? cgsE.map(function (cg) {
             var ok = saidaFinal(cg.id);
             return '<span class="tag ' + (ok ? "ok" : "pend") + '">' +
@@ -179,12 +200,18 @@
         "</div>";
       }).join("") : '<div class="vazio">Nada saindo até amanhã.</div>') + "</div></div>";
 
-    h += '<div class="bloco"><h2 class="' + (semPrep.length ? "atencao" : "") + '">🚨 Sem preparo <span class="n">' + semPrep.length + "</span></h2><div class=\"corpo\">" +
-      (semPrep.length ? semPrep.map(function (x) {
-        return '<div class="lin"><b class="ev">' + esc(x.e.nome) + "</b>" +
-          '<div class="sub">sai ' + (String(x.e.data).slice(0, 10) === hoje ? "HOJE" : fmtData(x.e.data)) + "</div>" +
-          '<span class="tag ruim">' + x.falta.join(" · ") + "</span></div>";
-      }).join("") : '<div class="vazio">Tudo preparado. 👊</div>') + "</div></div>";
+    var totFora = 0; foraPorDia.forEach(function (x) { totFora += x.fora.length; });
+    var DIAS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+    h += '<div class="bloco"><h2>🛌 De folga — próximos dias <span class="n">' + foraPorDia[0].fora.length + ' hoje</span></h2><div class="corpo">' +
+      (pres.length ? foraPorDia.map(function (x, i) {
+        var rot = i === 0 ? "HOJE" : i === 1 ? "AMANHÃ" : DIAS[new Date(x.d + "T12:00:00").getDay()] + " " + fmtData(x.d);
+        return '<div class="lin"><b style="font-size:16px;color:' + (i === 0 ? "var(--laranja)" : "var(--txt)") + '">' + rot + "</b>" +
+          '<div style="margin-top:4px">' + (x.fora.length ? x.fora.map(function (p) {
+            return '<span class="tag ' + (p.st === "FOLGA" ? "pend" : "ruim") + '">' + esc(p.nome) +
+              (p.st !== "FOLGA" ? " · " + p.st : "") + "</span>";
+          }).join("") : '<span class="sub">ninguém de folga</span>') + "</div></div>";
+      }).join("") : '<div class="vazio">Escala do pátio ainda não marcada (Central → 🏗️ DEMANDA DO PÁTIO).</div>') +
+    "</div></div>";
 
     h += '<div class="bloco"><h2 class="' + (atrasados.length ? "alerta" : "") + '">⏰ Retorno atrasado <span class="n">' + atrasados.length + "</span></h2><div class=\"corpo\">" +
       (atrasados.length ? atrasados.map(function (e) {
@@ -194,13 +221,15 @@
           '<span class="tag ruim">HÁ ' + dias + " DIA(S) SEM VOLTAR</span></div>";
       }).join("") : '<div class="vazio">Nenhum atraso. ✓</div>') + "</div></div>";
 
-    h += '<div class="bloco"><h2 class="' + (avarias.length ? "alerta" : "") + '">⚠ Avarias no evento <span class="n">' + avarias.length + "</span></h2><div class=\"corpo\">" +
-      (avarias.length ? avarias.slice(0, 6).map(function (c) {
-        var e = evPorId[c.evento_id];
-        return '<div class="lin"><b class="ev">' + esc(e ? e.nome : "—") + "</b>" +
-          '<div class="sub">' + esc(c.responsavel || "") + " · " + fmtData(c.finalizada_em) + "</div>" +
-          '<span class="tag ruim">' + Number(c.qtd_avarias) + " PEÇA(S) AVARIADA(S)</span></div>";
-      }).join("") : '<div class="vazio">Nenhuma avaria aberta. ✓</div>') + "</div></div>";
+    h += '<div class="bloco"><h2>↩️ Descarregando hoje e amanhã <span class="n">' + voltando.length + "</span></h2><div class=\"corpo\">" +
+      (voltando.length ? voltando.map(function (e) {
+        var eq = equipeDe(e.id, "descarregamento");
+        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
+          '<div class="sub">' + (dataDem(e, "descarregamento") === hoje ? "HOJE" : "AMANHÃ") + (e.local ? " · " + esc(e.local) : "") + "</div>" +
+          (eq.length ? '<div class="sub" style="color:#BFD6F5">👷 ' + eq.map(esc).join(" · ") + "</div>"
+            : '<div class="sub" style="color:#FFB4AE;font-weight:800">👷 SEM EQUIPE ESCOLHIDA</div>') +
+        "</div>";
+      }).join("") : '<div class="vazio">Nenhum descarregamento até amanhã.</div>') + "</div></div>";
 
     h += '<div class="bloco"><h2>📍 Material na rua <span class="n">' + naRua.length + "</span></h2><div class=\"corpo\">" +
       (naRua.length ? naRua.slice(0, 8).map(function (e) {
