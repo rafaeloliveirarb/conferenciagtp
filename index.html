@@ -3323,6 +3323,111 @@ function transferirMaterial(p) {
   });
 }
 
+/* ============================================================
+   💾 BACKUP DO BANCO — baixa tudo em Excel (consulta) ou JSON
+   (cópia completa de segurança). Busca em blocos de 1000 para
+   não perder linha nenhuma.
+   ============================================================ */
+var TABELAS_BACKUP = ['eventos', 'produtos', 'carregamentos', 'itens_carregamento', 'conferencias',
+  'itens_conferencia', 'conferencias_produtor', 'caminhoes', 'usuarios', 'estoque', 'movimentos_estoque',
+  'fornecedores', 'movimentos_terceiros', 'ferramentas', 'movimentos_ferramentas', 'q30_memorias', 'q30_areas'];
+
+function backupBuscarTudo(tabela) {
+  var todas = [];
+  function passo(de) {
+    return Banco.cliente.from(tabela).select('*').range(de, de + 999).then(function (r) {
+      if (r.error) throw r.error;
+      var d = r.data || [];
+      todas = todas.concat(d);
+      if (d.length === 1000) return passo(de + 1000);
+      return todas;
+    });
+  }
+  return passo(0).catch(function () { return todas; });   /* tabela que não existe: segue com as outras */
+}
+
+function backupBaixarArquivo(conteudo, nome, mime) {
+  var blob = conteudo instanceof Blob ? conteudo : new Blob([conteudo], { type: mime });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+}
+
+/* Excel sem as fotos (senão o arquivo explode); o JSON leva tudo */
+function backupSemFotos(linha) {
+  var c = {};
+  Object.keys(linha).forEach(function (k) {
+    var v = linha[k];
+    if (/_base64$/.test(k)) { c[k] = v ? '[foto]' : null; return; }
+    if (k === 'itens' && Array.isArray(v)) {
+      c[k] = JSON.stringify(v.map(function (i) {
+        var i2 = {}; Object.keys(i).forEach(function (kk) { i2[kk] = i[kk]; });
+        if (i2.avaria && i2.avaria.fotos) {
+          i2.avaria = { qtd: i2.avaria.qtd, descricao: i2.avaria.descricao, fotos: '[' + i2.avaria.fotos.length + ' foto(s)]' };
+        }
+        return i2;
+      }));
+      return;
+    }
+    c[k] = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+  });
+  return c;
+}
+
+function abrirBackup() {
+  var m = U.modal({
+    titulo: '💾 Backup do banco',
+    html: '<p class="mut peq" style="margin-bottom:12px">Baixa uma cópia de TUDO (eventos, conferências, estoque, produtores...). ' +
+        'Guarde o arquivo num lugar seguro — é o seguro contra exclusão errada ou problema no Supabase.</p>' +
+      '<button class="btn btn--verde btn--bloco" id="bk-excel">📗 EXCEL — uma aba por tabela (sem as fotos)</button>' +
+      '<button class="btn btn--bloco" id="bk-json" style="margin-top:8px">🗂 JSON COMPLETO — com fotos (arquivo grande)</button>' +
+      '<p class="peq" id="bk-status" style="margin-top:12px;font-weight:700" hidden></p>',
+    pe: '<button class="btn btn--branco" data-x>Fechar</button>'
+  });
+  m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+  var st = m.querySelector('#bk-status');
+  function diz(t, cor) { st.hidden = false; st.textContent = t; st.style.color = cor || 'var(--txt-2)'; }
+
+  function buscarTudo() {
+    var dados = {}, fila = TABELAS_BACKUP.slice();
+    function prox() {
+      if (!fila.length) return Promise.resolve(dados);
+      var t = fila.shift();
+      diz('Buscando ' + t + '…');
+      return backupBuscarTudo(t).then(function (linhas) { dados[t] = linhas; return prox(); });
+    }
+    return prox();
+  }
+
+  m.querySelector('#bk-excel').addEventListener('click', function () {
+    if (typeof XLSX === 'undefined') return diz('O gerador de Excel ainda está carregando — tente de novo.', 'var(--vermelho)');
+    buscarTudo().then(function (dados) {
+      diz('Montando o Excel…');
+      var wb = XLSX.utils.book_new();
+      TABELAS_BACKUP.forEach(function (t) {
+        var linhas = (dados[t] || []).map(backupSemFotos);
+        var ws = XLSX.utils.json_to_sheet(linhas.length ? linhas : [{ vazio: 'sem registros' }]);
+        XLSX.utils.book_append_sheet(wb, ws, t.slice(0, 31));
+      });
+      XLSX.writeFile(wb, 'backup-central-' + U.hojeISO() + '.xlsx');
+      var tot = 0; TABELAS_BACKUP.forEach(function (t) { tot += (dados[t] || []).length; });
+      diz('✓ Backup em Excel baixado: ' + U.fmt(tot) + ' registro(s) em ' + TABELAS_BACKUP.length + ' tabelas.', 'var(--verde)');
+    }).catch(function (e) { console.error(e); diz('Não consegui buscar tudo. Verifique a internet e tente de novo.', 'var(--vermelho)'); });
+  });
+
+  m.querySelector('#bk-json').addEventListener('click', function () {
+    buscarTudo().then(function (dados) {
+      diz('Montando o arquivo…');
+      var pacote = { sistema: 'Central de Conferência — Grupo Tendas Plenart', gerado_em: new Date().toISOString(), tabelas: dados };
+      backupBaixarArquivo(JSON.stringify(pacote), 'backup-central-' + U.hojeISO() + '.json', 'application/json');
+      var tot = 0; TABELAS_BACKUP.forEach(function (t) { tot += (dados[t] || []).length; });
+      diz('✓ Backup completo baixado: ' + U.fmt(tot) + ' registro(s). Guarde em lugar seguro.', 'var(--verde)');
+    }).catch(function (e) { console.error(e); diz('Não consegui buscar tudo. Verifique a internet e tente de novo.', 'var(--vermelho)'); });
+  });
+}
+
 /* Pede a senha do coordenador e devolve Promise<boolean>.
    Usada para desbloquear conferências finalizadas. */
 function pedirSenhaCoordenador(titulo, texto) {
@@ -3514,6 +3619,7 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
         '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
+        '<button class="btn btn--branco" id="btn-backup">💾 BACKUP</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
         '<button class="btn btn--branco" id="btn-relatorios">📊 RELATÓRIOS</button>' +
         '<button class="btn btn--laranja" id="btn-novo-evento">+ CRIAR EVENTO</button>' +
@@ -3849,6 +3955,22 @@ function TelaPainel() {
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
     U.$('#btn-tv').addEventListener('click', function () { window.open('tv.html', '_blank'); });
+    U.$('#btn-backup').addEventListener('click', abrirBackup);
+
+    /* 🔄 32: o painel se atualiza sozinho a cada 2 minutos (sem atrapalhar:
+       não atualiza com janela aberta, busca digitada ou fora da aba inicial) */
+    if (!App._autoPainel) {
+      App._autoPainel = setInterval(function () {
+        if (App._telaAtual !== TelaPainel) return;
+        if (document.hidden) return;
+        if (U.$('#modais') && U.$('#modais').children.length) return;
+        var busca = U.$('#busca-eventos');
+        if (busca && busca.value.trim()) return;
+        var abaSel = U.$('.aba.is-ativa');
+        if (abaSel && abaSel.dataset.aba && abaSel.dataset.aba !== 'ativos') return;
+        App.recarregar();
+      }, 120000);
+    }
     U.$('#btn-pendencias').addEventListener('click', function () { App.abrir(TelaPendencias); });
     U.$('#btn-relatorios').addEventListener('click', function () { App.abrir(TelaRelatorios); });
 
