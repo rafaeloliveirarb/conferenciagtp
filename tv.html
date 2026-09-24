@@ -18,6 +18,18 @@
   }
   *{box-sizing:border-box}
   html,body{height:100%}
+  /* ---------- tela cheia ---------- */
+  .convite{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:18px;background:rgba(10,15,30,.82);cursor:pointer;text-align:center;transition:opacity .4s}
+  .convite b{font-size:44px;font-weight:900;letter-spacing:.5px}
+  .convite span{font-size:22px;color:var(--mut)}
+  .convite i{font-style:normal;font-size:90px;line-height:1}
+  .convite[hidden]{display:none}
+  .bt-cheia{position:fixed;z-index:40;right:18px;bottom:72px;background:var(--cartao2);color:var(--txt);
+    border:2px solid var(--laranja2);border-radius:12px;padding:10px 16px;font:900 16px Nunito,system-ui,sans-serif;
+    cursor:pointer;opacity:.9}
+  .bt-cheia[hidden]{display:none}
+  body.semmouse, body.semmouse *{cursor:none!important}
   body{margin:0;background:var(--fundo);color:var(--txt);overflow:hidden;
     font:600 17px/1.4 Nunito,"Segoe UI",system-ui,sans-serif}
 
@@ -99,6 +111,12 @@
 </style>
 </head>
 <body>
+<div class="convite" id="convite" hidden>
+  <i>⛶</i>
+  <b>TOQUE NA TELA OU APERTE QUALQUER TECLA</b>
+  <span>para abrir em tela cheia</span>
+</div>
+<button class="bt-cheia" id="bt-cheia" hidden>⛶ TELA CHEIA</button>
 
 <div class="topo">
   <h1>OPERAÇÕES DO GALPÃO<small id="data-longa"></small></h1>
@@ -184,7 +202,7 @@
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
       lista(cli.from("patio_presenca").select("data,colaborador_id,status")
         .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
-      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores,obs")).catch(function () { return []; }),
+      lista(cli.from("patio_demanda").select("*")).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
         .gte("data", hojeISO(-30)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; })
     ]).then(function (rr) {
@@ -220,6 +238,30 @@
       var d = demDe(e.id, tipo);
       if (d && d.data) return String(d.data).slice(0, 10);
       return tipo === "descarregamento" ? fimDesm(e) : String(e.data || "").slice(0, 10);
+    }
+    /* ⏩ antecipado / ⏪ adiado na Demanda do Pátio */
+    function chipMudou(e, tipo) {
+      var d = demDe(e.id, tipo);
+      var orig = tipo === "descarregamento" ? fimDesm(e) : String(e.data || "").slice(0, 10);
+      if (!d || !d.data || !orig) return "";
+      var novo = String(d.data).slice(0, 10);
+      if (novo === orig) return "";
+      return novo < orig ? '<span class="chip pend">⏩ ANTECIPADO · era ' + fmtData(orig) + "</span>"
+                         : '<span class="chip">⏪ ADIADO · era ' + fmtData(orig) + "</span>";
+    }
+    /* ✋ manuais (sem evento) */
+    function manuais(dia, tipo) {
+      return D.dems.filter(function (x) { return x.evento_id === "MANUAL" && x.tipo === tipo && String(x.data || "").slice(0, 10) === dia; });
+    }
+    function cardManual(x, tipo, n) {
+      var eq = (x.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+      if (!x.feito && !eq.length && n <= 1) avisos.push((n === 0 ? "HOJE" : "AMANHÃ") + ": " + tipo + " " + (x.titulo || "manual") + " SEM EQUIPE");
+      return '<div class="card' + (x.feito ? " feita" : !eq.length ? " ruim" : "") + '">' +
+        '<b class="tit">' + (x.feito ? "✓ " : "") + esc(x.titulo || "(sem nome)") + "</b>" +
+        ((x.local || x.caminhao) ? '<div class="sub">' + [x.local, x.caminhao].filter(Boolean).map(esc).join(" · ") + "</div>" : "") +
+        '<span class="chip">✋ MANUAL</span>' + (x.feito ? '<span class="chip ok">✓ FEITO</span>' : "") +
+        linhaEquipe(eq) +
+        (x.obs ? '<div class="sub">📝 ' + esc(x.obs) + "</div>" : "") + "</div>";
     }
     function equipeDe(evId, tipo) {
       var d = demDe(evId, tipo);
@@ -257,7 +299,8 @@
     for (var j = 0; j <= DIAS_FRENTE; j++) {
       var dj = hojeISO(j);
       var evs = D.eventos.filter(function (e) { return aberto(e) && dataDem(e, "carregamento") === dj; });
-      if (!evs.length) continue;
+      var mnC = manuais(dj, "carregamento");
+      if (!evs.length && !mnC.length) continue;
       hCarga += '<div class="dia' + (j === 0 ? " hoje" : "") + '">' + rotDia(dj, j) + "</div>";
       evs.forEach(function (e) {
         totCarga++;
@@ -272,10 +315,12 @@
             var saiu = D.confs.some(function (c) { return c.carregamento_id === cg.id && c.tipo === "saida" && c.finalizada_em; });
             return '<span class="chip ' + (saiu ? "ok" : "pend") + '">' + (saiu ? "✓ " : "") + esc(nomeCam(cg)) + (saiu ? " SAIU" : "") + "</span>";
           }).join("") : '<span class="chip ruim">SEM CAMINHÃO</span>') +
+          chipMudou(e, "carregamento") +
           linhaEquipe(eq) +
           (dem && dem.obs ? '<div class="sub">📝 ' + esc(dem.obs) + "</div>" : "") +
         "</div>";
       });
+      mnC.forEach(function (x) { totCarga++; hCarga += cardManual(x, "carregamento", j); });
     }
     $("c-carga").innerHTML = hCarga || '<div class="vazio">Nenhum carregamento nos próximos dias.</div>';
     $("n-carga").textContent = totCarga;
@@ -283,7 +328,7 @@
     /* ---- ↩️ DESCARREGAMENTO: atrasados + hoje + próximos ---- */
     var hDesc = "", totDesc = 0;
     var atrasados = D.eventos.filter(function (e) {
-      return aberto(e) && e.data_desmontagem && fimDesm(e) < hoje;
+      return aberto(e) && e.data_desmontagem && fimDesm(e) < hoje && !(dataDem(e, "descarregamento") >= hoje);
     });
     if (atrasados.length) {
       hDesc += '<div class="dia hoje">⏰ ATRASADOS</div>';
@@ -302,7 +347,8 @@
       var evsD = D.eventos.filter(function (e) {
         return aberto(e) && dataDem(e, "descarregamento") && dataDem(e, "descarregamento") === dk;
       });
-      if (!evsD.length) continue;
+      var mnD = manuais(dk, "descarregamento");
+      if (!evsD.length && !mnD.length) continue;
       hDesc += '<div class="dia' + (k === 0 ? " hoje" : "") + '">' + rotDia(dk, k) + "</div>";
       evsD.forEach(function (e) {
         totDesc++;
@@ -312,8 +358,10 @@
           '<div class="sub">' + [e.cliente, e.local].filter(Boolean).map(esc).join(" · ") +
             (e.data_desmontagem ? (e.cliente || e.local ? " · " : "") + "desmontagem " + fmtData(e.data_desmontagem) +
               (fimDesm(e) !== String(e.data_desmontagem).slice(0, 10) ? " a " + fmtData(fimDesm(e)) : "") : "") + "</div>" +
+          chipMudou(e, "descarregamento") +
           linhaEquipe(eq) + "</div>";
       });
+      mnD.forEach(function (x) { totDesc++; hDesc += cardManual(x, "descarregamento", k); });
     }
     $("c-descarga").innerHTML = hDesc || '<div class="vazio">Nenhum descarregamento nos próximos dias.</div>';
     $("n-descarga").textContent = totDesc;
@@ -354,6 +402,10 @@
         if (!e2 || !aberto(e2)) return;
         if (dataDem(e2, dm2.tipo) !== dq) return;
         (dm2.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(e2.nome); });
+      });
+      D.dems.forEach(function (x) {
+        if (x.evento_id !== "MANUAL" || x.feito || String(x.data || "").slice(0, 10) !== dq) return;
+        (x.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(x.titulo); });
       });
       D.tarefas.forEach(function (t) {
         if (t.feita || String(t.data).slice(0, 10) !== dq) return;
@@ -415,6 +467,71 @@
 
   carregar();
   setInterval(carregar, 60000);
+
+  /* ---------- ⛶ tela cheia ----------
+     O navegador só deixa entrar em tela cheia depois de um toque/tecla.
+     Então: aviso grande ao abrir; o 1º toque, clique, tecla ou botão do
+     controle já coloca em tela cheia. Se sair (ESC), volta o botão. */
+  var raiz = document.documentElement;
+  var pedir = raiz.requestFullscreen || raiz.webkitRequestFullscreen || raiz.mozRequestFullScreen || raiz.msRequestFullscreen;
+  var convite = $("convite"), btCheia = $("bt-cheia");
+  function emCheia() {
+    if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) return true;
+    /* F11 / modo quiosque: a janela já ocupa a tela toda */
+    return window.innerHeight >= screen.height - 2 && window.innerWidth >= screen.width - 2;
+  }
+  function atualizarCheia() {
+    var cheia = !pedir || emCheia();
+    if (cheia) { convite.hidden = true; btCheia.hidden = true; }
+    else if (convite.hidden) btCheia.hidden = false;
+  }
+  function entrar() {
+    if (!pedir || emCheia()) { convite.hidden = true; atualizarCheia(); return; }
+    try {
+      var p = pedir.call(raiz, { navigationUI: "hide" });
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
+    convite.hidden = true;
+    setTimeout(atualizarCheia, 600);
+  }
+  var dentroDaCentral = false;
+  try { dentroDaCentral = window.self !== window.top; } catch (e) { dentroDaCentral = true; }
+  if (dentroDaCentral) pedir = null;   /* aberta pelo botão 📺 da Central: ela já cuida da tela cheia */
+  if (pedir && !emCheia()) {
+    convite.hidden = false;
+    /* depois de 20 s o aviso grande vira só um botão no canto */
+    setTimeout(function () { if (!convite.hidden) { convite.hidden = true; atualizarCheia(); } }, 20000);
+  }
+  ["click", "touchend", "keydown"].forEach(function (ev) {
+    document.addEventListener(ev, function () { if (!emCheia()) entrar(); }, true);
+  });
+  ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"].forEach(function (ev) {
+    document.addEventListener(ev, atualizarCheia);
+  });
+  window.addEventListener("resize", atualizarCheia);
+
+  /* não deixa a tela apagar sozinha */
+  var trava = null;
+  function manterAcesa() {
+    try {
+      if (navigator.wakeLock && document.visibilityState === "visible" && !trava)
+        navigator.wakeLock.request("screen").then(function (w) {
+          trava = w; w.addEventListener("release", function () { trava = null; });
+        }).catch(function () {});
+    } catch (e) {}
+  }
+  manterAcesa();
+  document.addEventListener("visibilitychange", manterAcesa);
+  setInterval(manterAcesa, 60000);
+
+  /* esconde o ponteiro do mouse parado (3 s) */
+  var tMouse = null;
+  document.addEventListener("mousemove", function () {
+    document.body.classList.remove("semmouse");
+    clearTimeout(tMouse);
+    tMouse = setTimeout(function () { document.body.classList.add("semmouse"); }, 3000);
+  });
+  document.body.classList.add("semmouse");
 })();
 </script>
 </body>

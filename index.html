@@ -2242,7 +2242,43 @@ const Calculo = {
    js/app.js/* ============================================================
    js/app.js — estado, navegação e telas
    ============================================================ */
+/* 📺 TV do galpão: abre por cima da Central e já entra em tela cheia no mesmo clique.
+   ESC (ou ✕) fecha e volta para o sistema. */
+function tvFechar() {
+  var cx = document.getElementById('tv-caixa');
+  if (!cx) return;
+  cx.parentNode.removeChild(cx);
+  try { if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) {}
+}
+function tvAbrir() {
+  if (document.getElementById('tv-caixa')) return;
+  var cx = document.createElement('div');
+  cx.id = 'tv-caixa';
+  cx.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#141C33';
+  cx.innerHTML = '<iframe src="tv.html" allow="fullscreen; screen-wake-lock" style="border:0;width:100%;height:100%;display:block"></iframe>' +
+    '<button id="tv-fechar" title="Fechar a TV (ESC)" style="position:absolute;top:10px;left:10px;z-index:2;width:44px;height:44px;border-radius:50%;' +
+    'border:2px solid #2C3A63;background:#1C2747;color:#F2F5FC;font:900 20px system-ui;cursor:pointer;opacity:0;transition:opacity .3s">✕</button>';
+  document.body.appendChild(cx);
+  var bt = cx.querySelector('#tv-fechar');
+  bt.addEventListener('click', tvFechar);
+  cx.addEventListener('mousemove', function () {
+    bt.style.opacity = '.85';
+    clearTimeout(bt._t); bt._t = setTimeout(function () { bt.style.opacity = '0'; }, 2500);
+  });
+  /* tela cheia AGORA, ainda dentro do clique */
+  var pedir = cx.requestFullscreen || cx.webkitRequestFullscreen || cx.msRequestFullscreen;
+  try { if (pedir) { var p = pedir.call(cx); if (p && p.catch) p.catch(function () {}); } } catch (e) {}
+}
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape') tvFechar(); });
+['fullscreenchange', 'webkitfullscreenchange'].forEach(function (ev) {
+  document.addEventListener(ev, function () {
+    /* saiu da tela cheia (ESC) → fecha a TV */
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) tvFechar();
+  });
+});
+
 const App = {
+  abrirTV: function () { tvAbrir(); },
   usuarios: [],
   eventos: [],
   conferencias: [],     /* de todos os eventos, para os números do painel */
@@ -3589,6 +3625,10 @@ function TelaPainel() {
     App.eventos.forEach(function (ev) {
       if (ev.status === 'Finalizado' || ev.status === 'Com divergência') return;
       var d = String(ev.data || '').slice(0, 10);
+      if (demandasPatio) {   /* carregamento antecipado/adiado na Demanda do Pátio */
+        var dmD = demandasPatio.filter(function (x) { return x.chave === ev.id + '|carregamento'; })[0];
+        if (dmD && dmD.data) d = String(dmD.data).slice(0, 10);
+      }
       if (!d || d < U.hojeISO() || d > limitePrep) return;
       /* se alguma saída já foi finalizada, o material já está saindo: preparado */
       if (App.conferencias.some(function (c) { return c.evento_id === ev.id && c.tipo === 'saida' && c.finalizada_em; })) return;
@@ -3966,7 +4006,7 @@ function TelaPainel() {
     U.$('#btn-patio').addEventListener('click', function () { App.abrir(TelaPatio); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
-    U.$('#btn-tv').addEventListener('click', function () { window.open('tv.html', '_blank'); });
+    U.$('#btn-tv').addEventListener('click', function () { App.abrirTV(); });
     U.$('#btn-backup').addEventListener('click', abrirBackup);
 
     /* 🔄 32: o painel se atualiza sozinho a cada 2 minutos (sem atrapalhar:
@@ -11783,9 +11823,24 @@ function TelaPatio() {
     return App.eventos.filter(function (ev) { return dataDemanda(ev, tipo) === dia; })
       .map(function (ev) { return { ev: ev, tipo: tipo, dem: demandaDe(ev.id, tipo) }; });
   }
+  /* ✋ carregamento/descarregamento MANUAL (sem evento) */
+  function ehManual(d) { return !!d && d.evento_id === 'MANUAL'; }
+  function manuaisDoDia(dia, tipo) {
+    return dems.filter(function (d) { return ehManual(d) && d.tipo === tipo && String(d.data || '').slice(0, 10) === dia; })
+      .sort(function (a, b) { return (a.feito ? 1 : 0) - (b.feito ? 1 : 0) || String(a.titulo || '').localeCompare(String(b.titulo || '')); });
+  }
+  function acharManual(chave) { return dems.filter(function (d) { return d.chave === chave; })[0] || null; }
   /* quem já está escalado num dia: colabId -> [nomes de evento] */
   function escaladosNoDia(dia) {
     var m = {};
+    ['carregamento', 'descarregamento'].forEach(function (tipo) {
+      manuaisDoDia(dia, tipo).forEach(function (d) {
+        if (d.feito) return;
+        (d.colaboradores || []).forEach(function (id) {
+          (m[id] = m[id] || []).push((tipo === 'carregamento' ? '🚚 ' : '↩️ ') + (d.titulo || 'manual'));
+        });
+      });
+    });
     ['carregamento', 'descarregamento'].forEach(function (tipo) {
       demandasDoDia(dia, tipo).forEach(function (x) {
         ((x.dem && x.dem.colaboradores) || []).forEach(function (id) {
@@ -11957,11 +12012,49 @@ function TelaPatio() {
                 U.esc(nomeColab(id)) + (ruim ? ' (' + st + ')' : '') + '</span>';
             }).join('') + '</div>'
           : '<p class="peq" style="margin:0 0 8px;color:var(--vermelho);font-weight:800">⚠ SEM EQUIPE ESCOLHIDA</p>') +
+        (function () {
+          var orig = Patio.dataPadrao(ev, tipo), novo = dataDemanda(ev, tipo);
+          if (!dem || !dem.data || !orig || novo === orig) return '';
+          var antes = novo < orig;
+          return '<p class="peq" style="margin:0 0 8px;font-weight:800;color:' + (antes ? 'var(--laranja)' : 'var(--azul)') + '">' +
+            (antes ? '⏩ ANTECIPADO' : '⏪ ADIADO') + ' — o dia normal era ' + Patio.rotDia(orig).toLowerCase() + ' (' + U.fmtData(orig) + ')</p>';
+        })() +
         (dem && dem.obs ? '<p class="peq" style="margin:0 0 8px">📝 ' + U.esc(dem.obs) + '</p>' : '') +
         '<div class="btn-linha">' +
           '<button class="btn ' + (equipe.length ? 'btn--branco' : 'btn--laranja') + ' btn--peq js-equipe" data-ev="' + ev.id + '" data-tipo="' + tipo + '">' +
             (equipe.length ? '✏️ TROCAR EQUIPE (' + equipe.length + ')' : '👷 ESCOLHER EQUIPE') + '</button>' +
+          '<button class="btn btn--branco btn--peq js-mudar-dia" data-ev="' + ev.id + '" data-tipo="' + tipo + '">📅 ANTECIPAR / MUDAR DIA</button>' +
           '<button class="btn btn--branco btn--peq js-abrir-ev" data-ev="' + ev.id + '">ABRIR EVENTO</button>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  function cartaoManual(d, dia) {
+    var equipe = d.colaboradores || [];
+    var ic = d.tipo === 'carregamento' ? '🚚 ' : '↩️ ';
+    return '<div class="carga" style="margin-bottom:10px;border-left:5px solid var(--azul);' + (d.feito ? 'opacity:.7;' : '') + '">' +
+      '<div class="carga__topo"><span class="carga__tit" style="' + (d.feito ? 'text-decoration:line-through' : '') + '">' + ic + U.esc(d.titulo || '(sem nome)') + '</span>' +
+        '<span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul);font-weight:800">✋ MANUAL</span>' +
+        (d.feito ? '<span class="terc-tag" style="background:var(--verde-clr);border-color:var(--verde-clr);color:var(--verde);font-weight:800">✓ FEITO</span>' : '') +
+      '</div>' +
+      '<div style="padding:6px 14px 12px">' +
+        ((d.local || d.caminhao) ? '<p class="peq mut" style="margin:0 0 6px">' +
+          [d.local ? '📍 ' + U.esc(d.local) : '', d.caminhao ? '🚛 ' + U.esc(d.caminhao) : ''].filter(Boolean).join(' · ') + '</p>' : '') +
+        (equipe.length
+          ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">' + equipe.map(function (id) {
+              var st = statusDe(dia, id);
+              var ruim = st && !Patio.livre(st);
+              return '<span class="terc-tag" style="font-weight:800;' + (ruim
+                ? 'background:#FDE4E4;border-color:#F5C6C6;color:var(--vermelho)">⚠ ' : 'background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">👷 ') +
+                U.esc(nomeColab(id)) + (ruim ? ' (' + st + ')' : '') + '</span>';
+            }).join('') + '</div>'
+          : '<p class="peq" style="margin:0 0 8px;color:var(--vermelho);font-weight:800">⚠ SEM EQUIPE ESCOLHIDA</p>') +
+        (d.obs ? '<p class="peq" style="margin:0 0 8px">📝 ' + U.esc(d.obs) + '</p>' : '') +
+        '<div class="btn-linha">' +
+          '<button class="btn ' + (d.feito ? 'btn--branco' : 'btn--verde') + ' btn--peq js-mn-feito" data-ch="' + U.esc(d.chave) + '">' +
+            (d.feito ? '↺ DESMARCAR' : '✓ FEITO') + '</button>' +
+          '<button class="btn btn--branco btn--peq js-mn-editar" data-ch="' + U.esc(d.chave) + '">✏️ EDITAR / EQUIPE / DIA</button>' +
+          '<button class="btn btn--branco btn--peq js-mn-apagar" data-ch="' + U.esc(d.chave) + '" style="color:var(--vermelho);border-color:var(--vermelho)">🗑️</button>' +
         '</div>' +
       '</div></div>';
   }
@@ -11985,6 +12078,9 @@ function TelaPatio() {
           var fechado = x.ev.status === 'Finalizado' || x.ev.status === 'Com divergência';
           if (fechado) return;
           if (!x.dem || !(x.dem.colaboradores || []).length) pend.push({ d: d, tipo: tipo, ev: x.ev });
+        });
+        manuaisDoDia(d, tipo).forEach(function (mn) {
+          if (!mn.feito && !(mn.colaboradores || []).length) pend.push({ d: d, tipo: tipo, ev: { nome: (mn.titulo || '') + ' (manual)' } });
         });
       });
     }
@@ -12022,12 +12118,18 @@ function TelaPatio() {
     /* carregamentos e descarregamentos do dia */
     var carr = demandasDoDia(dia, 'carregamento');
     var desc = demandasDoDia(dia, 'descarregamento');
-    h += '<h2 class="secao__tit">🚚 Carregamentos do dia <span class="n">' + carr.length + '</span></h2>' +
+    var carrM = manuaisDoDia(dia, 'carregamento');
+    var descM = manuaisDoDia(dia, 'descarregamento');
+    h += '<h2 class="secao__tit">🚚 Carregamentos do dia <span class="n">' + (carr.length + carrM.length) + '</span></h2>' +
       (carr.length ? carr.map(function (x) { x.data = dia; return cartaoDemanda(x); }).join('')
-        : '<p class="peq mut">Nenhum evento com carregamento nesse dia. Evento novo aparece aqui sozinho, na data dele.</p>');
-    h += '<h2 class="secao__tit" style="margin-top:22px">↩️ Descarregamentos do dia <span class="n">' + desc.length + '</span></h2>' +
+        : (carrM.length ? '' : '<p class="peq mut">Nenhum evento com carregamento nesse dia. Evento novo aparece aqui sozinho, na data dele.</p>')) +
+      carrM.map(function (d) { return cartaoManual(d, dia); }).join('') +
+      '<button class="btn btn--branco btn--bloco btn--peq js-mn-novo" data-tipo="carregamento" style="margin-bottom:6px;border-style:dashed">➕ ACRESCENTAR CARREGAMENTO MANUAL</button>';
+    h += '<h2 class="secao__tit" style="margin-top:22px">↩️ Descarregamentos do dia <span class="n">' + (desc.length + descM.length) + '</span></h2>' +
       (desc.length ? desc.map(function (x) { x.data = dia; return cartaoDemanda(x); }).join('')
-        : '<p class="peq mut">Nenhum descarregamento nesse dia. Aparece aqui pelo fim da desmontagem do evento.</p>');
+        : (descM.length ? '' : '<p class="peq mut">Nenhum descarregamento nesse dia. Aparece aqui pelo fim da desmontagem do evento.</p>')) +
+      descM.map(function (d) { return cartaoManual(d, dia); }).join('') +
+      '<button class="btn btn--branco btn--bloco btn--peq js-mn-novo" data-tipo="descarregamento" style="margin-bottom:6px;border-style:dashed">➕ ACRESCENTAR DESCARREGAMENTO MANUAL</button>';
 
     /* 📝 tarefas do dia + atrasadas */
     var tfDia = tarefasDoDia(dia);
@@ -12219,6 +12321,11 @@ function TelaPatio() {
         var outros = {};
         dems.forEach(function (d) {
           if (d.chave === evId + '|' + tipo) return;
+          if (ehManual(d)) {
+            if (!d.feito && String(d.data || '').slice(0, 10) === dia)
+              (d.colaboradores || []).forEach(function (id) { (outros[id] = outros[id] || []).push((d.titulo || 'manual') + ' (manual)'); });
+            return;
+          }
           var ev2 = App.eventos.filter(function (e) { return e.id === d.evento_id; })[0];
           if (!ev2) return;
           if (((d.data && String(d.data).slice(0, 10)) || Patio.dataPadrao(ev2, d.tipo)) !== dia) return;
@@ -12249,7 +12356,8 @@ function TelaPatio() {
       var ids = U.$$('.js-eq', caixa).filter(function (cb) { return cb.checked && !cb.disabled; }).map(function (cb) { return cb.value; });
       var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
       Patio.gravarDemanda({
-        chave: evId + '|' + tipo, evento_id: evId, tipo: tipo, data: dia,
+        chave: evId + '|' + tipo, evento_id: evId, tipo: tipo,
+        data: dia === Patio.dataPadrao(ev, tipo) ? null : dia,
         colaboradores: ids, obs: (m.querySelector('#eq-obs').value || '').trim() || null
       }).then(function () {
         m.fechar();
@@ -12257,6 +12365,183 @@ function TelaPatio() {
         carregar();
       }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR EQUIPE'; App.falhou(e); });
     });
+  }
+
+  /* ================= ✋ carregamento / descarregamento manual ================= */
+  function falhaManual(e) {
+    var msg = String((e && (e.message || e.details)) || '');
+    if (/titulo|local|caminhao|feito|column|coluna/i.test(msg)) {
+      U.aviso('Falta rodar o patio-manual.sql no Supabase (cria os campos do carregamento manual).', 'erro', 9000);
+    } else App.falhou(e);
+  }
+  function editarManual(d, tipoNovo) {
+    var novo = !d;
+    d = d || { chave: 'manual:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      evento_id: 'MANUAL', tipo: tipoNovo || 'carregamento', data: TelaPatio._dia,
+      titulo: '', local: '', caminhao: '', obs: '', colaboradores: [], feito: false };
+    var sel = {};
+    (d.colaboradores || []).forEach(function (id) { sel[id] = true; });
+    var SUG = ['BUSCAR MATERIAL NO FORNECEDOR', 'DEVOLVER MATERIAL ALUGADO', 'DESCARREGAR COMPRA', 'LEVAR PARA OFICINA',
+      'BUSCAR NA OFICINA', 'TRANSFERIR PARA OUTRO GALPÃO', 'ENTREGA AVULSA', 'RECOLHIMENTO AVULSO'];
+    var m = U.modal({
+      titulo: novo ? '✋ Acrescentar ' + (d.tipo === 'carregamento' ? 'carregamento' : 'descarregamento') + ' manual' : '✏️ ' + (d.titulo || 'Manual'),
+      html: '<div class="btn-linha" style="margin-bottom:8px">' +
+          '<label style="flex:1;display:flex;gap:8px;align-items:center;font-weight:800;cursor:pointer"><input type="radio" name="mn-tipo" value="carregamento" style="width:20px;height:20px"' + (d.tipo === 'carregamento' ? ' checked' : '') + '> 🚚 CARREGAMENTO</label>' +
+          '<label style="flex:1;display:flex;gap:8px;align-items:center;font-weight:800;cursor:pointer"><input type="radio" name="mn-tipo" value="descarregamento" style="width:20px;height:20px"' + (d.tipo === 'descarregamento' ? ' checked' : '') + '> ↩️ DESCARREGAMENTO</label>' +
+        '</div>' +
+        '<label class="campo"><span class="campo__rot">O que é *</span>' +
+          '<input class="entrada" id="mn-titulo" list="mn-sug" value="' + U.esc(d.titulo || '') + '" placeholder="Ex.: BUSCAR TENDAS NO FORNECEDOR" style="text-transform:uppercase"></label>' +
+          '<datalist id="mn-sug">' + SUG.map(function (x) { return '<option value="' + x + '">'; }).join('') + '</datalist>' +
+        '<div class="btn-linha" style="margin-top:8px">' +
+          '<label class="campo" style="flex:1"><span class="campo__rot">Dia *</span>' +
+            '<input class="entrada" type="date" id="mn-data" value="' + U.esc(String(d.data || '').slice(0, 10)) + '"></label>' +
+          '<label class="campo" style="flex:1"><span class="campo__rot">Caminhão (opcional)</span>' +
+            '<input class="entrada" id="mn-cam" list="mn-cams" value="' + U.esc(d.caminhao || '') + '" placeholder="Ex.: BAÚ OQI 6C11"></label>' +
+          '<datalist id="mn-cams">' + cams.map(function (c) { return '<option value="' + U.esc([c.tipo, c.placa].filter(Boolean).join(' ')) + '">'; }).join('') + '</datalist>' +
+        '</div>' +
+        '<label class="campo" style="margin-top:8px"><span class="campo__rot">Local / destino (opcional)</span>' +
+          '<input class="entrada" id="mn-local" value="' + U.esc(d.local || '') + '" placeholder="Ex.: fornecedor em Duque de Caxias"></label>' +
+        '<label class="campo" style="margin-top:8px"><span class="campo__rot">Observação (opcional)</span>' +
+          '<input class="entrada" id="mn-obs" value="' + U.esc(d.obs || '') + '" placeholder="Ex.: chegar 7h, levar cintas"></label>' +
+        '<p class="peq mut" style="margin:12px 0 4px">Quem vai fazer (quem está de folga nesse dia fica bloqueado):</p>' +
+        '<div id="mn-lista"><p class="mut">Carregando a escala…</p></div>',
+      pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR</button>',
+      travado: true
+    });
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+    var caixa = m.querySelector('#mn-lista');
+    function montar() {
+      var dia = m.querySelector('#mn-data').value;
+      if (!dia) { caixa.innerHTML = '<p class="peq mut">Escolha o dia.</p>'; return; }
+      Patio.presenca(dia, dia).then(function (pd) {
+        var stDia = {};
+        pd.forEach(function (x) { stDia[x.colaborador_id] = x.status; });
+        var ja = escaladosNoDia(dia);
+        /* não conta ele mesmo */
+        (d.colaboradores || []).forEach(function (id) {
+          if (!ja[id] || String(d.data || '').slice(0, 10) !== dia) return;
+          var eu = (d.tipo === 'carregamento' ? '🚚 ' : '↩️ ') + (d.titulo || 'manual');
+          var i = ja[id].indexOf(eu); if (i >= 0) ja[id].splice(i, 1);
+          if (!ja[id].length) delete ja[id];
+        });
+        caixa.innerHTML = ativos.map(function (c) {
+          var st = stDia[c.id] || '';
+          var bloq = st && !Patio.livre(st);
+          return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
+            (bloq ? 'opacity:.55' : 'cursor:pointer') + '">' +
+            '<input type="checkbox" class="js-mn-c" value="' + c.id + '" style="width:20px;height:20px"' +
+              (sel[c.id] && !bloq ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
+            '<span style="flex:1"><b class="peq">' + U.esc(c.nome) + '</b>' +
+              (ja[c.id] ? '<span class="peq" style="display:block;color:var(--laranja)">já em: ' + ja[c.id].map(U.esc).join(', ') + '</span>' : '') +
+            '</span>' + chipStatus(st) + '</label>';
+        }).join('') || '<p class="peq mut">Nenhum colaborador ativo.</p>';
+        U.$$('.js-mn-c', caixa).forEach(function (cb) { cb.addEventListener('change', function () { sel[cb.value] = cb.checked; }); });
+      }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
+    }
+    montar();
+    m.querySelector('#mn-data').addEventListener('change', montar);
+    m.querySelector('[data-ok]').addEventListener('click', function () {
+      var titulo = Patio.normNome(m.querySelector('#mn-titulo').value);
+      var dia = m.querySelector('#mn-data').value;
+      var tp = (m.querySelector('input[name="mn-tipo"]:checked') || {}).value || d.tipo;
+      if (titulo.length < 3) return U.aviso('Escreva o que é (ex.: BUSCAR MATERIAL NO FORNECEDOR).', 'erro');
+      if (!dia) return U.aviso('Escolha o dia.', 'erro');
+      var ids = U.$$('.js-mn-c', caixa).filter(function (cb) { return cb.checked && !cb.disabled; }).map(function (cb) { return cb.value; });
+      var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+      Patio.gravarDemanda({
+        chave: d.chave, evento_id: 'MANUAL', tipo: tp, data: dia, titulo: titulo,
+        local: (m.querySelector('#mn-local').value || '').trim() || null,
+        caminhao: (m.querySelector('#mn-cam').value || '').trim().toUpperCase() || null,
+        obs: (m.querySelector('#mn-obs').value || '').trim() || null,
+        colaboradores: ids, feito: !!d.feito
+      }).then(function () {
+        m.fechar();
+        U.aviso((tp === 'carregamento' ? '🚚 ' : '↩️ ') + titulo + ' salvo para ' + Patio.rotDia(dia).toLowerCase() + '.', 'ok', 5000);
+        TelaPatio._dia = dia;
+        carregar();
+      }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR'; falhaManual(e); });
+    });
+  }
+
+  /* ================= 📅 antecipar / mudar o dia ================= */
+  function mudarDia(evId, tipo) {
+    var ev = App.eventos.filter(function (e) { return e.id === evId; })[0];
+    if (!ev) return;
+    var dem = demandaDe(evId, tipo);
+    var orig = Patio.dataPadrao(ev, tipo);
+    var atual = dataDemanda(ev, tipo);
+    var nomeTipo = tipo === 'carregamento' ? 'CARREGAMENTO' : 'DESCARREGAMENTO';
+    function atalho(n, rot) {
+      if (!orig) return '';
+      return '<button class="btn btn--branco btn--peq js-md-at" data-d="' + Patio.isoMais(orig, n) + '">' + rot + '</button>';
+    }
+    var m = U.modal({
+      titulo: '📅 ' + nomeTipo + ' · ' + ev.nome,
+      html: '<p style="margin:0 0 10px">Dia normal do ' + tipo + ': <b>' +
+          (orig ? Patio.rotDia(orig) + ' · ' + U.fmtData(orig) : 'sem data (evento sem desmontagem)') + '</b>' +
+          (tipo === 'carregamento' ? ' <span class="peq mut">(data do evento)</span>' : ' <span class="peq mut">(fim da desmontagem)</span>') + '</p>' +
+        (orig ? '<div class="btn-linha" style="margin-bottom:10px">' +
+          atalho(-1, '1 dia antes') + atalho(-2, '2 dias antes') + atalho(-3, '3 dias antes') + '</div>' : '') +
+        '<label class="campo"><span class="campo__rot">Novo dia do ' + tipo + '</span>' +
+          '<input class="entrada" type="date" id="md-data" value="' + U.esc(atual) + '"></label>' +
+        '<label class="campo" style="margin-top:8px"><span class="campo__rot">Motivo (opcional)</span>' +
+          '<input class="entrada" id="md-obs" value="' + U.esc((dem && dem.obs) || '') + '" placeholder="Ex.: caminhão só tem vaga na quarta"></label>' +
+        '<div id="md-aviso" style="margin-top:10px"></div>',
+      pe: (dem && dem.data && orig ? '<button class="btn btn--branco" data-volta>↺ VOLTAR PRO DIA NORMAL</button>' : '') +
+        '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR DIA</button>',
+      travado: true
+    });
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
+    var inp = m.querySelector('#md-data'), caixa = m.querySelector('#md-aviso');
+
+    /* avisa se alguém da equipe está de folga no dia novo */
+    function conferir() {
+      var dia = inp.value;
+      var equipe = (dem && dem.colaboradores) || [];
+      if (!dia) { caixa.innerHTML = ''; return; }
+      var txt = orig && dia < orig ? '<p class="peq" style="margin:0 0 6px;color:var(--laranja);font-weight:800">⏩ Vai ser ANTECIPADO ' +
+          Math.round((new Date(orig + 'T12:00:00') - new Date(dia + 'T12:00:00')) / 86400000) + ' dia(s).</p>'
+        : orig && dia > orig ? '<p class="peq" style="margin:0 0 6px;color:var(--azul);font-weight:800">⏪ Vai ser ADIADO ' +
+          Math.round((new Date(dia + 'T12:00:00') - new Date(orig + 'T12:00:00')) / 86400000) + ' dia(s).</p>' : '';
+      if (!equipe.length) { caixa.innerHTML = txt; return; }
+      Patio.presenca(dia, dia).then(function (pd) {
+        var fora = [];
+        pd.forEach(function (x) {
+          if (equipe.indexOf(x.colaborador_id) >= 0 && !Patio.livre(x.status)) fora.push(nomeColab(x.colaborador_id) + ' (' + x.status + ')');
+        });
+        caixa.innerHTML = txt + (fora.length
+          ? '<div class="aviso aviso--vermelho" style="margin:0"><span class="aviso__ico">⚠</span><div><b>Da equipe escolhida, estão fora nesse dia:</b> ' +
+              fora.map(U.esc).join(' · ') + '<br>Depois de salvar, toque em ✏️ TROCAR EQUIPE.</div></div>'
+          : '<p class="peq" style="margin:0;color:var(--verde);font-weight:800">✓ A equipe escolhida está disponível nesse dia.</p>');
+      }).catch(function () { caixa.innerHTML = txt; });
+    }
+    conferir();
+    inp.addEventListener('change', conferir);
+    U.$$('.js-md-at', m).forEach(function (b) {
+      b.addEventListener('click', function () { inp.value = b.dataset.d; conferir(); });
+    });
+
+    function salvar(dia) {
+      var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+      return Patio.gravarDemanda({
+        chave: evId + '|' + tipo, evento_id: evId, tipo: tipo,
+        data: (!dia || dia === orig) ? null : dia,
+        colaboradores: (dem && dem.colaboradores) || [],
+        obs: (m.querySelector('#md-obs').value || '').trim() || null
+      }).then(function () {
+        m.fechar();
+        var final = dia || orig;
+        U.aviso('📅 ' + nomeTipo + ' de ' + ev.nome + ' ficou para ' + Patio.rotDia(final).toLowerCase() + ' (' + U.fmtData(final) + ').', 'ok', 6000);
+        TelaPatio._dia = final;
+        carregar();
+      }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR DIA'; App.falhou(e); });
+    }
+    m.querySelector('[data-ok]').addEventListener('click', function () {
+      if (!inp.value) return U.aviso('Escolha o dia.', 'erro');
+      salvar(inp.value);
+    });
+    var bv = m.querySelector('[data-volta]');
+    if (bv) bv.addEventListener('click', function () { salvar(null); });
   }
 
   /* ================= ligações ================= */
@@ -12297,6 +12582,38 @@ function TelaPatio() {
     });
     U.$$('.js-abrir-ev', tela).forEach(function (b) {
       b.addEventListener('click', function () { App.abrir(TelaEvento, b.dataset.ev); });
+    });
+    U.$$('.js-mn-novo', tela).forEach(function (b) {
+      b.addEventListener('click', function () { editarManual(null, b.dataset.tipo); });
+    });
+    U.$$('.js-mn-editar', tela).forEach(function (b) {
+      b.addEventListener('click', function () { var d = acharManual(b.dataset.ch); if (d) editarManual(JSON.parse(JSON.stringify(d))); });
+    });
+    U.$$('.js-mn-feito', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var d = acharManual(b.dataset.ch); if (!d) return;
+        b.disabled = true;
+        var novo = JSON.parse(JSON.stringify(d)); novo.feito = !d.feito;
+        delete novo.atualizado_em; delete novo.atualizado_por;
+        Patio.gravarDemanda(novo).then(function () { d.feito = novo.feito; desenhar(); })
+          .catch(function (e) { b.disabled = false; falhaManual(e); });
+      });
+    });
+    U.$$('.js-mn-apagar', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var d = acharManual(b.dataset.ch); if (!d) return;
+        U.confirmar('Apagar?', 'Apagar "' + (d.titulo || 'manual') + '"? Não dá para desfazer.', 'APAGAR', 'btn--vermelho').then(function (ok) {
+          if (!ok) return;
+          Banco.cliente.from('patio_demanda').delete().eq('chave', d.chave).then(function (r) {
+            if (r.error) throw r.error;
+            dems = dems.filter(function (x) { return x.chave !== d.chave; });
+            U.aviso('🗑️ Apagado.', 'ok'); desenhar();
+          }).catch(App.falhou);
+        });
+      });
+    });
+    U.$$('.js-mudar-dia', tela).forEach(function (b) {
+      b.addEventListener('click', function () { mudarDia(b.dataset.ev, b.dataset.tipo); });
     });
     U.$$('.js-st-dia', tela).forEach(function (s) {
       s.addEventListener('change', function () {
