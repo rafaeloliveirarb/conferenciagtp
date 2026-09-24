@@ -12567,6 +12567,36 @@ function TelaPatio() {
       }
       return false;
     });
+    /* 🔎 busca + 📅 lançar período */
+    var hojeP = U.hojeISO();
+    h += '<div class="cartao"><div class="cartao__corpo">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<input class="entrada" id="pm-busca" placeholder="🔎 BUSCAR COLABORADOR (digite o nome)" value="' + U.esc(TelaPatio._busca || '') + '" ' +
+          'style="flex:1;min-width:220px;text-transform:uppercase" autocomplete="off">' +
+        '<button class="btn btn--branco btn--peq" id="pm-limpa">✕ LIMPAR</button>' +
+      '</div>' +
+      '<div id="pm-periodo" style="margin-top:12px;border-top:1px solid var(--linha);padding-top:12px">' +
+        '<b style="color:var(--azul)">📅 LANÇAR PERÍODO</b> <span class="peq mut">— férias, folgas, atestado… vários dias de uma vez</span>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">' +
+          '<label class="campo" style="flex:2;min-width:200px"><span class="campo__rot">Colaborador</span>' +
+            '<select class="entrada" id="pp-colab"><option value="">— escolha —</option>' +
+            ativos.map(function (c) { return '<option value="' + c.id + '">' + U.esc(c.nome) + '</option>'; }).join('') + '</select></label>' +
+          '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">Tipo</span>' +
+            '<select class="entrada" id="pp-st">' + Patio.STATUS.map(function (x) {
+              return '<option value="' + x.k + '"' + (x.k === 'FÉRIAS' ? ' selected' : '') + '>' + x.ab + ' · ' + x.k + '</option>';
+            }).join('') + '</select></label>' +
+          '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">De</span><input class="entrada" type="date" id="pp-de" value="' + hojeP + '"></label>' +
+          '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">Até</span><input class="entrada" type="date" id="pp-ate"></label>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">' +
+          '<label class="peq" style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:700"><input type="checkbox" id="pp-fds" style="width:18px;height:18px"> pular sábado e domingo</label>' +
+          '<span class="peq mut" id="pp-conta" style="flex:1"></span>' +
+          '<button class="btn btn--branco btn--peq" id="pp-apagar" style="color:var(--vermelho);border-color:var(--vermelho)">🗑️ APAGAR PERÍODO</button>' +
+          '<button class="btn btn--verde btn--peq" id="pp-lancar">✔ LANÇAR</button>' +
+        '</div>' +
+      '</div>' +
+    '</div></div>';
+
     h += '<div class="tabela-rolagem" style="border:1px solid var(--linha);border-radius:12px;background:var(--branco)">' +
       '<table style="border-collapse:collapse;font-size:12px;min-width:100%">' +
       '<thead><tr><th style="position:sticky;left:0;background:#E8F0FA;z-index:2;text-align:left;padding:6px 8px;min-width:170px">COLABORADOR</th>';
@@ -12580,7 +12610,8 @@ function TelaPatio() {
     h += '<th style="padding:4px 6px;background:#E8F0FA">T</th><th style="padding:4px 6px;background:#E8F0FA">F</th><th style="padding:4px 6px;background:#E8F0FA">FA</th></tr></thead><tbody>';
     lista.forEach(function (c) {
       var t = 0, f = 0, fa = 0;
-      h += '<tr><td style="position:sticky;left:0;background:#fff;z-index:1;padding:5px 8px;border-bottom:1px solid var(--linha);font-weight:700;white-space:nowrap' +
+      h += '<tr class="js-pm-linha" data-nome="' + U.esc(Patio.normNome(c.nome).normalize('NFD').replace(/[\u0300-\u036f]/g, '')) + '" data-id="' + c.id + '">' +
+        '<td style="position:sticky;left:0;background:#fff;z-index:1;padding:5px 8px;border-bottom:1px solid var(--linha);font-weight:700;white-space:nowrap' +
         (c.ativo === false ? ';color:var(--txt-3)' : '') + '">' + U.esc(c.nome) + '</td>';
       for (var d2 = 1; d2 <= nDias; d2++) {
         var iso2 = TelaPatio._mes + '-' + String(d2).padStart(2, '0');
@@ -12598,8 +12629,76 @@ function TelaPatio() {
         '<td style="text-align:center;font-weight:800;color:var(--vermelho)">' + fa + '</td></tr>';
     });
     h += '</tbody></table></div>' +
+      '<p class="peq mut" id="pm-ninguem" hidden style="margin-top:10px">Ninguém com esse nome. Confira a digitação ou toque em ✕ LIMPAR.</p>' +
       (lista.length ? '' : '<p class="peq mut" style="margin-top:10px">Nenhum colaborador. Vá em 👥 Colaboradores e importe a planilha.</p>');
     return h;
+  }
+
+  /* 🔎 filtra a grade sem redesenhar (o cursor continua no campo) */
+  function filtrarPresenca() {
+    var q = Patio.normNome(TelaPatio._busca || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    var vis = [];
+    U.$$('.js-pm-linha', tela).forEach(function (tr) {
+      var ok = !q || tr.dataset.nome.indexOf(q) >= 0;
+      tr.hidden = !ok;
+      if (ok) vis.push(tr.dataset.id);
+    });
+    var ng = U.$('#pm-ninguem', tela);
+    if (ng) ng.hidden = !(q && !vis.length);
+    /* sobrou uma pessoa: já escolhe no quadro de período */
+    var sel = U.$('#pp-colab', tela);
+    if (sel && q && vis.length === 1 && sel.querySelector('option[value="' + vis[0] + '"]')) { sel.value = vis[0]; TelaPatio._ppColab = vis[0]; contarPeriodo(); }
+  }
+
+  /* 📅 dias do período (com ou sem fim de semana) */
+  function diasPeriodo() {
+    var de = (U.$('#pp-de', tela) || {}).value, ate = (U.$('#pp-ate', tela) || {}).value;
+    if (!de || !ate || ate < de) return [];
+    var pula = U.$('#pp-fds', tela).checked, out = [];
+    for (var d = de; d <= ate && out.length < 400; d = Patio.isoMais(d, 1)) {
+      var wd = new Date(d + 'T12:00:00').getDay();
+      if (pula && (wd === 0 || wd === 6)) continue;
+      out.push(d);
+    }
+    return out;
+  }
+  function contarPeriodo() {
+    var el = U.$('#pp-conta', tela); if (!el) return;
+    var dias = diasPeriodo(), id = U.$('#pp-colab', tela).value;
+    var de = U.$('#pp-de', tela).value, ate = U.$('#pp-ate', tela).value;
+    el.textContent = !id ? 'Escolha o colaborador (ou busque o nome acima).'
+      : !de || !ate ? 'Escolha o primeiro e o último dia.'
+      : ate < de ? '⚠ O "até" está antes do "de".'
+      : dias.length + ' dia(s): ' + U.fmtData(de) + ' a ' + U.fmtData(ate) + '.';
+  }
+  function lancarPeriodo(apagar) {
+    var id = U.$('#pp-colab', tela).value, st = U.$('#pp-st', tela).value, dias = diasPeriodo();
+    var c = colabs.filter(function (x) { return x.id === id; })[0];
+    if (!c) return U.aviso('Escolha o colaborador.', 'erro');
+    if (!dias.length) return U.aviso('Escolha o período (de / até).', 'erro');
+    if (dias.length > 366) return U.aviso('Período grande demais (máximo 1 ano).', 'erro');
+    Patio.presenca(dias[0], dias[dias.length - 1]).then(function (pd) {
+      var ja = {};
+      pd.forEach(function (x) { if (x.colaborador_id === id) ja[String(x.data).slice(0, 10)] = x.status; });
+      var trocar = dias.filter(function (d) { return ja[d] && ja[d] !== st; }).length;
+      var existentes = dias.filter(function (d) { return ja[d]; });
+      var titulo = apagar ? 'Apagar período?' : 'Lançar ' + st + '?';
+      var txt = apagar
+        ? 'Apagar as marcações de ' + c.nome + ' de ' + U.fmtData(dias[0]) + ' a ' + U.fmtData(dias[dias.length - 1]) + ' (' + existentes.length + ' dia(s) marcados)?'
+        : 'Marcar ' + dias.length + ' dia(s) como ' + st + ' para ' + c.nome + ', de ' + U.fmtData(dias[0]) + ' a ' + U.fmtData(dias[dias.length - 1]) + '.' +
+          (trocar ? ' ' + trocar + ' dia(s) que já tinham outra marcação vão virar ' + st + '.' : '');
+      if (apagar && !existentes.length) return U.aviso('Nada marcado nesse período para ' + c.nome + '.', 'ok');
+      U.confirmar(titulo, txt, apagar ? 'APAGAR' : 'LANÇAR', apagar ? 'btn--vermelho' : 'btn--verde').then(function (ok) {
+        if (!ok) return;
+        var passo = apagar
+          ? existentes.reduce(function (p, d) { return p.then(function () { return Patio.apagarPresenca(d + '|' + id); }); }, Promise.resolve())
+          : Patio.gravarPresenca(dias.map(function (d) { return Patio.linhaPresenca(d, id, st); }));
+        passo.then(function () {
+          U.aviso(apagar ? '🗑️ Período apagado para ' + c.nome + '.' : '📅 ' + dias.length + ' dia(s) de ' + st + ' lançados para ' + c.nome + '.', 'ok', 5000);
+          carregar();
+        }).catch(App.falhou);
+      });
+    }).catch(App.falhou);
   }
 
   /* ================= 🛌 FOLGAS ================= */
@@ -13493,6 +13592,19 @@ function TelaPatio() {
       U.$('#pm-prox', tela).addEventListener('click', function () { irMes(1); });
       U.$('#pm-relat', tela).addEventListener('click', function () { relatorioDiretoria(TelaPatio._mes); });
       U.$('#pm-auto', tela).addEventListener('click', aplicarFolgas);
+      var busca = U.$('#pm-busca', tela);
+      busca.addEventListener('input', function () { TelaPatio._busca = busca.value; filtrarPresenca(); });
+      U.$('#pm-limpa', tela).addEventListener('click', function () { TelaPatio._busca = ''; busca.value = ''; filtrarPresenca(); busca.focus(); });
+      ['#pp-colab', '#pp-de', '#pp-ate', '#pp-fds'].forEach(function (sel) { U.$(sel, tela).addEventListener('change', contarPeriodo); });
+      U.$('#pp-de', tela).addEventListener('change', function () {
+        var a = U.$('#pp-ate', tela); if (!a.value || a.value < this.value) a.value = this.value; contarPeriodo();
+      });
+      U.$('#pp-lancar', tela).addEventListener('click', function () { lancarPeriodo(false); });
+      U.$('#pp-apagar', tela).addEventListener('click', function () { lancarPeriodo(true); });
+      if (TelaPatio._ppColab) U.$('#pp-colab', tela).value = TelaPatio._ppColab;
+      U.$('#pp-colab', tela).addEventListener('change', function () { TelaPatio._ppColab = this.value; });
+      filtrarPresenca();
+      contarPeriodo();
       U.$('#pm-excel', tela).addEventListener('click', function () {
         if (typeof XLSX === 'undefined') return U.aviso('O gerador de Excel ainda está carregando.', 'erro');
         var p = TelaPatio._mes.split('-');
