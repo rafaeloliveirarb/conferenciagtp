@@ -99,6 +99,20 @@
   .painel.solo .col.on .equipe{font-size:16.5px}
   .painel.solo .col.on .dia{font-size:18px}
 
+  /* ---------- 📊 resultado (só aparece sozinha no rodízio) ---------- */
+  .painel:not(.solo) .col.resul{display:none}
+  .col.resul h2{color:var(--verde)}
+  .resul-box{flex:1;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:18px;padding:6px 40px 10px}
+  .rs{background:var(--cartao);border:1px solid var(--linha);border-radius:18px;border-top:6px solid var(--azul);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px}
+  .rs.v{border-top-color:var(--verde)} .rs.l{border-top-color:var(--laranja2)} .rs.a{border-top-color:var(--amarelo)}
+  .rs b{font-size:84px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+  .rs.v b{color:var(--verde)} .rs.l b{color:var(--laranja)} .rs.a b{color:var(--amarelo)} .rs b small{font-size:44px;color:var(--mut)}
+  .rs span{font-size:21px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-top:8px}
+  .rs em{font-style:normal;font-size:17px;color:var(--mut);margin-top:6px;font-weight:700}
+  .rs .barra{width:80%;height:14px;background:var(--linha);border-radius:8px;margin-top:12px;overflow:hidden}
+  .rs .barra i{display:block;height:14px;border-radius:8px;background:var(--verde)}
+
   /* ---------- letreiro de avisos ---------- */
   .fita{position:absolute;left:0;right:0;bottom:0;height:58px;background:#A63A2B;
     display:flex;align-items:center;overflow:hidden}
@@ -121,7 +135,7 @@
 <div class="topo">
   <h1>OPERAÇÕES DO GALPÃO<small id="data-longa"></small></h1>
   <div class="dir">
-    <div class="bolas" id="bolas"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="bolas" id="bolas"><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div>
       <div class="relogio" id="hora">--:--</div>
       <div class="atua" id="atualizado"></div>
@@ -135,6 +149,7 @@
   <div class="col carga" data-col="1"><h2>🚚 Carregamento <span class="n" id="n-carga">–</span></h2><div class="rolo" id="c-carga"></div></div>
   <div class="col descarga" data-col="2"><h2>↩️ Descarregamento <span class="n" id="n-descarga">–</span></h2><div class="rolo" id="c-descarga"></div></div>
   <div class="col tarefa" data-col="3"><h2>📝 Tarefas <span class="n" id="n-tarefa">–</span></h2><div class="rolo" id="c-tarefa"></div></div>
+  <div class="col resul" data-col="4"><h2>📊 Resultado da equipe <span class="n" id="n-resul">–</span></h2><div class="resul-box" id="c-resul"></div></div>
 </div>
 <div class="fita" id="fita" hidden><span class="rolinho" id="fita-texto"></span></div>
 
@@ -193,6 +208,19 @@
 
   /* ---------------- dados ---------------- */
   var D = null;
+  /* presença do mês até hoje, em blocos de 1000 */
+  function presencaMes() {
+    var ini = hojeISO(0).slice(0, 8) + "01", todas = [];
+    function passo(i) {
+      return cli.from("patio_presenca").select("data,colaborador_id,status").gte("data", ini).lte("data", hojeISO(0))
+        .range(i, i + 999).then(function (r) {
+          if (r.error) throw r.error;
+          todas = todas.concat(r.data || []);
+          return (r.data || []).length === 1000 ? passo(i + 1000) : todas;
+        });
+    }
+    return passo(0);
+  }
   function carregar() {
     Promise.all([
       lista(cli.from("eventos").select("id,nome,cliente,local,data,data_desmontagem,data_desmontagem_fim,status")),
@@ -204,9 +232,10 @@
         .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
       lista(cli.from("patio_demanda").select("*")).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
-        .gte("data", hojeISO(-30)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; })
+        .gte("data", hojeISO(-30)).lte("data", hojeISO(7))).catch(function () { return []; }),
+      presencaMes().catch(function () { return []; })
     ]).then(function (rr) {
-      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7] };
+      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8] };
       desenhar();
       $("erro").hidden = true;
       $("atualizado").textContent = "atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
@@ -418,6 +447,57 @@
       });
     }
 
+    /* ---- 📊 RESULTADO DA EQUIPE ---- */
+    (function () {
+      var c = { T: 0, AUS: 0 }, porColab = {};
+      (D.presMes || []).forEach(function (p) {
+        var st = String(p.status || "").toUpperCase();
+        var veio = st === "TRABALHOU" || st === "PLANTÃO" || st === "EXTERNO";
+        var faltou = st === "ATESTADO" || st === "FALTA";
+        if (!veio && !faltou) return;
+        var b = porColab[p.colaborador_id] || (porColab[p.colaborador_id] = { v: 0, f: 0 });
+        if (veio) { c.T++; b.v++; } else { c.AUS++; b.f++; }
+      });
+      var base = c.T + c.AUS;
+      var assid = base ? c.T / base * 100 : null;
+      var ids = Object.keys(porColab).filter(function (id) { return nomeColab[id]; });
+      var cem = ids.filter(function (id) { return !porColab[id].f; }).length;
+      /* semana (segunda a domingo) */
+      var dt = new Date(hoje + "T12:00:00");
+      var seg = hojeISO(-((dt.getDay() + 6) % 7)), dom = hojeISO(6 - ((dt.getDay() + 6) % 7));
+      function naSemana(d) { return d && d >= seg && d <= dom; }
+      var nC = 0, fC = 0, nD = 0, fD = 0;
+      D.eventos.forEach(function (e) {
+        if (naSemana(dataDem(e, "carregamento"))) {
+          nC++;
+          if (D.confs.some(function (x) { return x.evento_id === e.id && x.tipo === "saida" && x.finalizada_em; })) fC++;
+        }
+        if (naSemana(dataDem(e, "descarregamento"))) {
+          nD++;
+          if (e.status === "Finalizado" || e.status === "Com divergência" ||
+              D.confs.some(function (x) { return x.evento_id === e.id && x.tipo === "retorno" && x.finalizada_em; })) fD++;
+        }
+      });
+      D.dems.forEach(function (x) {
+        if (x.evento_id !== "MANUAL" || !naSemana(String(x.data || "").slice(0, 10))) return;
+        if (x.tipo === "carregamento") { nC++; if (x.feito) fC++; } else { nD++; if (x.feito) fD++; }
+      });
+      var tw = D.tarefas.filter(function (t) { return naSemana(String(t.data).slice(0, 10)); });
+      var tf = tw.filter(function (t) { return t.feita; }).length;
+      var pctT = tw.length ? Math.round(tf / tw.length * 100) : 0;
+      var nomeMes = ["JANEIRO","FEVEREIRO","MARÇO","ABRIL","MAIO","JUNHO","JULHO","AGOSTO","SETEMBRO","OUTUBRO","NOVEMBRO","DEZEMBRO"][dt.getMonth()];
+      function pctTxt(x) { return x === null ? "—" : (Math.round(x * 10) / 10).toString().replace(".", ",") + "<small>%</small>"; }
+      $("c-resul").innerHTML =
+        '<div class="rs v"><b>' + pctTxt(assid) + '</b><span>Assiduidade de ' + nomeMes.toLowerCase() + '</span><em>presença da equipe no mês até hoje</em></div>' +
+        '<div class="rs v"><b>' + cem + '<small>/' + ids.length + '</small></b><span>🏆 100% de presença</span><em>colaboradores sem falta no mês</em></div>' +
+        '<div class="rs a"><b>' + tf + '<small>/' + tw.length + '</small></b><span>📝 Tarefas da semana</span>' +
+          '<div class="barra"><i style="width:' + pctT + '%"></i></div><em>' + pctT + '% concluídas</em></div>' +
+        '<div class="rs"><b>' + nC + '</b><span>🚚 Carregamentos da semana</span><em>' + fC + ' já saíram</em></div>' +
+        '<div class="rs l"><b>' + nD + '</b><span>↩️ Descarregamentos da semana</span><em>' + fD + ' já voltaram</em></div>' +
+        '<div class="rs"><b>' + (nC + nD) + '</b><span>Serviços do pátio na semana</span><em>' + fmtData(seg) + ' a ' + fmtData(dom) + '</em></div>';
+      $("n-resul").textContent = fmtData(seg) + " a " + fmtData(dom);
+    })();
+
     /* ---- letreiro ---- */
     var fita = $("fita");
     if (avisos.length) {
@@ -434,10 +514,11 @@
 
   /* ---------------- rodízio das telas ---------------- */
   var painel = $("painel");
-  var etapa = 0;   /* 0..3 = uma coluna por vez · 4 = as quatro juntas */
+  var etapa = 0;   /* 0..3 = uma coluna por vez · 4 = resultado · 5 = as quatro juntas */
+  var GRADE = 5;
   function aplicar() {
     var cols = painel.querySelectorAll(".col");
-    if (etapa < 4) {
+    if (etapa < GRADE) {
       painel.classList.add("solo");
       cols.forEach ? cols.forEach(marca) : Array.prototype.forEach.call(cols, marca);
     } else {
@@ -451,7 +532,7 @@
   function proxima() {
     painel.classList.add("trocando");
     setTimeout(function () {
-      etapa = (etapa + 1) % 5;
+      etapa = (etapa + 1) % (GRADE + 1);
       aplicar();
       painel.classList.remove("trocando");
       agenda();
@@ -460,7 +541,7 @@
   var timer = null;
   function agenda() {
     clearTimeout(timer);
-    timer = setTimeout(proxima, etapa === 4 ? TEMPO_GRADE : TEMPO_SOLO);
+    timer = setTimeout(proxima, etapa === GRADE ? TEMPO_GRADE : TEMPO_SOLO);
   }
   window.__tvProxima = proxima;   /* para teste */
   aplicar(); agenda();
