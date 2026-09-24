@@ -12186,7 +12186,8 @@ function TelaPatio() {
       '<button class="btn btn--branco btn--peq" id="pm-ant">◀</button>' +
       '<b style="font-size:19px;color:var(--azul);min-width:190px;text-align:center">' + Patio.MESES[mes - 1] + ' ' + ano + '</b>' +
       '<button class="btn btn--branco btn--peq" id="pm-prox">▶</button>' +
-      '<button class="btn btn--verde btn--peq" id="pm-excel" style="margin-left:auto">📗 EXCEL DO MÊS</button>' +
+      '<button class="btn btn--azul btn--peq" id="pm-relat" style="margin-left:auto">🖨️ RELATÓRIO PARA DIRETORIA</button>' +
+      '<button class="btn btn--verde btn--peq" id="pm-excel">📗 EXCEL DO MÊS</button>' +
     '</div></div>';
     h += '<div class="cartao"><div class="cartao__corpo">' +
       '<p class="peq mut" style="margin:0 0 8px">Escolha o status e toque nas células. Tocar de novo com o mesmo status apaga.</p>' +
@@ -12364,6 +12365,278 @@ function TelaPatio() {
         U.aviso('👷 Equipe salva: ' + ids.length + ' pessoa(s) no ' + tipo + ' de ' + ev.nome + '.', 'ok', 5000);
         carregar();
       }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR EQUIPE'; App.falhou(e); });
+    });
+  }
+
+  /* ================= 🖨️ relatório do pátio para a diretoria ================= */
+  function relatorioDiretoria(mesISO) {
+    /* abre a janela já no clique (senão o navegador bloqueia) */
+    var w = window.open('', '_blank');
+    if (!w) return U.aviso('O navegador bloqueou a janela. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+    w.document.write('<p style="font:16px system-ui;padding:30px;color:#0B4F9E">Montando o relatório do pátio…</p>');
+    var p = mesISO.split('-'), ano = Number(p[0]), mes = Number(p[1]);
+    var nDias = new Date(ano, mes, 0).getDate();
+    var ini = mesISO + '-01', fim = mesISO + '-' + String(nDias).padStart(2, '0');
+    var dAnt = new Date(ano, mes - 2, 1);
+    var mesAnt = dAnt.getFullYear() + '-' + String(dAnt.getMonth() + 1).padStart(2, '0');
+    var iniAnt = mesAnt + '-01', fimAnt = mesAnt + '-' + String(new Date(dAnt.getFullYear(), dAnt.getMonth() + 1, 0).getDate()).padStart(2, '0');
+    var hoje = U.hojeISO();
+    var ate = hoje < fim ? (hoje < ini ? ini : hoje) : fim;   /* mês corrente: números até hoje */
+    var emAndamento = hoje >= ini && hoje < fim;
+
+    Promise.all([
+      Patio.presenca(ini, fim),
+      Patio.presenca(iniAnt, fimAnt).catch(function () { return []; }),
+      tarefasOk ? Patio.lista(Banco.cliente.from('patio_tarefas').select('*').gte('data', ini).lte('data', fim)).catch(function () { return []; }) : Promise.resolve([])
+    ]).then(function (r) {
+      var presM = r[0], presA = r[1], tfM = r[2];
+      var mapa = {};
+      presM.forEach(function (x) { mapa[x.chave] = x.status; });
+
+      /* quem entra: ativos + quem teve marcação no mês */
+      var lista = colabs.filter(function (c) {
+        return c.ativo !== false || presM.some(function (x) { return x.colaborador_id === c.id; });
+      }).sort(function (a, b) { return a.nome.localeCompare(b.nome); });
+
+      var CH = ['TRABALHOU', 'PLANTÃO', 'FOLGA', 'FÉRIAS', 'EXTERNO', 'ATESTADO', 'FALTA', 'DESLIGADO'];
+      function contar(pres, de, atD, ids) {
+        var c = {}; CH.forEach(function (k) { c[k] = 0; });
+        pres.forEach(function (x) {
+          var d = String(x.data).slice(0, 10);
+          if (d < de || d > atD) return;
+          if (ids && !ids[x.colaborador_id]) return;
+          if (c[x.status] !== undefined) c[x.status]++;
+        });
+        return c;
+      }
+      /* assiduidade = compareceu (T+PL+EX) ÷ dias que devia trabalhar (T+PL+EX+AT+FA) */
+      function assid(c) {
+        var base = c.TRABALHOU + c['PLANTÃO'] + c.EXTERNO + c.ATESTADO + c.FALTA;
+        return base ? (c.TRABALHOU + c['PLANTÃO'] + c.EXTERNO) / base * 100 : null;
+      }
+      var tot = contar(presM, ini, ate);
+      var totAnt = contar(presA, iniAnt, fimAnt);
+      var aM = assid(tot), aA = assid(totAnt);
+
+      var porColab = lista.map(function (c) {
+        var ids = {}; ids[c.id] = true;
+        var k = contar(presM, ini, ate, ids);
+        var semMarc = 0;
+        for (var d = 1; d <= nDias; d++) {
+          var iso = mesISO + '-' + String(d).padStart(2, '0');
+          if (iso > ate || iso >= hoje) break;   /* hoje ainda pode ser marcado */
+          if (!mapa[iso + '|' + c.id]) semMarc++;
+        }
+        return { c: c, k: k, a: assid(k), semMarc: semMarc };
+      });
+
+      /* operação: carregamentos / descarregamentos do mês (eventos + manuais) */
+      var ops = [];
+      ['carregamento', 'descarregamento'].forEach(function (tipo) {
+        App.eventos.forEach(function (ev) {
+          var d = dataDemanda(ev, tipo);
+          if (!d || d < ini || d > fim) return;
+          var dm = demandaDe(ev.id, tipo);
+          var orig = Patio.dataPadrao(ev, tipo);
+          ops.push({ d: d, tipo: tipo, nome: ev.nome, manual: false, equipe: (dm && dm.colaboradores) || [],
+            mudou: dm && dm.data && orig && d !== orig ? (d < orig ? 'ANTECIPADO' : 'ADIADO') : '' });
+        });
+        dems.forEach(function (dm) {
+          if (!ehManual(dm) || dm.tipo !== tipo) return;
+          var d = String(dm.data || '').slice(0, 10);
+          if (!d || d < ini || d > fim) return;
+          ops.push({ d: d, tipo: tipo, nome: dm.titulo || '(manual)', manual: true, equipe: dm.colaboradores || [], mudou: '', feito: dm.feito });
+        });
+      });
+      ops.sort(function (a, b) { return a.d.localeCompare(b.d) || a.tipo.localeCompare(b.tipo); });
+      var nCarr = ops.filter(function (o) { return o.tipo === 'carregamento'; }).length;
+      var nDesc = ops.length - nCarr;
+      var nSemEq = ops.filter(function (o) { return !o.equipe.length && o.d <= hoje; }).length;
+      var nAnt = ops.filter(function (o) { return o.mudou === 'ANTECIPADO'; }).length;
+      var nManual = ops.filter(function (o) { return o.manual; }).length;
+
+      var tfFeitas = tfM.filter(function (t) { return t.feita; }).length;
+      var tfNoPrazo = tfM.filter(function (t) { return t.feita && t.feita_em && String(t.feita_em).slice(0, 10) <= String(t.data).slice(0, 10); }).length;
+      var tfAbertas = tfM.filter(function (t) { return !t.feita && String(t.data).slice(0, 10) < hoje; }).length;
+
+      /* participação: quantas demandas/tarefas cada um pegou */
+      var part = {};
+      ops.forEach(function (o) { o.equipe.forEach(function (id) { part[id] = part[id] || { o: 0, t: 0 }; part[id].o++; }); });
+      tfM.forEach(function (t) { (t.colaboradores || []).forEach(function (id) { part[id] = part[id] || { o: 0, t: 0 }; part[id].t++; }); });
+
+      function n(x) { return String(x).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+      function pct(x) { return x === null ? '—' : x.toFixed(1).replace('.', ',') + '%'; }
+      function st(k) { return Patio.st(k) || { ab: k, cor: '#333', fundo: '#eee' }; }
+      var nomeMes = Patio.MESES[mes - 1] + ' ' + ano;
+      var nomeMesAnt = Patio.MESES[dAnt.getMonth()] + ' ' + dAnt.getFullYear();
+      var quem = Sessao.atual ? Sessao.atual.nome : '';
+
+      var css = '@page{size:A4 landscape;margin:11mm 11mm}' +
+        '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+        'body{margin:0;font:11px/1.45 "Segoe UI",system-ui,Arial,sans-serif;color:#17202B}' +
+        '.topo{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;border-bottom:3px solid #F57C00;padding-bottom:9px;margin-bottom:14px}' +
+        '.marca{font-size:19px;font-weight:900;color:#0B4F9E;letter-spacing:.5px}' +
+        '.marca small{display:block;font-size:9px;font-weight:600;color:#8695A6;letter-spacing:2.5px}' +
+        '.info{text-align:right}.info b{display:block;font-size:14px;color:#0B4F9E}.info span{display:block;font-size:9.5px;color:#5A6B7D;margin-top:2px}' +
+        '.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:12px}' +
+        '.kpi{border:1px solid #DCE3ED;border-top:4px solid #0B4F9E;border-radius:8px;padding:8px 10px;text-align:center}' +
+        '.kpi.l{border-top-color:#F57C00}.kpi.v{border-top-color:#C62828}.kpi.g{border-top-color:#1B8A4B}' +
+        '.kpi .n{font-size:22px;font-weight:900;color:#0B4F9E;line-height:1.1}' +
+        '.kpi.l .n{color:#F57C00}.kpi.v .n{color:#C62828}.kpi.g .n{color:#1B8A4B}' +
+        '.kpi .r{font-size:8.5px;color:#5A6B7D;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}' +
+        '.kpi .c{font-size:8.5px;margin-top:3px;font-weight:700}' +
+        'h2{font-size:12.5px;color:#0B4F9E;margin:14px 0 2px;text-transform:uppercase;letter-spacing:.4px}' +
+        '.fil{height:2px;width:52px;background:#F57C00;margin:0 0 7px;border-radius:2px}' +
+        'table{width:100%;border-collapse:collapse;font-size:10px}' +
+        'thead th{background:#E8F0FA;color:#0B4F9E;text-align:center;padding:5px 6px;font-size:8.5px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid #0B4F9E}' +
+        'thead th.e{text-align:left}' +
+        'td{padding:4px 6px;border-bottom:1px solid #E4EAF2;text-align:center}td.e{text-align:left;font-weight:700}' +
+        'tbody tr:nth-child(even) td{background:#F8FAFD}' +
+        'tfoot td{font-weight:900;background:#E8F0FA;border-top:2px solid #0B4F9E}' +
+        '.z{color:#C3CCD8}.verm{color:#C62828;font-weight:900}.mut{color:#8695A6}' +
+        '.bar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid #DCE3ED}' +
+        '.bar i{display:flex;align-items:center;justify-content:center;font-style:normal;font-size:8.5px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden}' +
+        '.leg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:9px}' +
+        '.leg b{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}' +
+        '.asb{display:flex;align-items:center;gap:6px}.asb span{flex:1;height:6px;background:#EEF2F7;border-radius:3px;min-width:50px}' +
+        '.asb span i{display:block;height:6px;border-radius:3px}' +
+        '.duas{display:grid;grid-template-columns:1fr 1fr;gap:14px}' +
+        '.aten{border:1px solid #F5C6C6;background:#FFF7F7;border-left:4px solid #C62828;border-radius:6px;padding:7px 10px;margin-bottom:6px}' +
+        '.aten.a{border-color:#FFE0B2;background:#FFFAF2;border-left-color:#F57C00}' +
+        '.aten.b{border-color:#C9DAF2;background:#F5F9FF;border-left-color:#0B4F9E}' +
+        '.sec{break-inside:avoid}.nova{break-before:page}' +
+        '.cmp td{padding:2.6px 6px;font-size:9.5px}.cmp thead th{padding:4px 6px}' +
+        '.grade td,.grade th{padding:2px 0;font-size:7.5px;border:1px solid #E4EAF2}' +
+        '.grade td.e,.grade th.e{padding:2px 5px;font-size:8.5px;white-space:nowrap}' +
+        '.grade th.fds{background:#FDF1E3;color:#C26100}' +
+        '.tag{display:inline-block;padding:0 5px;border-radius:4px;font-size:8px;font-weight:800}' +
+        '.nota{font-size:8.5px;color:#8695A6;margin-top:6px}' +
+        '.rodape{margin-top:16px;padding-top:7px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}';
+
+      var h = '<div class="topo"><div class="marca">GRUPO TENDAS PLENART<small>DEMANDA DO PÁTIO · EQUIPE DO GALPÃO</small></div>' +
+        '<div class="info"><b>RELATÓRIO DA EQUIPE DO PÁTIO — ' + U.esc(nomeMes) + '</b>' +
+        '<span>' + (emAndamento ? 'Mês em andamento · números até ' + U.fmtData(ate) : 'Mês fechado · 01 a ' + String(nDias).padStart(2, '0') + '/' + String(mes).padStart(2, '0')) + '</span>' +
+        '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div></div>';
+
+      /* KPIs */
+      var dif = (aM !== null && aA !== null) ? aM - aA : null;
+      var difF = tot.FALTA - totAnt.FALTA;
+      h += '<div class="kpis">' +
+        '<div class="kpi"><div class="n">' + lista.filter(function (c) { return c.ativo !== false; }).length + '</div><div class="r">Colaboradores ativos</div></div>' +
+        '<div class="kpi g"><div class="n">' + pct(aM) + '</div><div class="r">Assiduidade</div>' +
+          (dif !== null ? '<div class="c" style="color:' + (dif >= 0 ? '#1B8A4B' : '#C62828') + '">' + (dif >= 0 ? '▲ ' : '▼ ') + Math.abs(dif).toFixed(1).replace('.', ',') + ' p.p. vs ' + U.esc(nomeMesAnt.toLowerCase()) + '</div>' : '') + '</div>' +
+        '<div class="kpi v"><div class="n">' + tot.FALTA + '</div><div class="r">Faltas (dias)</div>' +
+          '<div class="c" style="color:' + (difF <= 0 ? '#1B8A4B' : '#C62828') + '">' + (difF === 0 ? '= ' : difF < 0 ? '▼ ' : '▲ ') + Math.abs(difF) + ' vs ' + U.esc(nomeMesAnt.toLowerCase()) + '</div></div>' +
+        '<div class="kpi l"><div class="n">' + tot.ATESTADO + '</div><div class="r">Atestados (dias)</div></div>' +
+        '<div class="kpi"><div class="n">' + (nCarr + nDesc) + '</div><div class="r">Carreg. + descarreg.</div><div class="c mut">' + nCarr + ' carreg. · ' + nDesc + ' descarreg.</div></div>' +
+        '<div class="kpi l"><div class="n">' + (tfM.length ? tfFeitas + '/' + tfM.length : '0') + '</div><div class="r">Tarefas feitas</div>' +
+          (tfM.length ? '<div class="c mut">' + Math.round(tfFeitas / tfM.length * 100) + '% concluídas</div>' : '') + '</div>' +
+      '</div>';
+
+      /* distribuição dos dias */
+      var totDias = CH.reduce(function (a, k) { return a + tot[k]; }, 0);
+      h += '<div class="sec"><h2>Como foram os dias da equipe</h2><div class="fil"></div>';
+      if (totDias) {
+        h += '<div class="bar">' + CH.filter(function (k) { return tot[k]; }).map(function (k) {
+          var sx = st(k), w = tot[k] / totDias * 100;
+          return '<i style="width:' + w + '%;background:' + sx.cor + '">' + (w >= 6 ? sx.ab + ' ' + Math.round(w) + '%' : '') + '</i>';
+        }).join('') + '</div>' +
+        '<div class="leg">' + CH.filter(function (k) { return tot[k]; }).map(function (k) {
+          return '<span><b style="background:' + st(k).cor + '"></b>' + k + ': <strong>' + n(tot[k]) + '</strong> dia(s)</span>';
+        }).join('') + '</div>';
+      } else h += '<p class="mut">Nenhuma marcação de presença nesse mês.</p>';
+      h += '</div>';
+
+      /* pontos de atenção */
+      var faltosos = porColab.filter(function (x) { return x.k.FALTA > 0; }).sort(function (a, b) { return b.k.FALTA - a.k.FALTA; });
+      var atest = porColab.filter(function (x) { return x.k.ATESTADO > 0; }).sort(function (a, b) { return b.k.ATESTADO - a.k.ATESTADO; });
+      var ferias = porColab.filter(function (x) { return x.k['FÉRIAS'] > 0; });
+      var semMarc = porColab.filter(function (x) { return x.semMarc > 0 && x.c.ativo !== false; });
+      var itensAt = [];
+      if (faltosos.length) itensAt.push('<div class="aten"><b>Faltas no mês:</b> ' + faltosos.map(function (x) { return U.esc(x.c.nome) + ' (' + x.k.FALTA + ')'; }).join(' · ') + '</div>');
+      if (atest.length) itensAt.push('<div class="aten a"><b>Atestados:</b> ' + atest.map(function (x) { return U.esc(x.c.nome) + ' (' + x.k.ATESTADO + ')'; }).join(' · ') + '</div>');
+      if (ferias.length) itensAt.push('<div class="aten b"><b>Férias no mês:</b> ' + ferias.map(function (x) { return U.esc(x.c.nome) + ' (' + x.k['FÉRIAS'] + ' dias)'; }).join(' · ') + '</div>');
+      if (nSemEq) itensAt.push('<div class="aten a"><b>' + nSemEq + ' carregamento(s)/descarregamento(s) sem equipe registrada.</b></div>');
+      if (tfAbertas) itensAt.push('<div class="aten"><b>' + tfAbertas + ' tarefa(s) passaram do dia e não foram feitas.</b></div>');
+      if (semMarc.length) itensAt.push('<div class="aten b"><b>Presença sem marcar:</b> ' + semMarc.map(function (x) { return U.esc(x.c.nome) + ' (' + x.semMarc + ' dia' + (x.semMarc > 1 ? 's' : '') + ')'; }).join(' · ') + '</div>');
+      h += '<div class="sec"><h2>Pontos de atenção</h2><div class="fil"></div>' +
+        (itensAt.length ? itensAt.join('') : '<div class="aten b" style="border-left-color:#1B8A4B;background:#F3FBF6;border-color:#CDEBD8"><b style="color:#1B8A4B">✓ Nenhuma falta, atestado ou pendência no mês.</b></div>') + '</div>';
+
+      /* tabela por colaborador */
+      h += '<div class="nova"><h2>Presença por colaborador</h2><div class="fil"></div><table class="cmp"><thead><tr><th class="e">Colaborador</th>' +
+        ['T', 'PL', 'F', 'FÉ', 'EX', 'AT', 'FA'].map(function (x) { return '<th>' + x + '</th>'; }).join('') +
+        '<th>Dias trabalhados</th><th style="width:150px">Assiduidade</th><th>Carreg./Descarreg.</th><th>Tarefas</th></tr></thead><tbody>';
+      porColab.forEach(function (x) {
+        var k = x.k, pp = part[x.c.id] || { o: 0, t: 0 };
+        var cor = x.a === null ? '#C3CCD8' : x.a >= 95 ? '#1B8A4B' : x.a >= 85 ? '#F57C00' : '#C62828';
+        function cel(v, vermelho) { return '<td class="' + (!v ? 'z' : vermelho ? 'verm' : '') + '">' + (v || '—') + '</td>'; }
+        h += '<tr><td class="e">' + U.esc(x.c.nome) + (x.c.ativo === false ? ' <span class="mut">(inativo)</span>' : '') + '</td>' +
+          cel(k.TRABALHOU) + cel(k['PLANTÃO']) + cel(k.FOLGA) + cel(k['FÉRIAS']) + cel(k.EXTERNO) + cel(k.ATESTADO) + cel(k.FALTA, true) +
+          '<td><b>' + (k.TRABALHOU + k['PLANTÃO'] + k.EXTERNO) + '</b></td>' +
+          '<td><div class="asb"><span><i style="width:' + (x.a || 0) + '%;background:' + cor + '"></i></span><b style="color:' + cor + ';min-width:38px;text-align:right">' + pct(x.a) + '</b></div></td>' +
+          '<td>' + (pp.o || '<span class="z">—</span>') + '</td><td>' + (pp.t || '<span class="z">—</span>') + '</td></tr>';
+      });
+      h += '</tbody><tfoot><tr><td class="e">TOTAL DA EQUIPE</td>' +
+        [tot.TRABALHOU, tot['PLANTÃO'], tot.FOLGA, tot['FÉRIAS'], tot.EXTERNO, tot.ATESTADO, tot.FALTA].map(function (v) { return '<td>' + n(v) + '</td>'; }).join('') +
+        '<td>' + n(tot.TRABALHOU + tot['PLANTÃO'] + tot.EXTERNO) + '</td><td>' + pct(aM) + '</td><td>' + ops.length + '</td><td>' + tfM.length + '</td></tr></tfoot></table>' +
+        '<p class="nota">T trabalhou · PL plantão · F folga · FÉ férias · EX externo · AT atestado · FA falta. ' +
+        'Assiduidade = dias em que compareceu (T + PL + EX) ÷ dias em que devia trabalhar (T + PL + EX + AT + FA). Folga e férias não entram na conta. ' +
+        'Verde ≥ 95% · laranja 85–95% · vermelho abaixo de 85%.</p></div>';
+
+      /* operação do pátio */
+      h += '<div class="sec nova"><h2>Operação do pátio no mês</h2><div class="fil"></div>' +
+        '<div class="kpis" style="grid-template-columns:repeat(5,1fr)">' +
+          '<div class="kpi"><div class="n">' + nCarr + '</div><div class="r">Carregamentos</div></div>' +
+          '<div class="kpi"><div class="n">' + nDesc + '</div><div class="r">Descarregamentos</div></div>' +
+          '<div class="kpi l"><div class="n">' + nAnt + '</div><div class="r">Antecipados</div></div>' +
+          '<div class="kpi"><div class="n">' + nManual + '</div><div class="r">Serviços avulsos</div></div>' +
+          '<div class="kpi g"><div class="n">' + (tfFeitas ? Math.round(tfNoPrazo / tfFeitas * 100) + '%' : '—') + '</div><div class="r">Tarefas feitas no dia</div></div>' +
+        '</div>';
+      if (ops.length) {
+        h += '<table><thead><tr><th class="e" style="width:80px">Dia</th><th class="e" style="width:115px">Tipo</th><th class="e">Evento / serviço</th><th class="e">Equipe</th></tr></thead><tbody>' +
+          ops.map(function (o) {
+            return '<tr><td class="e">' + U.fmtData(o.d).slice(0, 5) + ' <span class="mut">' + Patio.diaSemana(o.d).toLowerCase() + '</span></td>' +
+              '<td class="e" style="font-weight:600;white-space:nowrap">' + (o.tipo === 'carregamento' ? 'Carregamento' : 'Descarregamento') + '</td>' +
+              '<td class="e">' + U.esc(o.nome) +
+                (o.manual ? ' <span class="tag" style="background:#E8F0FA;color:#0B4F9E">AVULSO</span>' : '') +
+                (o.mudou ? ' <span class="tag" style="background:#FFEFD9;color:#C26100">' + o.mudou + '</span>' : '') + '</td>' +
+              '<td class="e" style="font-weight:400">' + (o.equipe.length ? o.equipe.map(function (id) { return U.esc(nomeColab(id)); }).join(', ')
+                : '<span class="' + (o.d <= hoje ? 'verm' : 'mut') + '">' + (o.d <= hoje ? 'sem equipe registrada' : 'a definir') + '</span>') + '</td></tr>';
+          }).join('') + '</tbody></table>';
+      } else h += '<p class="mut">Nenhum carregamento ou descarregamento registrado nesse mês.</p>';
+      h += '</div>';
+
+      /* mapa do mês */
+      h += '<div class="sec nova"><h2>Mapa de presença — ' + U.esc(nomeMes) + '</h2><div class="fil"></div><table class="grade"><thead><tr><th class="e">Colaborador</th>';
+      for (var d = 1; d <= nDias; d++) {
+        var iso = mesISO + '-' + String(d).padStart(2, '0');
+        var fds = /SÁB|DOM/.test(Patio.diaSemana(iso));
+        h += '<th class="' + (fds ? 'fds' : '') + '">' + Patio.diaSemana(iso).slice(0, 1) + '<br>' + d + '</th>';
+      }
+      h += '</tr></thead><tbody>';
+      lista.forEach(function (c) {
+        h += '<tr><td class="e">' + U.esc(c.nome) + '</td>';
+        for (var d2 = 1; d2 <= nDias; d2++) {
+          var iso2 = mesISO + '-' + String(d2).padStart(2, '0');
+          var k2 = mapa[iso2 + '|' + c.id];
+          var sx = k2 ? st(k2) : null;
+          h += '<td style="' + (sx ? 'background:' + sx.fundo + ';color:' + sx.cor + ';font-weight:800' : '') + '">' + (sx ? sx.ab : '') + '</td>';
+        }
+        h += '</tr>';
+      });
+      h += '</tbody></table><div class="leg">' + Patio.STATUS.map(function (sx) {
+        return '<span><b style="background:' + sx.fundo + ';border:1px solid ' + sx.cor + '"></b>' + sx.ab + ' · ' + sx.k + '</span>';
+      }).join('') + '</div></div>';
+
+      h += '<div class="rodape"><span>Grupo Tendas Plenart · Demanda do Pátio</span><span>Documento gerado pelo sistema · ' + U.fmtDataHora(new Date().toISOString()) + '</span></div>';
+
+      var html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório do Pátio — ' + U.esc(nomeMes) +
+        '</title><style>' + css + '</style></head><body>' + h +
+        '<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>';
+      w.document.open(); w.document.write(html); w.document.close();
+    }).catch(function (e) {
+      try { w.close(); } catch (x) {}
+      App.falhou(e);
     });
   }
 
@@ -12682,6 +12955,7 @@ function TelaPatio() {
     if (pma) {
       pma.addEventListener('click', function () { irMes(-1); });
       U.$('#pm-prox', tela).addEventListener('click', function () { irMes(1); });
+      U.$('#pm-relat', tela).addEventListener('click', function () { relatorioDiretoria(TelaPatio._mes); });
       U.$('#pm-excel', tela).addEventListener('click', function () {
         if (typeof XLSX === 'undefined') return U.aviso('O gerador de Excel ainda está carregando.', 'erro');
         var p = TelaPatio._mes.split('-');
