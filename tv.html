@@ -4,58 +4,121 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Galpão · Grupo Tendas Plenart</title>
+<title>Operações do Galpão · Grupo Tendas Plenart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
   :root{
-    --azul:#0B4F9E; --laranja:#F57C00; --verde:#2FBF71; --vermelho:#FF5A4E; --amarelo:#FFC24B;
-    --fundo:#0C1420; --cartao:#152238; --linha:#24344E; --txt:#EAF1FA; --mut:#8FA3BD;
+    --fundo:#141C33; --cartao:#1C2747; --cartao2:#212E52; --linha:#2C3A63;
+    --txt:#F2F5FC; --mut:#93A0C4; --laranja:#F5A04A; --laranja2:#F07C00;
+    --verde:#35C77B; --verde-esc:#1E4D3C; --azul:#5B8DEF; --vermelho:#FF5A4E;
+    --amarelo:#FFC24B; --roxo:#B08AF5;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--fundo);color:var(--txt);
-    font:18px/1.4 "Segoe UI",system-ui,Arial,sans-serif;min-height:100vh}
-  .topo{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
-    padding:18px 26px;border-bottom:4px solid var(--laranja)}
-  .topo h1{margin:0;font-size:26px;font-weight:900;letter-spacing:.5px}
-  .topo h1 small{display:block;font-size:13px;font-weight:600;color:var(--mut);letter-spacing:3px}
-  .relogio{text-align:right}
-  .relogio b{display:block;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
-  .relogio span{font-size:15px;color:var(--mut);text-transform:capitalize}
-  .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;padding:20px 26px}
-  .bloco{background:var(--cartao);border:1px solid var(--linha);border-radius:14px;overflow:hidden}
-  .bloco h2{margin:0;padding:12px 18px;font-size:17px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;
-    background:rgba(255,255,255,.04);border-bottom:1px solid var(--linha);display:flex;justify-content:space-between;align-items:center}
-  .bloco h2 .n{background:var(--linha);border-radius:999px;padding:2px 12px;font-size:15px}
-  .bloco h2.alerta{color:var(--vermelho)} .bloco h2.alerta .n{background:var(--vermelho);color:#fff}
-  .bloco h2.atencao{color:var(--amarelo)} .bloco h2.atencao .n{background:var(--amarelo);color:#4A3000}
-  .corpo{padding:8px 18px 14px;max-height:44vh;overflow:hidden}
-  .lin{padding:10px 0;border-bottom:1px solid var(--linha)}
-  .lin:last-child{border-bottom:0}
-  .lin b.ev{font-size:20px}
-  .lin .sub{color:var(--mut);font-size:15px;margin-top:2px}
-  .tag{display:inline-block;border-radius:999px;padding:2px 12px;font-size:13.5px;font-weight:800;margin:3px 6px 0 0}
-  .tag.ok{background:rgba(47,191,113,.18);color:var(--verde)}
-  .tag.pend{background:rgba(245,124,0,.2);color:#FFB066}
-  .tag.ruim{background:rgba(255,90,78,.18);color:var(--vermelho)}
-  .vazio{padding:20px 0;color:var(--mut);font-weight:600}
-  .rodape{padding:10px 26px 20px;color:var(--mut);font-size:13px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .err{margin:0 26px;padding:12px 16px;background:rgba(255,90,78,.15);border:1px solid var(--vermelho);
-    border-radius:10px;color:#FFB4AE;font-weight:700}
+  html,body{height:100%}
+  body{margin:0;background:var(--fundo);color:var(--txt);overflow:hidden;
+    font:600 17px/1.4 Nunito,"Segoe UI",system-ui,sans-serif}
+
+  /* ---------- topo ---------- */
+  .topo{display:flex;justify-content:space-between;align-items:center;gap:16px;
+    padding:14px 28px 12px;border-bottom:5px solid var(--laranja2)}
+  .topo h1{margin:0;font-size:34px;font-weight:900;letter-spacing:.5px}
+  .topo h1 small{display:block;font-size:15px;font-weight:700;color:var(--mut);letter-spacing:.4px;text-transform:lowercase}
+  .topo .dir{display:flex;align-items:center;gap:22px}
+  .bolas{display:flex;gap:7px}
+  .bolas i{width:11px;height:11px;border-radius:50%;background:var(--linha);transition:background .3s}
+  .bolas i.on{background:var(--laranja)}
+  .relogio{font-size:56px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+  .atua{font-size:12.5px;color:var(--mut);text-align:right;margin-top:2px}
+
+  /* ---------- painel ---------- */
+  .painel{position:absolute;inset:112px 0 58px;padding:16px 28px;display:grid;gap:16px;
+    grid-template-columns:repeat(4,1fr);transition:opacity .35s}
+  .painel.trocando{opacity:0}
+  .painel.semfita{bottom:0}
+  .col{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .col h2{margin:0 0 10px;font-size:21px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;
+    display:flex;align-items:center;gap:10px;flex:none}
+  .col h2 .n{margin-left:auto;background:var(--linha);border-radius:999px;padding:2px 14px;font-size:16px}
+  .col.folga h2{color:var(--azul)} .col.carga h2{color:var(--verde)}
+  .col.descarga h2{color:var(--laranja)} .col.tarefa h2{color:var(--amarelo)}
+  .rolo{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  .dia{font-size:15px;font-weight:900;letter-spacing:1px;color:var(--mut);text-transform:uppercase;margin:6px 2px 0}
+  .dia.hoje{color:var(--laranja)}
+
+  .card{background:var(--cartao);border:1px solid var(--linha);border-left:6px solid var(--azul);
+    border-radius:14px;padding:12px 14px;flex:none}
+  .col.folga .card{border-left-color:var(--azul)}
+  .col.carga .card{border-left-color:var(--verde)}
+  .col.descarga .card{border-left-color:var(--laranja)}
+  .col.tarefa .card{border-left-color:var(--amarelo)}
+  .card.ruim{border-left-color:var(--vermelho)!important;background:#2A2340}
+  .card.feita{opacity:.5}
+  .card b.tit{display:block;font-size:19px;font-weight:900;line-height:1.2;overflow-wrap:anywhere}
+  .card.feita b.tit{text-decoration:line-through}
+  .card .sub{color:var(--mut);font-size:14.5px;margin-top:2px}
+  .card .hora{color:var(--laranja);font-weight:900}
+  .chip{display:inline-block;background:#101830;border:1px solid var(--linha);border-radius:9px;
+    padding:2px 10px;font-size:13.5px;font-weight:800;margin:5px 6px 0 0;white-space:nowrap}
+  .chip.ok{border-color:var(--verde);color:var(--verde)}
+  .chip.pend{border-color:var(--laranja);color:var(--laranja)}
+  .chip.ruim{border-color:var(--vermelho);color:var(--vermelho)}
+  .chip.st-FOLGA{border-color:var(--azul);color:var(--azul)}
+  .chip.st-OUTRO{border-color:var(--vermelho);color:var(--vermelho)}
+  .equipe{margin-top:6px;font-size:14.5px;color:#C9D6F2}
+  .equipe b{color:var(--txt)}
+  .equipe.sem{color:var(--vermelho);font-weight:900}
+  .vazio{color:var(--mut);font-weight:700;padding:14px 4px;font-size:16px}
+
+  /* ---------- tela sozinha ---------- */
+  .painel.solo{grid-template-columns:1fr}
+  .painel.solo .col{display:none}
+  .painel.solo .col.on{display:flex}
+  .painel.solo .col.on h2{font-size:34px;justify-content:center;margin-bottom:14px}
+  .painel.solo .col.on h2 .n{margin-left:14px;font-size:22px}
+  .painel.solo .col.on .rolo{display:block;column-count:3;column-gap:16px;column-fill:auto;overflow:hidden}
+  .painel.solo .col.on .rolo>*{break-inside:avoid;margin-bottom:12px;width:100%}
+  .painel.solo .col.on .card b.tit{font-size:23px}
+  .painel.solo .col.on .card .sub{font-size:16px}
+  .painel.solo .col.on .chip{font-size:15.5px}
+  .painel.solo .col.on .equipe{font-size:16.5px}
+  .painel.solo .col.on .dia{font-size:18px}
+
+  /* ---------- letreiro de avisos ---------- */
+  .fita{position:absolute;left:0;right:0;bottom:0;height:58px;background:#A63A2B;
+    display:flex;align-items:center;overflow:hidden}
+  .fita[hidden]{display:none}
+  .fita .rolinho{display:inline-block;white-space:nowrap;font-size:21px;font-weight:900;
+    padding-left:100%;animation:passa linear infinite}
+  @keyframes passa{to{transform:translateX(-100%)}}
+  .erro{position:absolute;top:118px;left:28px;right:28px;background:rgba(255,90,78,.15);
+    border:1px solid var(--vermelho);border-radius:12px;padding:10px 16px;color:#FFB4AE;font-weight:800;z-index:5}
 </style>
 </head>
 <body>
 
 <div class="topo">
-  <h1>GRUPO TENDAS PLENART<small>PAINEL DO GALPÃO</small></h1>
-  <div class="relogio"><b id="hora">--:--</b><span id="data"></span></div>
+  <h1>OPERAÇÕES DO GALPÃO<small id="data-longa"></small></h1>
+  <div class="dir">
+    <div class="bolas" id="bolas"><i></i><i></i><i></i><i></i><i></i></div>
+    <div>
+      <div class="relogio" id="hora">--:--</div>
+      <div class="atua" id="atualizado"></div>
+    </div>
+  </div>
 </div>
 
-<div class="err" id="erro" hidden></div>
-<div class="grade" id="grade"><div class="vazio" style="padding:30px 26px">Carregando o painel…</div></div>
-<div class="rodape">
-  <span>Atualiza sozinho a cada minuto · somente leitura</span>
-  <span id="atualizado"></span>
+<div class="erro" id="erro" hidden></div>
+<div class="painel" id="painel">
+  <div class="col folga" data-col="0"><h2>🛌 Folga <span class="n" id="n-folga">–</span></h2><div class="rolo" id="c-folga"><div class="vazio">Carregando…</div></div></div>
+  <div class="col carga" data-col="1"><h2>🚚 Carregamento <span class="n" id="n-carga">–</span></h2><div class="rolo" id="c-carga"></div></div>
+  <div class="col descarga" data-col="2"><h2>↩️ Descarregamento <span class="n" id="n-descarga">–</span></h2><div class="rolo" id="c-descarga"></div></div>
+  <div class="col tarefa" data-col="3"><h2>📝 Tarefas <span class="n" id="n-tarefa">–</span></h2><div class="rolo" id="c-tarefa"></div></div>
 </div>
+<div class="fita" id="fita" hidden><span class="rolinho" id="fita-texto"></span></div>
 
 <script>
 (function () {
@@ -75,6 +138,11 @@
   }
   var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
 
+  /* tempos do rodízio: 10 s cada tela, depois as 4 juntas por 1 min */
+  var TEMPO_SOLO = (window.TV_TEMPOS && window.TV_TEMPOS.solo) || 10000;
+  var TEMPO_GRADE = (window.TV_TEMPOS && window.TV_TEMPOS.grade) || 60000;
+  var DIAS_FRENTE = 4;   /* hoje + 4 dias */
+
   function $(id) { return document.getElementById(id); }
   function esc(t) {
     return String(t === null || t === undefined ? "" : t)
@@ -88,33 +156,42 @@
     var p = String(iso || "").slice(0, 10).split("-");
     return p.length === 3 ? p[2] + "/" + p[1] : "";
   }
+  var DIAS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+  function rotDia(iso, i) {
+    if (i === 0) return "HOJE";
+    if (i === 1) return "AMANHÃ";
+    return DIAS[new Date(iso + "T12:00:00").getDay()] + " " + fmtData(iso);
+  }
 
-  /* relógio */
+  /* relógio e data por extenso */
   function relogio() {
     var d = new Date();
     $("hora").textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-    $("data").textContent = d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+    $("data-longa").textContent = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   }
   relogio(); setInterval(relogio, 5000);
 
   function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
 
+  /* ---------------- dados ---------------- */
+  var D = null;
   function carregar() {
     Promise.all([
       lista(cli.from("eventos").select("id,nome,cliente,local,data,data_desmontagem,data_desmontagem_fim,status")),
       lista(cli.from("carregamentos").select("id,evento_id,numero,nome,sentido,caminhao_id,cavalo_id")),
-      lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,status,finalizada_em")),
+      lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,finalizada_em")),
       lista(cli.from("caminhoes").select("id,tipo,placa")),
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
       lista(cli.from("patio_presenca").select("data,colaborador_id,status")
-        .gte("data", hojeISO(0)).lte("data", hojeISO(3))).catch(function () { return []; }),
-      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores")).catch(function () { return []; }),
+        .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
+      lista(cli.from("patio_demanda").select("evento_id,tipo,data,colaboradores,obs")).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
-        .gte("data", hojeISO(-30)).lte("data", hojeISO(0))).catch(function () { return []; })
+        .gte("data", hojeISO(-30)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; })
     ]).then(function (rr) {
-      desenhar(rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7] };
+      desenhar();
       $("erro").hidden = true;
-      $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
+      $("atualizado").textContent = "atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
     }).catch(function (e) {
       console.error(e);
       $("erro").hidden = false;
@@ -122,149 +199,219 @@
     });
   }
 
-  function desenhar(eventos, cgs, confs, cams, colabs, pres, dems, tarefas) {
+  /* ---------------- desenho ---------------- */
+  function desenhar() {
+    if (!D) return;
     var hoje = hojeISO(0);
-    var evPorId = {}, nomeColab = {};
-    eventos.forEach(function (e) { evPorId[e.id] = e; });
-    colabs.forEach(function (c) { nomeColab[c.id] = c.nome; });
-    function equipeDe(evId, tipo) {
-      var d = dems.filter(function (x) { return x.evento_id === evId && x.tipo === tipo; })[0];
-      return ((d && d.colaboradores) || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+    var nomeColab = {};
+    D.colabs.forEach(function (c) { nomeColab[c.id] = c.nome; });
+    var evPorId = {};
+    D.eventos.forEach(function (e) { evPorId[e.id] = e; });
+    function aberto(e) { return e.status !== "Finalizado" && e.status !== "Com divergência"; }
+    function nomeCam(cg) {
+      var c = D.cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
+      return c ? (c.tipo || "CAMINHÃO") + " " + (c.placa || "") : "caminhão a definir";
     }
     function fimDesm(e) { return String(e.data_desmontagem_fim || e.data_desmontagem || "").slice(0, 10); }
+    function demDe(evId, tipo) {
+      return D.dems.filter(function (x) { return x.evento_id === evId && x.tipo === tipo; })[0] || null;
+    }
     function dataDem(e, tipo) {
-      var d = dems.filter(function (x) { return x.evento_id === e.id && x.tipo === tipo; })[0];
+      var d = demDe(e.id, tipo);
       if (d && d.data) return String(d.data).slice(0, 10);
       return tipo === "descarregamento" ? fimDesm(e) : String(e.data || "").slice(0, 10);
     }
-    function aberto(e) { return e.status !== "Finalizado" && e.status !== "Com divergência"; }
-    function nomeCam(cg) {
-      var c = cams.filter(function (x) { return x.id === cg.caminhao_id; })[0];
-      return c ? (c.tipo || "Caminhão") + " " + (c.placa || "") : "caminhão a definir";
+    function equipeDe(evId, tipo) {
+      var d = demDe(evId, tipo);
+      return ((d && d.colaboradores) || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
     }
-    function saidaFinal(cgId) {
-      return confs.some(function (c) { return c.carregamento_id === cgId && c.tipo === "saida" && c.finalizada_em; });
+    function linhaEquipe(nomes) {
+      return nomes.length
+        ? '<div class="equipe">👷 <b>' + nomes.map(esc).join("</b> · <b>") + "</b></div>"
+        : '<div class="equipe sem">👷 SEM EQUIPE ESCOLHIDA</div>';
     }
+    var avisos = [];
 
-    /* SAINDO HOJE / AMANHÃ: eventos com data hoje..amanhã, com os caminhões */
-    var saindo = eventos.filter(function (e) {
-      var d = dataDem(e, "carregamento");
-      return aberto(e) && d >= hoje && d <= hojeISO(1);
-    }).sort(function (a, b) { return dataDem(a, "carregamento").localeCompare(dataDem(b, "carregamento")); });
-
-    /* DESCARREGANDO: fim da desmontagem (ou data que o coordenador marcou) hoje/amanhã */
-    var voltando = eventos.filter(function (e) {
-      var d = dataDem(e, "descarregamento");
-      return aberto(e) && d && d >= hoje && d <= hojeISO(1);
-    });
-
-    /* FOLGA: quem está fora do pátio hoje e nos próximos 3 dias */
-    var foraPorDia = [];
-    for (var i = 0; i <= 3; i++) {
+    /* ---- 🛌 FOLGA: hoje + próximos dias ---- */
+    var hFolga = "", totFolgaHoje = 0;
+    for (var i = 0; i <= DIAS_FRENTE; i++) {
       var dd = hojeISO(i);
-      var fora = pres.filter(function (p) {
-        return String(p.data).slice(0, 10) === dd && ["FOLGA", "FÉRIAS", "EXTERNO", "ATESTADO", "FALTA"].indexOf(p.status) >= 0 &&
-          nomeColab[p.colaborador_id];
+      var fora = D.pres.filter(function (p) {
+        return String(p.data).slice(0, 10) === dd && nomeColab[p.colaborador_id] &&
+          ["FOLGA", "FÉRIAS", "EXTERNO", "ATESTADO", "FALTA"].indexOf(p.status) >= 0;
       }).map(function (p) { return { nome: nomeColab[p.colaborador_id], st: p.status }; })
         .sort(function (a, b) { return a.nome.localeCompare(b.nome); });
-      foraPorDia.push({ d: dd, fora: fora });
+      if (i === 0) totFolgaHoje = fora.length;
+      hFolga += '<div class="dia' + (i === 0 ? " hoje" : "") + '">' + rotDia(dd, i) + "</div>" +
+        '<div class="card">' + (fora.length ? fora.map(function (p) {
+          return '<span class="chip ' + (p.st === "FOLGA" ? "st-FOLGA" : "st-OUTRO") + '">' + esc(p.nome) +
+            (p.st !== "FOLGA" ? " · " + p.st : "") + "</span>";
+        }).join("") : '<span class="sub">ninguém de folga</span>') + "</div>";
+    }
+    if (!D.pres.length) hFolga = '<div class="vazio">Escala do pátio ainda não marcada.<br>Central → 🏗️ DEMANDA DO PÁTIO.</div>';
+    $("c-folga").innerHTML = hFolga;
+    $("n-folga").textContent = totFolgaHoje + " hoje";
+
+    /* ---- 🚚 CARREGAMENTO: hoje + próximos dias ---- */
+    var hCarga = "", totCarga = 0;
+    for (var j = 0; j <= DIAS_FRENTE; j++) {
+      var dj = hojeISO(j);
+      var evs = D.eventos.filter(function (e) { return aberto(e) && dataDem(e, "carregamento") === dj; });
+      if (!evs.length) continue;
+      hCarga += '<div class="dia' + (j === 0 ? " hoje" : "") + '">' + rotDia(dj, j) + "</div>";
+      evs.forEach(function (e) {
+        totCarga++;
+        var cgsE = D.cgs.filter(function (c) { return c.evento_id === e.id && c.sentido !== "retorno"; });
+        var eq = equipeDe(e.id, "carregamento");
+        var dem = demDe(e.id, "carregamento");
+        if (!eq.length && j <= 1) avisos.push((j === 0 ? "HOJE" : "AMANHÃ") + ": carregamento " + e.nome + " SEM EQUIPE");
+        hCarga += '<div class="card' + (!eq.length ? " ruim" : "") + '">' +
+          '<b class="tit">' + esc(e.nome) + "</b>" +
+          '<div class="sub">' + [e.cliente, e.local].filter(Boolean).map(esc).join(" · ") + "</div>" +
+          (cgsE.length ? cgsE.map(function (cg) {
+            var saiu = D.confs.some(function (c) { return c.carregamento_id === cg.id && c.tipo === "saida" && c.finalizada_em; });
+            return '<span class="chip ' + (saiu ? "ok" : "pend") + '">' + (saiu ? "✓ " : "") + esc(nomeCam(cg)) + (saiu ? " SAIU" : "") + "</span>";
+          }).join("") : '<span class="chip ruim">SEM CAMINHÃO</span>') +
+          linhaEquipe(eq) +
+          (dem && dem.obs ? '<div class="sub">📝 ' + esc(dem.obs) + "</div>" : "") +
+        "</div>";
+      });
+    }
+    $("c-carga").innerHTML = hCarga || '<div class="vazio">Nenhum carregamento nos próximos dias.</div>';
+    $("n-carga").textContent = totCarga;
+
+    /* ---- ↩️ DESCARREGAMENTO: atrasados + hoje + próximos ---- */
+    var hDesc = "", totDesc = 0;
+    var atrasados = D.eventos.filter(function (e) {
+      return aberto(e) && e.data_desmontagem && fimDesm(e) < hoje;
+    });
+    if (atrasados.length) {
+      hDesc += '<div class="dia hoje">⏰ ATRASADOS</div>';
+      atrasados.forEach(function (e) {
+        totDesc++;
+        var dias = Math.max(1, Math.floor((Date.now() - new Date(fimDesm(e) + "T12:00:00").getTime()) / 86400000));
+        avisos.push("⏰ " + e.nome + " há " + dias + " dia(s) sem voltar");
+        hDesc += '<div class="card ruim"><b class="tit">' + esc(e.nome) + "</b>" +
+          '<div class="sub">desmontagem terminou ' + fmtData(fimDesm(e)) + "</div>" +
+          '<span class="chip ruim">HÁ ' + dias + " DIA(S) SEM VOLTAR</span>" +
+          linhaEquipe(equipeDe(e.id, "descarregamento")) + "</div>";
+      });
+    }
+    for (var k = 0; k <= DIAS_FRENTE; k++) {
+      var dk = hojeISO(k);
+      var evsD = D.eventos.filter(function (e) {
+        return aberto(e) && dataDem(e, "descarregamento") && dataDem(e, "descarregamento") === dk;
+      });
+      if (!evsD.length) continue;
+      hDesc += '<div class="dia' + (k === 0 ? " hoje" : "") + '">' + rotDia(dk, k) + "</div>";
+      evsD.forEach(function (e) {
+        totDesc++;
+        var eq = equipeDe(e.id, "descarregamento");
+        if (!eq.length && k <= 1) avisos.push((k === 0 ? "HOJE" : "AMANHÃ") + ": descarregamento " + e.nome + " SEM EQUIPE");
+        hDesc += '<div class="card' + (!eq.length ? " ruim" : "") + '"><b class="tit">' + esc(e.nome) + "</b>" +
+          '<div class="sub">' + [e.cliente, e.local].filter(Boolean).map(esc).join(" · ") +
+            (e.data_desmontagem ? (e.cliente || e.local ? " · " : "") + "desmontagem " + fmtData(e.data_desmontagem) +
+              (fimDesm(e) !== String(e.data_desmontagem).slice(0, 10) ? " a " + fmtData(fimDesm(e)) : "") : "") + "</div>" +
+          linhaEquipe(eq) + "</div>";
+      });
+    }
+    $("c-descarga").innerHTML = hDesc || '<div class="vazio">Nenhum descarregamento nos próximos dias.</div>';
+    $("n-descarga").textContent = totDesc;
+
+    /* ---- 📝 TAREFAS: atrasadas + hoje + próximos ---- */
+    var hTar = "", feitasHoje = 0, totHoje = 0;
+    var tAtras = D.tarefas.filter(function (t) { return !t.feita && String(t.data).slice(0, 10) < hoje; })
+      .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+    function cardTarefa(t, atrasada) {
+      var quem = (t.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+      return '<div class="card' + (t.feita ? " feita" : (t.urgente || atrasada) ? " ruim" : "") + '">' +
+        '<b class="tit">' + (t.feita ? "✓ " : t.urgente ? "🔴 " : "") + esc(t.titulo) + "</b>" +
+        (atrasada ? '<span class="chip ruim">ATRASADA · era para ' + fmtData(t.data) + "</span>" : "") +
+        (t.obs ? '<div class="sub">' + esc(t.obs) + "</div>" : "") +
+        linhaEquipe(quem) + "</div>";
+    }
+    if (tAtras.length) {
+      hTar += '<div class="dia hoje">⏰ ATRASADAS</div>' + tAtras.map(function (t) { return cardTarefa(t, true); }).join("");
+      avisos.push("📝 " + tAtras.length + " tarefa(s) atrasada(s): " + tAtras.slice(0, 3).map(function (t) { return t.titulo; }).join(", "));
+    }
+    for (var m = 0; m <= DIAS_FRENTE; m++) {
+      var dm = hojeISO(m);
+      var tf = D.tarefas.filter(function (t) { return String(t.data).slice(0, 10) === dm; })
+        .sort(function (a, b) { return (a.feita ? 1 : 0) - (b.feita ? 1 : 0) || (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0); });
+      if (m === 0) { totHoje = tf.length; feitasHoje = tf.filter(function (t) { return t.feita; }).length; }
+      if (!tf.length) continue;
+      hTar += '<div class="dia' + (m === 0 ? " hoje" : "") + '">' + rotDia(dm, m) + "</div>" +
+        tf.map(function (t) { return cardTarefa(t, false); }).join("");
+    }
+    $("c-tarefa").innerHTML = hTar || '<div class="vazio">Nenhuma tarefa passada para a equipe.</div>';
+    $("n-tarefa").textContent = totHoje ? feitasHoje + "/" + totHoje + " hoje" : (tAtras.length ? tAtras.length + " atrasada(s)" : "0");
+
+    /* ---- gente em dois lugares no mesmo dia ---- */
+    for (var q = 0; q <= DIAS_FRENTE; q++) {
+      var dq = hojeISO(q), onde = {};
+      D.dems.forEach(function (dm2) {
+        var e2 = evPorId[dm2.evento_id];
+        if (!e2 || !aberto(e2)) return;
+        if (dataDem(e2, dm2.tipo) !== dq) return;
+        (dm2.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(e2.nome); });
+      });
+      D.tarefas.forEach(function (t) {
+        if (t.feita || String(t.data).slice(0, 10) !== dq) return;
+        (t.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(t.titulo); });
+      });
+      Object.keys(onde).forEach(function (id) {
+        if (onde[id].length > 1 && nomeColab[id]) {
+          avisos.push("⚠ " + rotDia(dq, q) + ": " + nomeColab[id] + " em " + onde[id].length + " lugares");
+        }
+      });
     }
 
-    /* ATRASADOS: fim da desmontagem passou e não encerrou */
-    var atrasados = eventos.filter(function (e) {
-      if (!aberto(e) || !e.data_desmontagem) return false;
-      return String(e.data_desmontagem_fim || e.data_desmontagem).slice(0, 10) < hoje;
-    });
-
-    /* NA RUA: eventos abertos com saída finalizada (material fora) */
-    var naRua = eventos.filter(function (e) {
-      return aberto(e) && confs.some(function (c) { return c.evento_id === e.id && c.tipo === "saida" && c.finalizada_em; });
-    });
-
-    var h = "";
-
-    h += '<div class="bloco"><h2>🚚 Saindo hoje e amanhã <span class="n">' + saindo.length + "</span></h2><div class=\"corpo\">" +
-      (saindo.length ? saindo.map(function (e) {
-        var cgsE = cgs.filter(function (c) { return c.evento_id === e.id && c.sentido !== "retorno"; });
-        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
-          '<div class="sub">' + (dataDem(e, "carregamento") === hoje ? "HOJE" : "AMANHÃ") +
-            (e.local ? " · " + esc(e.local) : "") + "</div>" +
-          (function () {
-            var eq = equipeDe(e.id, "carregamento");
-            return eq.length ? '<div class="sub" style="color:#BFD6F5">👷 ' + eq.map(esc).join(" · ") + "</div>"
-              : '<div class="sub" style="color:#FFB4AE;font-weight:800">👷 SEM EQUIPE ESCOLHIDA</div>';
-          })() +
-          (cgsE.length ? cgsE.map(function (cg) {
-            var ok = saidaFinal(cg.id);
-            return '<span class="tag ' + (ok ? "ok" : "pend") + '">' +
-              (ok ? "✓ " : "") + "Carreg. " + cg.numero + " · " + esc(nomeCam(cg)) + (ok ? " SAIU" : " PENDENTE") + "</span>";
-          }).join("") : '<span class="tag ruim">NENHUM CARREGAMENTO CRIADO</span>') +
-        "</div>";
-      }).join("") : '<div class="vazio">Nada saindo até amanhã.</div>') + "</div></div>";
-
-    /* 📝 TAREFAS DE HOJE (+ atrasadas não feitas) */
-    var tfHoje = (tarefas || []).filter(function (t) {
-      var d = String(t.data).slice(0, 10);
-      return d === hoje || (d < hoje && !t.feita);
-    }).sort(function (a, b) {
-      return (a.feita ? 1 : 0) - (b.feita ? 1 : 0) || (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0) ||
-        String(a.data).localeCompare(String(b.data));
-    });
-    var tfFeitas = tfHoje.filter(function (t) { return t.feita; }).length;
-    h += '<div class="bloco"><h2>📝 Tarefas de hoje <span class="n">' + tfFeitas + '/' + tfHoje.length + '</span></h2><div class="corpo">' +
-      (tfHoje.length ? tfHoje.map(function (t) {
-        var quem = (t.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
-        var atras = String(t.data).slice(0, 10) < hoje;
-        return '<div class="lin" style="' + (t.feita ? 'opacity:.45' : '') + '">' +
-          '<b class="ev" style="' + (t.feita ? 'text-decoration:line-through' : '') + '">' +
-            (t.feita ? '✓ ' : t.urgente ? '🔴 ' : '') + esc(t.titulo) + '</b>' +
-          (atras ? '<div class="sub" style="color:#FFB066;font-weight:800">ATRASADA · era para ' + fmtData(t.data) + '</div>' : '') +
-          (t.obs ? '<div class="sub">' + esc(t.obs) + '</div>' : '') +
-          '<div class="sub" style="color:#BFD6F5">👷 ' + (quem.length ? quem.map(esc).join(" · ") : "sem responsável") + '</div>' +
-        '</div>';
-      }).join('') : '<div class="vazio">Nenhuma tarefa passada para hoje.</div>') +
-    '</div></div>';
-
-    var totFora = 0; foraPorDia.forEach(function (x) { totFora += x.fora.length; });
-    var DIAS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
-    h += '<div class="bloco"><h2>🛌 De folga — próximos dias <span class="n">' + foraPorDia[0].fora.length + ' hoje</span></h2><div class="corpo">' +
-      (pres.length ? foraPorDia.map(function (x, i) {
-        var rot = i === 0 ? "HOJE" : i === 1 ? "AMANHÃ" : DIAS[new Date(x.d + "T12:00:00").getDay()] + " " + fmtData(x.d);
-        return '<div class="lin"><b style="font-size:16px;color:' + (i === 0 ? "var(--laranja)" : "var(--txt)") + '">' + rot + "</b>" +
-          '<div style="margin-top:4px">' + (x.fora.length ? x.fora.map(function (p) {
-            return '<span class="tag ' + (p.st === "FOLGA" ? "pend" : "ruim") + '">' + esc(p.nome) +
-              (p.st !== "FOLGA" ? " · " + p.st : "") + "</span>";
-          }).join("") : '<span class="sub">ninguém de folga</span>') + "</div></div>";
-      }).join("") : '<div class="vazio">Escala do pátio ainda não marcada (Central → 🏗️ DEMANDA DO PÁTIO).</div>') +
-    "</div></div>";
-
-    h += '<div class="bloco"><h2 class="' + (atrasados.length ? "alerta" : "") + '">⏰ Retorno atrasado <span class="n">' + atrasados.length + "</span></h2><div class=\"corpo\">" +
-      (atrasados.length ? atrasados.map(function (e) {
-        var dias = Math.max(1, Math.floor((Date.now() - new Date(String(e.data_desmontagem_fim || e.data_desmontagem).slice(0, 10) + "T12:00:00").getTime()) / 86400000));
-        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
-          '<div class="sub">desmontagem terminou ' + fmtData(e.data_desmontagem_fim || e.data_desmontagem) + "</div>" +
-          '<span class="tag ruim">HÁ ' + dias + " DIA(S) SEM VOLTAR</span></div>";
-      }).join("") : '<div class="vazio">Nenhum atraso. ✓</div>') + "</div></div>";
-
-    h += '<div class="bloco"><h2>↩️ Descarregando hoje e amanhã <span class="n">' + voltando.length + "</span></h2><div class=\"corpo\">" +
-      (voltando.length ? voltando.map(function (e) {
-        var eq = equipeDe(e.id, "descarregamento");
-        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
-          '<div class="sub">' + (dataDem(e, "descarregamento") === hoje ? "HOJE" : "AMANHÃ") + (e.local ? " · " + esc(e.local) : "") + "</div>" +
-          (eq.length ? '<div class="sub" style="color:#BFD6F5">👷 ' + eq.map(esc).join(" · ") + "</div>"
-            : '<div class="sub" style="color:#FFB4AE;font-weight:800">👷 SEM EQUIPE ESCOLHIDA</div>') +
-        "</div>";
-      }).join("") : '<div class="vazio">Nenhum descarregamento até amanhã.</div>') + "</div></div>";
-
-    h += '<div class="bloco"><h2>📍 Material na rua <span class="n">' + naRua.length + "</span></h2><div class=\"corpo\">" +
-      (naRua.length ? naRua.slice(0, 8).map(function (e) {
-        return '<div class="lin"><b class="ev">' + esc(e.nome) + "</b>" +
-          '<div class="sub">' + (e.cliente ? esc(e.cliente) + " · " : "") + "evento " + fmtData(e.data) +
-          (e.data_desmontagem ? " · volta " + fmtData(e.data_desmontagem_fim || e.data_desmontagem) : "") + "</div></div>";
-      }).join("") : '<div class="vazio">Nada na rua.</div>') + "</div></div>";
-
-    $("grade").innerHTML = h;
+    /* ---- letreiro ---- */
+    var fita = $("fita");
+    if (avisos.length) {
+      fita.hidden = false;
+      document.getElementById("painel").classList.remove("semfita");
+      var texto = avisos.join("   •   ");
+      $("fita-texto").textContent = "⚠ " + texto + "   •   ⚠ " + texto;
+      $("fita-texto").style.animationDuration = Math.max(18, texto.length / 5) + "s";
+    } else {
+      fita.hidden = true;
+      document.getElementById("painel").classList.add("semfita");
+    }
   }
+
+  /* ---------------- rodízio das telas ---------------- */
+  var painel = $("painel");
+  var etapa = 0;   /* 0..3 = uma coluna por vez · 4 = as quatro juntas */
+  function aplicar() {
+    var cols = painel.querySelectorAll(".col");
+    if (etapa < 4) {
+      painel.classList.add("solo");
+      cols.forEach ? cols.forEach(marca) : Array.prototype.forEach.call(cols, marca);
+    } else {
+      painel.classList.remove("solo");
+      Array.prototype.forEach.call(cols, function (c) { c.classList.remove("on"); });
+    }
+    function marca(c) { c.classList.toggle("on", Number(c.dataset.col) === etapa); }
+    var bolas = $("bolas").children;
+    for (var i = 0; i < bolas.length; i++) bolas[i].classList.toggle("on", i === etapa);
+  }
+  function proxima() {
+    painel.classList.add("trocando");
+    setTimeout(function () {
+      etapa = (etapa + 1) % 5;
+      aplicar();
+      painel.classList.remove("trocando");
+      agenda();
+    }, 350);
+  }
+  var timer = null;
+  function agenda() {
+    clearTimeout(timer);
+    timer = setTimeout(proxima, etapa === 4 ? TEMPO_GRADE : TEMPO_SOLO);
+  }
+  window.__tvProxima = proxima;   /* para teste */
+  aplicar(); agenda();
 
   carregar();
   setInterval(carregar, 60000);
