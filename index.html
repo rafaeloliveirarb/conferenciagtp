@@ -5721,7 +5721,8 @@ function TelaMeusEventos() {
       /* quem já fez cada etapa — pode ser gente diferente em cada uma */
       var quemFez = confs.map(function (c) {
         return U.esc(Calculo.TIPOS[c.tipo] ? Calculo.TIPOS[c.tipo].curto : c.tipo) +
-          ': ' + U.esc(App.nomeUsuario(c.conferente_id));
+          ': ' + U.esc(App.nomeUsuario(c.conferente_id)) +
+          (c.finalizada_em ? '' : ' <b style="color:var(--laranja)">(não finalizou)</b>');
       }).join(' · ');
 
       var dica = fechado
@@ -5729,6 +5730,34 @@ function TelaMeusEventos() {
         : fase === 'retorno'
           ? '👆 Toque para registrar o retorno do caminhão que chegou'
           : jaComecou ? '👆 Toque para continuar a conferência' : '👆 Toque para conferir e marcar os itens';
+
+      /* ⚠ 100% contado mas o evento não anda: fala O QUE está faltando */
+      var aviso = '';
+      if (!fechado && pct >= 100 && totalItens > 0) {
+        if (fase === 'saida') {
+          var presas = todosCarregamentos
+            .filter(function (c) { return c.evento_id === ev.id && c.sentido !== 'retorno'; })
+            .map(function (cg) {
+              var conf = confs.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida'; })[0];
+              return { cg: cg, conf: conf || null };
+            })
+            .filter(function (x) { return !(x.conf && x.conf.finalizada_em); });
+          if (presas.length) {
+            aviso = '⚠ Tudo contado, mas a saída não foi finalizada: ' + presas.map(function (x) {
+              return x.conf
+                ? 'abra a conferência do carregamento ' + (x.cg.numero || 1) + ' e toque em FINALIZAR (' +
+                  U.esc(App.nomeUsuario(x.conf.conferente_id)) + ' parou antes de finalizar)'
+                : 'o carregamento ' + (x.cg.numero || 1) + (x.cg.caminhao_id ? '' : ' (sem caminhão)') + ' ainda não tem conferência de saída';
+            }).join(' · ');
+          }
+        } else {
+          var retAbertas = confs.filter(function (c) { return c.tipo === 'retorno' && !c.finalizada_em; });
+          if (retAbertas.length) {
+            aviso = '⚠ Tudo voltou, mas falta tocar em FINALIZAR no retorno (' +
+              retAbertas.map(function (c) { return U.esc(App.nomeUsuario(c.conferente_id)); }).join(', ') + ')';
+          }
+        }
+      }
 
       return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
         '<div style="display:flex;gap:14px;align-items:flex-start">' +
@@ -5745,7 +5774,9 @@ function TelaMeusEventos() {
                 : '📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens') +
               (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
             (quemFez ? '<p class="peq mut" style="margin:3px 0 0">✔️ ' + quemFez + '</p>' : '') +
-            '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">' + dica + '</p>' +
+            (aviso
+              ? '<p class="peq" style="margin:5px 0 0;color:var(--laranja);font-weight:800">' + aviso + '</p>'
+              : '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">' + dica + '</p>') +
           '</div>' +
           '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
             '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
