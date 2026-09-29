@@ -228,7 +228,7 @@
       lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,finalizada_em")),
       lista(cli.from("caminhoes").select("id,tipo,placa")),
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
-      lista(cli.from("patio_presenca").select("data,colaborador_id,status")
+      lista(cli.from("patio_presenca").select("data,colaborador_id,status,obs")
         .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
       lista(cli.from("patio_demanda").select("*")).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
@@ -310,13 +310,14 @@
       var fora = D.pres.filter(function (p) {
         return String(p.data).slice(0, 10) === dd && nomeColab[p.colaborador_id] &&
           ["FOLGA", "FÉRIAS", "EXTERNO", "ATESTADO", "FALTA"].indexOf(p.status) >= 0;
-      }).map(function (p) { return { nome: nomeColab[p.colaborador_id], st: p.status }; })
+      }).map(function (p) { return { nome: nomeColab[p.colaborador_id], st: p.status, obs: p.obs }; })
         .sort(function (a, b) { return a.nome.localeCompare(b.nome); });
       if (i === 0) totFolgaHoje = fora.length;
       hFolga += '<div class="dia' + (i === 0 ? " hoje" : "") + '">' + rotDia(dd, i) + "</div>" +
         '<div class="card">' + (fora.length ? fora.map(function (p) {
           return '<span class="chip ' + (p.st === "FOLGA" ? "st-FOLGA" : "st-OUTRO") + '">' + esc(p.nome) +
-            (p.st !== "FOLGA" ? " · " + p.st : "") + "</span>";
+            (p.st !== "FOLGA" ? " · " + p.st : "") +
+            (p.obs ? ' <span style="opacity:.75;font-weight:700">— ' + esc(p.obs) + "</span>" : "") + "</span>";
         }).join("") : '<span class="sub">ninguém de folga</span>') + "</div>";
     }
     if (!D.pres.length) hFolga = '<div class="vazio">Escala do pátio ainda não marcada.<br>Central → 🏗️ DEMANDA DO PÁTIO.</div>';

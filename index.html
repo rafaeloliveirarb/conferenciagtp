@@ -11816,8 +11816,9 @@ var Patio = {
     return Banco.cliente.from('patio_presenca').delete().eq('chave', chave)
       .then(function (r) { if (r.error) throw r.error; });
   },
-  linhaPresenca: function (data, colabId, status) {
+  linhaPresenca: function (data, colabId, status, obs) {
     return { chave: data + '|' + colabId, data: data, colaborador_id: colabId, status: status,
+      obs: (obs || '').trim() || null,
       atualizado_em: new Date().toISOString() };
   },
   /* 📅 regra de folga do colaborador:
@@ -12485,7 +12486,10 @@ function TelaPatio() {
     '</div>';
     if (deFolga.length) {
       h += '<div class="aviso aviso--azul"><span class="aviso__ico">🛌</span><div><b>Fora do pátio ' + Patio.rotDia(dia).toLowerCase() + ':</b> ' +
-        deFolga.map(function (x) { return U.esc(x.c.nome) + ' <span class="mut">(' + x.st + ')</span>'; }).join(' · ') + '</div></div>';
+        deFolga.map(function (x) {
+          var o = obsDe(dia, x.c.id);
+          return U.esc(x.c.nome) + ' <span class="mut">(' + x.st + (o ? ' — ' + U.esc(o) : '') + ')</span>';
+        }).join(' · ') + '</div></div>';
     }
 
     /* carregamentos e descarregamentos do dia */
@@ -12589,8 +12593,8 @@ function TelaPatio() {
           s.ab + ' · ' + s.k + '</button>';
       }).join('') + '</div></div></div>';
 
-    var mapa = {};
-    pres.forEach(function (x) { mapa[x.chave] = x.status; });
+    var mapa = {}, mapaObs = {};
+    pres.forEach(function (x) { mapa[x.chave] = x.status; if (x.obs) mapaObs[x.chave] = x.obs; });
     var lista = colabs.filter(function (c) {
       if (c.ativo !== false) return true;
       for (var d = 1; d <= nDias; d++) {   /* inativo só aparece se tiver marcação no mês */
@@ -12619,6 +12623,8 @@ function TelaPatio() {
           '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">De</span><input class="entrada" type="date" id="pp-de" value="' + hojeP + '"></label>' +
           '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">Até</span><input class="entrada" type="date" id="pp-ate"></label>' +
         '</div>' +
+        '<label class="campo" style="margin-top:8px"><span class="campo__rot">Motivo (opcional)</span>' +
+          '<input class="entrada" id="pp-obs" placeholder="Ex.: férias marcadas com o RH, banco de horas"></label>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">' +
           '<label class="peq" style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:700"><input type="checkbox" id="pp-fds" style="width:18px;height:18px"> pular sábado e domingo</label>' +
           '<span class="peq mut" id="pp-conta" style="flex:1"></span>' +
@@ -12651,7 +12657,8 @@ function TelaPatio() {
         if (st === 'TRABALHOU' || st === 'PLANTÃO') t++;
         if (st === 'FOLGA') f++;
         if (st === 'FALTA') fa++;
-        h += '<td class="js-cel" data-dia="' + iso2 + '" data-colab="' + c.id + '" title="' + U.esc(c.nome) + ' · ' + U.fmtData(iso2) + (st ? ' · ' + st : '') + '" ' +
+        h += '<td class="js-cel" data-dia="' + iso2 + '" data-colab="' + c.id + '" title="' + U.esc(c.nome) + ' · ' + U.fmtData(iso2) + (st ? ' · ' + st : '') +
+          (mapaObs[iso2 + '|' + c.id] ? ' — ' + U.esc(mapaObs[iso2 + '|' + c.id]) : '') + '" ' +
           'style="cursor:pointer;text-align:center;padding:5px 1px;border-bottom:1px solid var(--linha);border-left:1px solid #F1F4F8;font-weight:800;' +
           (s ? 'background:' + s.fundo + ';color:' + s.cor : 'color:#C3CDDD') + '">' + (s ? s.ab : '·') + '</td>';
       }
@@ -12723,7 +12730,7 @@ function TelaPatio() {
         if (!ok) return;
         var passo = apagar
           ? existentes.reduce(function (p, d) { return p.then(function () { return Patio.apagarPresenca(d + '|' + id); }); }, Promise.resolve())
-          : Patio.gravarPresenca(dias.map(function (d) { return Patio.linhaPresenca(d, id, st); }));
+          : Patio.gravarPresenca(dias.map(function (d) { return Patio.linhaPresenca(d, id, st, U.$('#pp-obs', tela).value); }));
         passo.then(function () {
           U.aviso(apagar ? '🗑️ Período apagado para ' + c.nome + '.' : '📅 ' + dias.length + ' dia(s) de ' + st + ' lançados para ' + c.nome + '.', 'ok', 5000);
           carregar();
@@ -12734,7 +12741,8 @@ function TelaPatio() {
 
   /* ================= 🛌 FOLGAS ================= */
   function telaFolgas() {
-    var h = '<p class="peq mut" style="margin:0 0 10px">Quem está fora do pátio nos próximos 14 dias (folga, férias, externo, atestado, falta).</p>';
+    var h = '<p class="peq mut" style="margin:0 0 10px">Quem está fora do pátio nos próximos 14 dias (folga, férias, externo, atestado, falta). ' +
+      'Toque no nome para escrever o motivo.</p>';
     for (var i = 0; i < 14; i++) {
       var d = Patio.isoMais(U.hojeISO(), i);
       var fora = [];
@@ -12749,8 +12757,12 @@ function TelaPatio() {
         '<span style="flex:1;min-width:200px;display:flex;flex-wrap:wrap;gap:6px">' +
           (fora.length ? fora.map(function (x) {
             var s = Patio.st(x.st);
-            return '<span class="terc-tag" style="background:' + s.fundo + ';border-color:' + s.fundo + ';color:' + s.cor + ';font-weight:800">' +
-              U.esc(x.c.nome) + ' · ' + x.st + '</span>';
+            var o = obsDe(d, x.c.id);
+            return '<span class="terc-tag js-fg-obs" data-dia="' + d + '" data-colab="' + x.c.id + '" data-st="' + x.st + '" ' +
+              'style="background:' + s.fundo + ';border-color:' + s.fundo + ';color:' + s.cor + ';font-weight:800;cursor:pointer" ' +
+              'title="Toque para escrever ou mudar o motivo">' +
+              U.esc(x.c.nome) + ' · ' + x.st +
+              (o ? ' <span style="font-weight:600">— ' + U.esc(o) + '</span>' : ' <span style="opacity:.55">📝</span>') + '</span>';
           }).join('') : '<span class="peq mut">' + (marcados ? 'Ninguém de folga.' : 'Escala desse dia ainda não marcada.') + '</span>') +
         '</span></div></div>';
     }
@@ -13456,19 +13468,49 @@ function TelaPatio() {
     });
   }
 
-  function marcar(dia, colabId, status) {
+  function marcar(dia, colabId, status, obs) {
     var chave = dia + '|' + colabId;
     pres = pres.filter(function (x) { return x.chave !== chave; });
     if (status) {
-      var lp = Patio.linhaPresenca(dia, colabId, status);
+      var lp = Patio.linhaPresenca(dia, colabId, status, obs);
       pres.push(lp);
       return Patio.gravarPresenca([lp]);
     }
     return Patio.apagarPresenca(chave);
   }
+  function obsDe(dia, colabId) {
+    var p = pres.filter(function (x) { return x.chave === dia + '|' + colabId; })[0];
+    return (p && p.obs) || '';
+  }
+  /* 📝 motivo da folga/férias/atestado: pergunta ao marcar e edita depois */
+  function pedirMotivo(dia, colabId, status, aoSalvar, aoCancelar) {
+    var atual = obsDe(dia, colabId);
+    var m = U.modal({
+      titulo: '📝 ' + status + ' · ' + nomeColab(colabId),
+      html: '<p class="peq mut" style="margin:0 0 8px">' + Patio.rotDia(dia) + ' · ' + U.fmtData(dia) + '</p>' +
+        '<label class="campo"><span class="campo__rot">Motivo (opcional)</span>' +
+          '<input class="entrada" id="mv-obs" value="' + U.esc(atual) + '" ' +
+            'placeholder="Ex.: trocou o domingo trabalhado, consulta médica, banco de horas"></label>',
+      pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR</button>',
+      travado: true
+    });
+    var inp = m.querySelector('#mv-obs');
+    inp.focus();
+    m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); if (aoCancelar) aoCancelar(); });
+    function salvar() { m.fechar(); aoSalvar(inp.value); }
+    m.querySelector('[data-ok]').addEventListener('click', salvar);
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') salvar(); });
+  }
 
   function ligar() {
     function irDia(d) { TelaPatio._dia = d; tela.innerHTML = abas() + U.carregando('Carregando...'); carregar(); }
+    U.$$('.js-fg-obs', tela).forEach(function (ch) {
+      ch.addEventListener('click', function () {
+        pedirMotivo(ch.dataset.dia, ch.dataset.colab, ch.dataset.st, function (obs) {
+          marcar(ch.dataset.dia, ch.dataset.colab, ch.dataset.st, obs).then(function () { desenhar(); }).catch(App.falhou);
+        });
+      });
+    });
     var ant = U.$('#pt-ant', tela);
     if (ant) {
       ant.addEventListener('click', function () { irDia(Patio.isoMais(TelaPatio._dia, -1)); });
@@ -13520,6 +13562,13 @@ function TelaPatio() {
         var v = s.value;
         var st = Patio.st(v);
         s.style.color = st ? st.cor : ''; s.style.background = st ? st.fundo : '';
+        if (v && !Patio.livre(v) && v !== 'DESLIGADO') {
+          /* folga, férias, externo, atestado, falta: pergunta o porquê */
+          pedirMotivo(TelaPatio._dia, s.dataset.colab, v, function (obs) {
+            marcar(TelaPatio._dia, s.dataset.colab, v, obs).then(function () { desenhar(); }).catch(App.falhou);
+          }, function () { desenhar(); });
+          return;
+        }
         marcar(TelaPatio._dia, s.dataset.colab, v).then(function () { desenhar(); }).catch(App.falhou);
       });
     });
