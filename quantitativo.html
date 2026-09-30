@@ -158,6 +158,9 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(120px);background:var(--azul);color:#fff;padding:12px 20px;border-radius:9px;font-family:Montserrat;font-weight:700;font-size:.84rem;box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .3s;z-index:90;max-width:90vw}
 .toast.on{transform:translateX(-50%) translateY(0)}
 .toast.erro{background:var(--vermelho)}.toast.ok{background:var(--verde)}
+.btop.q30{background:var(--laranja,#f47920);color:#fff}
+.q30ev{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 13px;border:1.5px solid var(--borda);border-radius:8px;background:#fff;margin-bottom:8px;cursor:pointer;font:inherit}
+.q30ev:hover{border-color:var(--laranja,#f47920)}.q30ev b{flex:1}.q30ev span{font-size:.78rem;color:var(--cinza)}
 .rodape{text-align:center;color:var(--cinza);font-size:.76rem;margin:18px 0 6px}
 </style>
 </head>
@@ -167,6 +170,7 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
     <h1>GRUPO TENDAS <b>PLENART</b></h1>
     <span class="tag">📐 QUANTIFICAÇÃO DE MATERIAL</span>
     <div class="dir">
+      <button class="btop q30" id="bQ30" type="button">🔺 TRELIÇA Q30</button>
       <button class="btop" id="bNova" type="button">🗒️ NOVA</button>
       <button class="btop" id="bAbrir" type="button">📂 ABRIR SALVAS</button>
       <button class="btop" id="bSalvar" type="button">💾 SALVAR</button>
@@ -209,7 +213,7 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
       </div>
     </div>
   </div>
-  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 B</div>
+  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 C</div>
 </div>
 
 <div class="modal hidden" id="modal"><div class="box">
@@ -789,6 +793,11 @@ var PERFIS = {
         {id:'co', label:'Corrimãos (do tamanho da altura)'},{id:'co2', label:'Corrimãos de 2 degraus'},{id:'pc', label:'Parafusos de corrimão'},
         {id:'pt', label:'Pés terminal'},{id:'p20', label:'Pés de 0,20m'},{id:'cav', label:'Cavilhas meia lua (escada)'}]}],
     calcular:function(v){ return calcAluminio(v); } },
+  q30import:{ campos:[], calcular:function(v){
+      var m=[], rep=int(v.rep)||1, tot=0;
+      (v.itens||[]).forEach(function(i){ var n=up(i.n), q=num(i.q)*rep; if(n && q>0){ M(m,'Treliça Q30',n,q); tot+=q; } });
+      return { area:0, materiais:m, info:'🔺 Do quantificador Q30 · '+(v.evento||'')+' · '+(v.area||'')+(rep>1?' ×'+rep:'')+' · '+fmt(tot)+' peças' };
+    } },
   equip:{ campos:[{tipo:'lista', itens:LISTA_EQUIP}], calcular:function(v){ return calcLista(v,'Ferramentas'); } },
   q30:{ campos:[{tipo:'lista', itens:LISTA_Q30}], calcular:function(v){ return calcLista(v,'Treliça Q30'); } },
   q50:{ campos:[{tipo:'lista', itens:LISTA_Q50}], calcular:function(v){ return calcLista(v,'Treliça Q50'); } },
@@ -843,6 +852,7 @@ var CATALOGO = [
   {id:'truss-q50', grupo:'Treliça Box Truss', nome:'Treliça Q50 (lista de peças)', perfil:'q50'},
   {id:'truss-div', grupo:'Treliça Box Truss', nome:'Diversos (talha, cinta, cabo de aço…)', perfil:'diversos'},
   {id:'equip', grupo:'Outros', nome:'Equipamentos / Ferramentas (não vai p/ checklist)', perfil:'equip'},
+  {id:'q30import', grupo:'Treliça Box Truss', nome:'Treliça Q30 (vinda do quantificador Q30)', perfil:'q30import', oculto:true},
   {id:'avulso', grupo:'Outros', nome:'Item avulso (digitar nome e quantidade)', perfil:'avulso'}
 ];
 function produtoCat(id){ for(var i=0;i<CATALOGO.length;i++) if(CATALOGO[i].id===id) return CATALOGO[i]; return null; }
@@ -897,6 +907,7 @@ function areaProd(p){
 function valido(p){
   var a=areaProd(p);
   if(a!==null) return a>0;
+  if(p.prodId==='q30import') return (p.vals.itens||[]).some(function(i){ return num(i.q)>0; });
   if(p.prodId==='avulso') return String(p.vals.nome||'').trim() && num(p.vals.qtd)>0;
   if(p.vals.q) { for(var k in p.vals.q) if(num(p.vals.q[k])>0) return true; return false; }
   if('qtd' in p.vals) return int(p.vals.qtd)>0;
@@ -962,6 +973,7 @@ function fora(m){ return st.excluidos.indexOf(up(m.nome)) >= 0; }
 function optsProdutos(){
   var h='<option value="">— Selecione um produto —</option>', g='';
   CATALOGO.forEach(function(c){
+    if(c.oculto) return;
     if(c.grupo!==g){ if(g) h+='</optgroup>'; g=c.grupo; h+='<optgroup label="'+esc(g)+'">'; }
     h+='<option value="'+c.id+'">'+esc(c.nome)+'</option>';
   });
@@ -1326,6 +1338,46 @@ function salvarNuvem(silencioso){
     return false;
   });
 }
+/* ---------- TRELIÇA Q30 junto da quantificação ---------- */
+var q30Cache = [];
+$('bQ30').addEventListener('click', function(){
+  abrirModal('🔺 Treliça Q30', '<a class="btn b-lar" href="quantificacao.html" target="_blank" style="display:flex;justify-content:center;text-decoration:none;margin-bottom:14px">🔺 ABRIR O QUANTIFICADOR Q30 (montar as áreas)</a>'+
+    '<p style="font-family:Montserrat;font-weight:800;font-size:.72rem;color:var(--cinza);margin:0 0 8px;letter-spacing:.4px">PUXAR UM EVENTO DO Q30 PARA ESTA QUANTIFICAÇÃO (cada área vira um ambiente):</p>'+
+    '<div id="q30Lista"><div class="msg info">Buscando os eventos do Q30…</div></div>',
+    '<button class="btn b-branco" type="button" id="mFechar">Fechar</button>');
+  $('mFechar').onclick=fecharModal;
+  if(!nuvem){ $('q30Lista').innerHTML='<div class="msg erro">Sem conexão com a nuvem.</div>'; return; }
+  nuvem.from('q30_eventos').select('id,nome,dados,atualizado_em,apagado').order('atualizado_em',{ascending:false}).limit(100).then(function(r){
+    if(r.error) throw r.error;
+    q30Cache = (r.data||[]).filter(function(x){ return !x.apagado && x.dados && (x.dados.areas||[]).length; });
+    if(!q30Cache.length){ $('q30Lista').innerHTML='<div class="msg info">Nenhum evento no Q30 ainda. Abra o quantificador, monte as áreas e volte aqui.</div>'; return; }
+    $('q30Lista').innerHTML = q30Cache.map(function(x,i){
+      var ar=x.dados.areas||[], pc=ar.reduce(function(t,a){ return t+(a.itens||[]).reduce(function(s2,it){ return s2+(num(it.q)||0); },0)*(a.rep||1); },0);
+      return '<button class="q30ev" type="button" data-q30="'+i+'"><b>'+esc(x.nome)+'</b><span>'+ar.length+' área(s) · '+fmt(pc)+' peças'+(x.dados.os?' · O.S. '+esc(x.dados.os):'')+'</span></button>';
+    }).join('');
+  }).catch(function(e){ console.error(e); $('q30Lista').innerHTML='<div class="msg erro">'+(/q30_eventos|does not exist|schema cache/i.test(String(e&&e.message))?'Falta rodar o <b>q30-eventos.sql</b> no Supabase.':'Não consegui buscar o Q30. Tente de novo.')+'</div>'; });
+});
+function puxarQ30(x){
+  var d=x.dados||{};
+  /* se já puxou este evento antes, troca (não duplica) */
+  st.ambientes.forEach(function(a){ a.produtos = a.produtos.filter(function(p){ return !(p.prodId==='q30import' && p.vals.q30id===x.id); }); });
+  st.ambientes = st.ambientes.filter(function(a){ return a.produtos.length || !a._q30; });
+  (d.areas||[]).forEach(function(a){
+    var nome=up(a.nome)||'ÁREA', rep=int(a.rep)||1;
+    var amb=st.ambientes.filter(function(z){ return z.nome===nome && z._q30===x.id; })[0];
+    if(!amb){
+      var vazio=st.ambientes.filter(function(z){ return !z.produtos.length; })[0];
+      if(vazio){ amb=vazio; amb.nome=nome; } else { amb=novoAmbiente(nome); st.ambientes.push(amb); }
+      amb._q30=x.id;
+    }
+    amb.produtos.push({ pid:st.seq++, prodId:'q30import', vals:{ q30id:x.id, evento:up(x.nome), area:nome, rep:rep, itens:(a.itens||[]).map(function(i){ return {n:i.n,q:i.q}; }) }, emb:{} });
+  });
+  if(!st.evento && x.nome){ st.evento=up(x.nome); if(d.os && !st.os) st.os=d.os; preencherMeta(); }
+  desenharAmbientes(); mudou(); fecharModal();
+  toast('🔺 '+(d.areas||[]).length+' área(s) do Q30 entraram como ambientes.','ok');
+}
+$('mCorpo').addEventListener('click', function(e){ var b=e.target.closest('[data-q30]'); if(b) puxarQ30(q30Cache[+b.dataset.q30]); });
+
 $('bSalvar').addEventListener('click', function(){
   if(!st.evento){ $('mEvento').focus(); return toast('Digite o nome do evento antes de salvar.','erro'); }
   salvarNuvem(false);
@@ -1507,7 +1559,7 @@ if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
 preencherMeta();
 desenharAmbientes();
 window.__quant = { st:function(){ return st; }, calc:calcularTudo, perfis:PERFIS, catalogo:CATALOGO, listaEnvio:listaEnvio, areasEnvio:areasEnvio,
-  motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
+  puxarQ30:function(x){ puxarQ30(x); }, motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
 })();
 </script>
 </body>

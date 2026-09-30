@@ -3701,11 +3701,9 @@ function TelaPainel() {
         '<button class="btn btn--branco" id="btn-frota">🚛 FROTA</button>' +
         '<button class="btn btn--branco" id="btn-estoque">📦 ESTOQUE</button>' +
         '<button class="btn btn--branco" id="btn-terceiros">🔗 TERCEIROS</button>' +
-        '<button class="btn btn--branco" id="btn-ferramentas">🧰 FERRAMENTAS</button>' +
         '<button class="btn btn--azul" id="btn-patio">🏗️ DEMANDA DO PÁTIO</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
-        '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
-        '<button class="btn btn--branco" id="btn-quant">📐 QUANTIFICAÇÃO DE MATERIAL</button>' +
+        '<button class="btn btn--branco" id="btn-quant">📐 QUANTIFICAÇÃO (MATERIAL + Q30)</button>' +
         '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
         '<button class="btn btn--branco" id="btn-backup">💾 BACKUP</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
@@ -4045,7 +4043,6 @@ function TelaPainel() {
     });
     U.$('#btn-patio').addEventListener('click', function () { App.abrir(TelaPatio); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
-    U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
     U.$('#btn-quant').addEventListener('click', function () { window.open('quantitativo.html', '_blank'); });
     U.$('#btn-tv').addEventListener('click', function () { App.abrirTV(); });
     U.$('#btn-backup').addEventListener('click', abrirBackup);
@@ -4086,7 +4083,7 @@ function TelaPainel() {
     });
 
     U.$('#btn-terceiros').addEventListener('click', function () { App.abrir(TelaTerceiros); });
-    U.$('#btn-ferramentas').addEventListener('click', function () { App.abrir(TelaFerramentas); });
+    /* botão 🧰 FERRAMENTAS saiu do menu (30/09) — a tela continua no sistema */
   }).catch(function (e) {
     tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
       '<b>Não foi possível carregar os dados.</b>' + U.esc(e.message) + '</div></div>' +
