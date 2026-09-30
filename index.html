@@ -260,6 +260,7 @@ table.tab{width:100%;border-collapse:collapse}
 .prod__res.dif{color:var(--vermelho)}
 .prod__res.mais{color:var(--amarelo)}
 .prod__res.pend{color:var(--txt-3)}
+.ord-tit{margin:16px 0 6px;font-weight:900;color:#fff;background:var(--azul);border-radius:10px;padding:7px 12px;font-size:14px}
 .atalhos{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .atalho{
   border:1px solid var(--linha);background:var(--branco);border-radius:99px;
@@ -951,8 +952,23 @@ const Banco = {
             dano_foto_base64: i.dano_foto_base64 || null
           };
         });
+        /* campos novos (triagem do retorno) só vão se existirem — banco antigo continua funcionando */
+        var NOVOS = ['qtd_lavagem', 'lavagem_status', 'qtd_perdida', 'perda_obs'];
+        var temNovo = false;
+        itens.forEach(function (i, k) {
+          NOVOS.forEach(function (c) {
+            if (i[c] !== undefined && i[c] !== null && i[c] !== '') { linhas[k][c] = i[c]; temNovo = true; }
+          });
+        });
         return self.cliente.from('itens_conferencia').insert(linhas).select()
-          .then(function (r2) { if (r2.error) Banco._erro(r2.error); return r2.data || []; });
+          .then(function (r2) {
+            if (r2.error && temNovo && /column|schema|qtd_lavagem|qtd_perdida|lavagem|perda_obs/i.test(r2.error.message || '')) {
+              var limpas = linhas.map(function (l) { var c = {}; Object.keys(l).forEach(function (k) { if (NOVOS.indexOf(k) < 0) c[k] = l[k]; }); return c; });
+              return self.cliente.from('itens_conferencia').insert(limpas).select()
+                .then(function (r3) { if (r3.error) Banco._erro(r3.error); return r3.data || []; });
+            }
+            if (r2.error) Banco._erro(r2.error); return r2.data || [];
+          });
       });
   },
 
@@ -2102,6 +2118,7 @@ const Calculo = {
         esperadoRetorno: saida === null ? prevista : enviado,
         difSaida: saida === null ? null : saida - prevista,
         difRetorno: retorno === null ? null : retorno - (saida === null ? prevista : enviado),
+        triagem: iR ? { lav: U.num(iR.qtd_lavagem) || 0, perd: U.num(iR.qtd_perdida) || 0, obs: iR.perda_obs || '' } : null,
         dano: iR ? {
           qtd: U.num(iR.qtd_danificada) || 0,
           descricao: iR.dano_descricao || '',
@@ -2131,7 +2148,8 @@ const Calculo = {
       ls.forEach(function (l) {
         var pid = l.produto && l.produto.id;
         if (!pid) return;
-        var acc = porProduto[pid] || (porProduto[pid] = { saida: null, retorno: null, danificado: 0, composta: 0 });
+        var acc = porProduto[pid] || (porProduto[pid] = { saida: null, retorno: null, danificado: 0, composta: 0, lavagem: 0, perdida: 0 });
+        if (l.triagem) { acc.lavagem = (acc.lavagem || 0) + l.triagem.lav; acc.perdida = (acc.perdida || 0) + l.triagem.perd; }
         if (l.saida !== null) acc.saida = (acc.saida || 0) + l.saida;
         if (l.retorno !== null) acc.retorno = (acc.retorno || 0) + l.retorno;
         if (l.dano) acc.danificado += l.dano.qtd;
@@ -2155,7 +2173,7 @@ const Calculo = {
       var prevista = previstoPlano[p.id] !== undefined
         ? previstoPlano[p.id]
         : U.num(p.quantidade_prevista);
-      var acc = porProduto[p.id] || { saida: null, retorno: null, danificado: 0, composta: 0 };
+      var acc = porProduto[p.id] || { saida: null, retorno: null, danificado: 0, composta: 0, lavagem: 0, perdida: 0 };
       var saida = acc.saida, retorno = acc.retorno, danificado = acc.danificado;
       var composta = acc.composta || 0;
       var pecaDeComposicao = !!usadaEmComposicao[String(p.nome || '').trim().toUpperCase()];
@@ -2165,6 +2183,7 @@ const Calculo = {
         produto: p, nome: p.nome, unidade: p.unidade || 'UN',
         prevista: prevista,
         saida: saida, retorno: retorno, enviado: enviado, danificado: danificado,
+        lavagem: acc.lavagem || 0, perdida: acc.perdida || 0,
         composta: composta,
         pecaDeComposicao: pecaDeComposicao,
         /* a composição cobre a falta: 12 previstos, 0 inteiros + 12 compostos = OK */
@@ -2178,16 +2197,18 @@ const Calculo = {
      enviado = tudo que saiu · retornado = tudo que já voltou (em qualquer caminhão) */
   totaisEvento: function (produtos, carregamentos, conferencias, itens, planos) {
     var linhas = Calculo.montarEvento(produtos, carregamentos, conferencias, itens, planos);
-    var t = { previsto: 0, enviado: 0, retornado: 0, falta: 0, pct: 0 };
+    var t = { previsto: 0, enviado: 0, retornado: 0, falta: 0, pct: 0, perdido: 0 };
     var baseTotal = 0;
     linhas.forEach(function (l) {
       t.previsto += l.prevista;
       t.enviado += l.saida || 0;
       t.retornado += l.retorno || 0;
+      t.perdido += l.perdida || 0;
       baseTotal += (l.esperadoRetorno !== undefined ? l.esperadoRetorno : (l.saida === null ? l.prevista : (l.saida || 0)));
     });
-    t.falta = Math.max(0, baseTotal - t.retornado);
-    t.pct = baseTotal ? Math.min(100, Math.round(t.retornado / baseTotal * 100)) : 0;
+    /* ❌ perdida declarada no retorno conta como resolvida (vai pra cobrança, não fica "faltando voltar") */
+    t.falta = Math.max(0, baseTotal - t.retornado - t.perdido);
+    t.pct = baseTotal ? Math.min(100, Math.round((t.retornado + t.perdido) / baseTotal * 100)) : 0;
     return t;
   },
 
@@ -2624,6 +2645,196 @@ var Estoque = {
   rotulo: { entrada: '📥 Entrada', saida: '🚚 Saída p/ evento', retorno: '↩️ Retorno de evento', ajuste: '🛠️ Ajuste' }
 };
 
+
+/* ============================================================
+   📦 MATERIAL — visão única do material em todos os eventos:
+   saldo no galpão, na rua (por evento), reservado (o que eventos
+   abertos ainda vão tirar), na oficina (com previsão) e na lavagem.
+   Base do semáforo do checklist, da reserva e do estoque mínimo.
+   ============================================================ */
+var Material = {
+  _cache: null, _cacheEm: 0,
+  aberto: function (ev) { return ev && ev.status !== 'Finalizado' && ev.status !== 'Com divergência'; },
+  janela: function (ev) {
+    var ini = String((ev && ev.data) || '').slice(0, 10);
+    var fim = (typeof fimDesmontagem === 'function' && fimDesmontagem(ev)) || ini;
+    return { ini: ini, fim: fim || ini };
+  },
+  sobrepoe: function (a, b) {
+    var ja = Material.janela(a), jb = Material.janela(b);
+    if (!ja.ini || !jb.ini) return true;   /* sem data: por segurança, conflita */
+    return ja.ini <= jb.fim && jb.ini <= ja.fim;
+  },
+  _lista: function (q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); },
+  /* traz tudo de uma vez (fica guardado 20s para as telas não repetirem a busca) */
+  carregar: function (forcar) {
+    if (!forcar && Material._cache && Date.now() - Material._cacheEm < 20000) return Promise.resolve(Material._cache);
+    var L = Material._lista, cli = Banco.cliente;
+    var colsPend = 'id,produto_id,conferencia_id,qtd_danificada,manutencao_status,manutencao_previsao,qtd_lavagem,lavagem_status,qtd_perdida,created_at';
+    var pendentes = L(cli.from('itens_conferencia').select(colsPend).or('qtd_danificada.gt.0,qtd_lavagem.gt.0'))
+      .then(function (x) { Material.temColunasNovas = true; return x; })
+      .catch(function () {
+        Material.temColunasNovas = false;
+        return L(cli.from('itens_conferencia').select('id,produto_id,conferencia_id,qtd_danificada,manutencao_status').gt('qtd_danificada', 0)).catch(function () { return []; });
+      });
+    return Promise.all([
+      Banco.listarEstoque().catch(function () { return []; }),
+      Banco.listarMovimentos().catch(function () { return []; }),
+      Banco.listarEventos(),
+      L(cli.from('produtos').select('id,nome,evento_id,quantidade_prevista,terceirizado,unidade')),
+      L(cli.from('conferencias').select('id,evento_id,tipo,carregamento_id,status,finalizada_em')),
+      L(cli.from('itens_carregamento').select('produto_id,quantidade,carregamento_id')).catch(function () { return []; }),
+      pendentes
+    ]).then(function (r) {
+      var d = { cadastro: r[0], movimentos: r[1], eventos: r[2], produtos: r[3], conferencias: r[4], planos: r[5], pend: r[6] };
+      App.eventos = d.eventos;
+      var abertos = d.eventos.filter(Material.aberto).map(function (e) { return e.id; });
+      var confAb = d.conferencias.filter(function (c) { return abertos.indexOf(c.evento_id) >= 0; });
+      return (confAb.length
+        ? L(cli.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada').in('conferencia_id', confAb.map(function (c) { return c.id; })))
+        : Promise.resolve([])).then(function (itens) { d.itens = itens; return Material._montar(d); });
+    }).then(function (d) { Material._cache = d; Material._cacheEm = Date.now(); return d; });
+  },
+  _montar: function (d) {
+    var ch = Estoque.chave;
+    d.porChave = {};
+    d.cadastro.forEach(function (i) { d.porChave[ch(i.nome)] = i; });
+    var sid = Estoque.saldos(d.cadastro, d.movimentos);
+    d.saldoCh = {};
+    d.cadastro.forEach(function (i) { d.saldoCh[ch(i.nome)] = sid[i.id] || 0; });
+    var prod = {};
+    d.produtos.forEach(function (p) { prod[p.id] = p; });
+    d.prod = prod;
+    var evDe = {};
+    d.eventos.forEach(function (e) { evDe[e.id] = e; });
+    d.evDe = evDe;
+    /* oficina e lavagem pendentes (de qualquer evento, mesmo encerrado) */
+    d.oficina = {}; d.lavagem = {};
+    d.pend.forEach(function (i) {
+      var p = prod[i.produto_id]; if (!p) return;
+      var k = ch(p.nome);
+      if (U.num(i.qtd_danificada) > 0 && (i.manutencao_status || 'pendente') === 'pendente') {
+        (d.oficina[k] = d.oficina[k] || []).push({ qtd: U.num(i.qtd_danificada), previsao: i.manutencao_previsao || null, id: i.id, evento_id: p.evento_id });
+      }
+      if (U.num(i.qtd_lavagem) > 0 && (i.lavagem_status || 'pendente') === 'pendente') {
+        (d.lavagem[k] = d.lavagem[k] || []).push({ qtd: U.num(i.qtd_lavagem), id: i.id, evento_id: p.evento_id, em: i.created_at });
+      }
+    });
+    /* previsto de cada evento (plano por caminhão vence o previsto do produto) */
+    var planoProd = {};
+    d.planos.forEach(function (pl) { planoProd[pl.produto_id] = (planoProd[pl.produto_id] || 0) + U.num(pl.quantidade); });
+    var confDe = {};
+    d.conferencias.forEach(function (c) { confDe[c.id] = c; });
+    d.prev = {}; d.saiu = {}; d.voltou = {};
+    d.produtos.forEach(function (p) {
+      if (p.terceirizado || !Material.aberto(evDe[p.evento_id])) return;
+      var k = ch(p.nome), e = p.evento_id;
+      var q = planoProd[p.id] !== undefined ? planoProd[p.id] : U.num(p.quantidade_prevista);
+      (d.prev[e] = d.prev[e] || {})[k] = ((d.prev[e] || {})[k] || 0) + q;
+    });
+    d.itens.forEach(function (i) {
+      var c = confDe[i.conferencia_id], p = prod[i.produto_id];
+      if (!c || !p || p.terceirizado) return;
+      var k = ch(p.nome), e = c.evento_id, q = U.num(i.quantidade);
+      var alvo = c.tipo === 'saida' ? d.saiu : (c.tipo === 'retorno' ? d.voltou : null);
+      if (!alvo) return;
+      (alvo[e] = alvo[e] || {})[k] = ((alvo[e] || {})[k] || 0) + q;
+    });
+    return d;
+  },
+  soma: function (lista) { return (lista || []).reduce(function (t, x) { return t + x.qtd; }, 0); },
+  /* quanto de cada peça cada evento aberto AINDA vai tirar do galpão */
+  aTirar: function (d, evId, k) {
+    return Math.max(0, ((d.prev[evId] || {})[k] || 0) - ((d.saiu[evId] || {})[k] || 0));
+  },
+  /* quanto está na rua com cada evento */
+  naRua: function (d, evId, k) {
+    return Math.max(0, ((d.saiu[evId] || {})[k] || 0) - ((d.voltou[evId] || {})[k] || 0));
+  },
+  /* reservas: eventos abertos que ainda vão tirar a peça */
+  reservas: function (d, k) {
+    var out = [];
+    d.eventos.forEach(function (e) {
+      if (!Material.aberto(e)) return;
+      var q = Material.aTirar(d, e.id, k);
+      if (q > 0) out.push({ ev: e, qtd: q });
+    });
+    out.sort(function (a, b) { return String(a.ev.data || '9').localeCompare(String(b.ev.data || '9')); });
+    return out;
+  },
+  /* 🚦 semáforo de cada peça do evento:
+     verde    = tem no galpão (descontando oficina, lavagem e o que eventos das mesmas datas vão levar)
+     amarelo  = só fecha com material que volta de outro evento / sai da oficina ANTES da data
+     vermelho = não fecha: precisa locar */
+  semaforo: function (d, ev) {
+    var res = {}, j = Material.janela(ev);
+    var chaves = Object.keys(d.prev[ev.id] || {});
+    chaves.forEach(function (k) {
+      var falta = Material.aTirar(d, ev.id, k);
+      if (!(falta > 0)) { res[k] = { status: 'ok', falta: 0 }; return; }
+      if (d.saldoCh[k] === undefined) { res[k] = { status: 'sem', falta: falta }; return; }
+      var ofi = Material.soma(d.oficina[k]), lav = Material.soma(d.lavagem[k]);
+      var prom = 0, quem = [], volta = 0, deOnde = [];
+      d.eventos.forEach(function (e) {
+        if (e.id === ev.id || !Material.aberto(e)) return;
+        if (Material.sobrepoe(e, ev)) {
+          var q = Material.aTirar(d, e.id, k);
+          if (q > 0) { prom += q; quem.push(e.nome + ' (' + U.fmt(q) + ')'); }
+        } else {
+          var jr = Material.janela(e);
+          var rua = Material.naRua(d, e.id, k);
+          if (rua > 0 && jr.fim && j.ini && jr.fim < j.ini) { volta += rua; deOnde.push(e.nome + ' volta ' + U.fmtData(jr.fim) + ' (' + U.fmt(rua) + ')'); }
+        }
+      });
+      (d.oficina[k] || []).forEach(function (o) {
+        if (o.previsao && j.ini && o.previsao < j.ini) { volta += o.qtd; deOnde.push('oficina pronta ' + U.fmtData(o.previsao) + ' (' + U.fmt(o.qtd) + ')'); }
+      });
+      if (lav > 0) { volta += lav; deOnde.push('lavagem (' + U.fmt(lav) + ')'); }
+      var disp = d.saldoCh[k] - ofi - lav - prom;
+      var st = falta <= disp ? 'verde' : (falta <= disp + volta ? 'amarelo' : 'vermelho');
+      res[k] = { status: st, falta: falta, disp: disp, saldo: d.saldoCh[k], ofi: ofi, lav: lav, prom: prom, quem: quem,
+        volta: volta, deOnde: deOnde, deficit: Math.max(0, falta - disp - (st === 'vermelho' ? volta : 0)) };
+    });
+    return res;
+  },
+  bolinha: function (s) {
+    return s === 'verde' ? '🟢' : s === 'amarelo' ? '🟡' : s === 'vermelho' ? '🔴' : s === 'sem' ? '⚪' : '✔️';
+  },
+  /* miniatura da peça: foto pequena para caber no banco e na tela */
+  miniatura: function (arquivo) {
+    return new Promise(function (resolve, reject) {
+      var leitor = new FileReader();
+      leitor.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var max = 160, esc = Math.min(1, max / Math.max(img.width, img.height));
+          var cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(img.width * esc)); cv.height = Math.max(1, Math.round(img.height * esc));
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          resolve(cv.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = function () { reject(new Error('Não consegui abrir esta foto.')); };
+        img.src = leitor.result;
+      };
+      leitor.onerror = function () { reject(new Error('Não consegui ler o arquivo.')); };
+      leitor.readAsDataURL(arquivo);
+    });
+  },
+  fotoTag: function (item, tam) {
+    if (!item || !item.foto) return '';
+    tam = tam || 40;
+    return '<img src="' + item.foto + '" alt="" class="js-foto-peca" data-foto="1" style="width:' + tam + 'px;height:' + tam + 'px;object-fit:cover;border-radius:8px;border:1px solid var(--linha);flex:none;cursor:zoom-in;vertical-align:middle;margin-right:8px">';
+  }
+};
+/* toque na miniatura: abre grande */
+document.addEventListener('click', function (e) {
+  var t = e.target;
+  if (!t || !t.classList || !t.classList.contains('js-foto-peca')) return;
+  e.stopPropagation();
+  var m = U.modal({ titulo: '📷 Foto da peça', html: '<img src="' + t.src + '" style="width:100%;border-radius:10px">', pe: '<button class="btn btn--branco" data-x>Fechar</button>' });
+  m.querySelector('[data-x]').addEventListener('click', m.fechar);
+}, true);
+
 /* ---------- Ferramentas: saldo e onde cada uma está ---------- */
 var Ferramentas = {
   /* entrada/retorno somam · saida desconta · ajuste vale o sinal */
@@ -2916,31 +3127,83 @@ function nomeCaminhao(caminhoes, id, cavaloId) {
    ou salvar em PDF (papel do coordenador, vai junto com o caminhão)
    ============================================================ */
 function imprimirCarregamento(p, cg) {
+  /* abre a janela já (senão o navegador bloqueia) e preenche quando a ficha do estoque chegar */
+  var jan = window.open('', '_blank');
+  if (!jan) return U.aviso('O navegador bloqueou a janela do romaneio. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
+  try { jan.document.write('<p style="font:16px Arial;padding:30px">Montando o romaneio…</p>'); } catch (e) { }
+  var pega = (typeof Material !== 'undefined' && Material._cache && Material._cache.cadastro)
+    ? Promise.resolve(Material._cache.cadastro)
+    : Banco.listarEstoque().catch(function () { return []; });
+  pega.then(function (cadastro) {
+    var pagina = romaneioPagina(p, cg, cadastro || []);
+    jan.document.open();
+    jan.document.write(pagina);
+    jan.document.close();
+    jan.focus();
+    setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+  });
+}
+
+/* 🚚 romaneio com peso, volume e embalagem da ficha */
+function romaneioPagina(p, cg, cadastro) {
   var ev = p.evento;
+  var ficha = {};
+  (cadastro || []).forEach(function (i) { ficha[Estoque.chave(i.nome)] = i; });
+  function fDe(l) { return ficha[Estoque.chave(l.nome)] || null; }
   var linhas = Calculo.montarCarregamento(p.produtos, p.conferencias, p.itens, cg.id, p.planos, cg.sentido)
     .filter(function (l) { return l.prevista > 0 || l.saida !== null; })
     .sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
   var temConf = linhas.some(function (l) { return l.saida !== null; });
   var cS = Calculo.confDe(p.conferencias, cg.id, 'saida');
-  var totPrev = 0, totSaiu = 0;
-  linhas.forEach(function (l) { totPrev += l.prevista; totSaiu += l.saida || 0; });
+  var totPrev = 0, totSaiu = 0, totPeso = 0, totVol = 0, semFicha = 0;
+  var temPeso = linhas.some(function (l) { var f = fDe(l); return f && (U.num(f.peso) > 0 || U.num(f.volume) > 0); });
+  var temOrdem = false;
+  linhas.forEach(function (l) {
+    totPrev += l.prevista; totSaiu += l.saida || 0;
+    var q = l.saida !== null ? U.num(l.saida) : U.num(l.prevista), f = fDe(l);
+    if (f && U.num(f.peso) > 0) totPeso += q * U.num(f.peso); else if (temPeso) semFicha++;
+    if (f && U.num(f.volume) > 0) totVol += q * U.num(f.volume);
+  });
+  function embTxt(l) {
+    var f = fDe(l), q = l.saida !== null ? U.num(l.saida) : U.num(l.prevista);
+    if (!f || !(U.num(f.por_embalagem) > 1) || !q) return '';
+    var por = U.num(f.por_embalagem), cx = Math.floor(q / por), sol = Math.round((q - cx * por) * 100) / 100;
+    var nome = (f.embalagem || 'palete').toLowerCase();
+    return (cx ? cx + ' ' + nome + (cx > 1 ? 's' : '') : '') + (sol ? (cx ? ' + ' : '') + U.fmt(sol) + ' solta' + (sol > 1 ? 's' : '') : '');
+  }
 
-  var corpo = '<table><thead><tr><th style="width:26px">#</th><th>Item</th>' +
+  var corpo = '<table><thead><tr><th style="width:26px">#</th>' +
+      (temOrdem ? '<th style="width:54px">Ordem</th>' : '') + '<th>Item</th>' +
       '<th style="text-align:right;width:90px">Quantidade</th>' +
-      '<th style="text-align:right;width:110px">' + (temConf ? 'Carregado' : 'Carregado (✔)') + '</th></tr></thead><tbody>' +
+      '<th style="width:110px">Embalagem</th>' +
+      (temPeso ? '<th style="text-align:right;width:70px">Peso kg</th><th style="text-align:right;width:60px">Vol. m³</th>' : '') +
+      '<th style="text-align:right;width:100px">' + (temConf ? 'Carregado' : 'Carregado (✔)') + '</th></tr></thead><tbody>' +
     linhas.map(function (l, i) {
       var dif = temConf && l.saida !== null && U.num(l.saida) !== U.num(l.prevista);
+      var f = fDe(l), q = l.saida !== null ? U.num(l.saida) : U.num(l.prevista);
       return '<tr><td class="mut">' + (i + 1) + '</td>' +
+        
         '<td>' + U.esc(l.nome) + (l.produto && l.produto.terceirizado ? ' <b style="color:#5B3A99">🔗 TERC.</b>' : '') + '</td>' +
         '<td class="num">' + U.fmt(l.prevista) + ' <span class="mut">' + U.esc(l.unidade) + '</span></td>' +
+        '<td class="mut">' + U.esc(embTxt(l)) + '</td>' +
+        (temPeso
+          ? '<td class="num" style="font-weight:400">' + (f && U.num(f.peso) > 0 ? U.fmt(Math.round(q * U.num(f.peso) * 10) / 10) : '—') + '</td>' +
+            '<td class="num" style="font-weight:400">' + (f && U.num(f.volume) > 0 ? U.fmt(Math.round(q * U.num(f.volume) * 100) / 100) : '—') + '</td>'
+          : '') +
         (temConf
           ? '<td class="num' + (dif ? ' lar' : '') + '">' + (l.saida === null ? '—' : U.fmt(l.saida)) + '</td>'
           : '<td style="border-bottom:1px solid #C3CDDD">&nbsp;</td>') +
       '</tr>';
     }).join('') +
-    '</tbody><tfoot><tr class="tt"><td></td><td><b>TOTAL</b></td>' +
-      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td>' +
+    '</tbody><tfoot><tr class="tt"><td></td>' + (temOrdem ? '<td></td>' : '') + '<td><b>TOTAL</b></td>' +
+      '<td class="num"><b>' + U.fmt(totPrev) + '</b></td><td></td>' +
+      (temPeso ? '<td class="num"><b>' + U.fmt(Math.round(totPeso)) + '</b></td><td class="num"><b>' + U.fmt(Math.round(totVol * 10) / 10) + '</b></td>' : '') +
       '<td class="num"><b>' + (temConf ? U.fmt(totSaiu) : '&nbsp;') + '</b></td></tr></tfoot></table>' +
+    (temPeso
+      ? '<div class="obs" style="border-left-color:#0B4F9E;background:#EEF4FB"><b>⚖️ CARGA:</b> ' + U.fmt(Math.round(totPeso)) + ' kg · ' +
+        U.fmt(Math.round(totVol * 10) / 10) + ' m³' +
+        (semFicha ? ' <span class="mut">(' + semFicha + ' ite' + (semFicha > 1 ? 'ns' : 'm') + ' sem peso na ficha — não somado)</span>' : '') + '</div>'
+      : '') +
     ((cg.observacoes || '').trim()
       ? '<div class="obs"><b>📝 OBSERVAÇÕES DO COORDENADOR:</b><br>' +
         U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div>'
@@ -2997,7 +3260,7 @@ function imprimirCarregamento(p, cg) {
     '<div class="topo">' +
       '<div class="marca">GRUPO TENDAS PLENART<small>CENTRAL DE CONFER\u00CANCIA</small></div>' +
       '<div class="tit"><b>' + titulo + '</b>' +
-        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas</span>' +
+        '<span>' + linhas.length + ' itens \u00B7 ' + U.fmt(totPrev) + ' unid. previstas' + (temPeso ? ' \u00B7 ' + U.fmt(Math.round(totPeso)) + ' kg \u00B7 ' + U.fmt(Math.round(totVol * 10) / 10) + ' m\u00B3' : '') + '</span>' +
         '<span>Gerado em ' + U.fmtDataHora(new Date().toISOString()) + (quem ? ' por ' + U.esc(quem) : '') + '</span></div>' +
     '</div>' +
     '<div class="dados">' + sub.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
@@ -3005,13 +3268,7 @@ function imprimirCarregamento(p, cg) {
     '<div class="rodape"><span>Grupo Tendas Plenart \u00B7 Central de Confer\u00EAncia</span>' +
       '<span>Romaneio do carregamento ' + cg.numero + ' \u00B7 ' + U.esc(ev.nome) + '</span></div>' +
     '</body></html>';
-
-  var jan = window.open('', '_blank');
-  if (!jan) return U.aviso('O navegador bloqueou a janela do romaneio. Libere os pop-ups deste site e tente de novo.', 'erro', 7000);
-  jan.document.write(pagina);
-  jan.document.close();
-  jan.focus();
-  setTimeout(function () { try { jan.print(); } catch (e) { } }, 500);
+  return pagina;
 }
 
 /* 🖨️ CHECKLIST TOTAL do evento — folha para imprimir ou salvar em PDF */
@@ -3138,120 +3395,45 @@ function rotuloDesmontagem(ev) {
 function verificarDisponibilidade(p) {
   var ev = p.evento;
   var m = U.modal({
-    titulo: '🔍 Disponibilidade do material',
-    html: '<p class="mut">Conferindo o estoque e os outros eventos nas mesmas datas…</p>',
+    titulo: '🚦 Disponibilidade do material',
+    html: '<p class="mut">Conferindo o galpão, a oficina, a lavagem e os outros eventos…</p>',
     pe: '<button class="btn btn--branco" data-x>Fechar</button>'
   });
   m.querySelector('[data-x]').addEventListener('click', function () { m.fechar(); });
   var corpo = m.querySelector('.modal__corpo');
-
-  var ini = String(ev.data || '').slice(0, 10);
-  var fim = fimDesmontagem(ev) || String(ev.data || '').slice(0, 10);
-  var outros = App.eventos.filter(function (e) {
-    if (e.id === ev.id) return false;
-    if (e.status === 'Finalizado' || e.status === 'Com divergência') return false;
-    if (!e.data) return true;   /* sem data: por segurança conta como possível conflito */
-    var i2 = String(e.data).slice(0, 10);
-    var f2 = fimDesmontagem(e) || String(e.data).slice(0, 10);
-    if (!ini) return true;
-    return ini <= f2 && i2 <= fim;
-  });
-  var ids = outros.map(function (e) { return e.id; });
-  var nomeOutro = {};
-  outros.forEach(function (e) { nomeOutro[e.id] = e.nome; });
-
-  function lista(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
-  Promise.all([
-    Banco.listarEstoque(),
-    lista(Banco.cliente.from('itens_conferencia').select('produto_id,qtd_danificada,manutencao_status').gt('qtd_danificada', 0)).catch(function () { return []; }),
-    lista(Banco.cliente.from('produtos').select('id,nome,evento_id,quantidade_prevista,terceirizado')),
-    ids.length ? lista(Banco.cliente.from('conferencias').select('id,evento_id,tipo').in('evento_id', ids)) : Promise.resolve([])
-  ]).then(function (rr) {
-    var estoque = rr[0] || [], danif = rr[1] || [], todosProd = rr[2] || [], confsOut = rr[3] || [];
-    var saidasOut = confsOut.filter(function (c) { return c.tipo === 'saida'; });
-    var confEv = {};
-    saidasOut.forEach(function (c) { confEv[c.id] = c.evento_id; });
-    var qIt = saidasOut.length
-      ? lista(Banco.cliente.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada')
-          .in('conferencia_id', saidasOut.map(function (c) { return c.id; })))
-      : Promise.resolve([]);
-    return qIt.then(function (itensOut) {
-      var nomeProd = {}, prodInfo = {};
-      todosProd.forEach(function (x) { nomeProd[x.id] = x.nome; prodInfo[x.id] = x; });
-
-      var saldoCh = {}, unCh = {};
-      estoque.forEach(function (i) { saldoCh[Estoque.chave(i.nome)] = U.num(i.quantidade); unCh[Estoque.chave(i.nome)] = i.unidade || 'UN'; });
-      var oficinaCh = {};
-      danif.forEach(function (i) {
-        if ((i.manutencao_status || 'pendente') !== 'pendente') return;
-        var nm = nomeProd[i.produto_id]; if (!nm) return;
-        oficinaCh[Estoque.chave(nm)] = (oficinaCh[Estoque.chave(nm)] || 0) + U.num(i.qtd_danificada);
-      });
-
-      /* o que os OUTROS eventos ainda vão tirar do galpão: previsto − o que já saiu */
-      var saiuOut = {};   /* evento|chave -> qtd */
-      itensOut.forEach(function (i) {
-        var evId = confEv[i.conferencia_id]; if (!evId) return;
-        var nm = nomeProd[i.produto_id]; if (!nm) return;
-        var k = evId + '|' + Estoque.chave(nm);
-        saiuOut[k] = (saiuOut[k] || 0) + U.num(i.quantidade) + U.num(i.qtd_danificada);
-      });
-      var promCh = {}, quemCh = {};
-      todosProd.forEach(function (x) {
-        if (ids.indexOf(x.evento_id) < 0 || x.terceirizado) return;
-        var ch = Estoque.chave(x.nome);
-        var falta = Math.max(0, U.num(x.quantidade_prevista) - (saiuOut[x.evento_id + '|' + ch] || 0));
-        if (!(falta > 0)) return;
-        promCh[ch] = (promCh[ch] || 0) + falta;
-        (quemCh[ch] = quemCh[ch] || []).push(nomeOutro[x.evento_id] + ' (' + U.fmt(falta) + ')');
-      });
-
-      /* o que ESTE evento ainda vai tirar */
-      var linhasEv = Calculo.montarEvento(p.produtos, p.carregamentos, p.conferencias, p.itens, p.planos);
-      var conflitos = [], ok = 0, semCadastro = [];
-      linhasEv.forEach(function (l) {
-        if (l.produto && l.produto.terceirizado) return;
-        var falta = Math.max(0, l.prevista - ((l.saida === null ? 0 : l.saida) + (l.composta || 0)));
-        if (!(falta > 0)) return;
-        var ch = Estoque.chave(l.nome);
-        if (saldoCh[ch] === undefined) { semCadastro.push(l.nome); return; }
-        var disp = saldoCh[ch] - (oficinaCh[ch] || 0) - (promCh[ch] || 0);
-        if (falta > disp) {
-          conflitos.push({ nome: l.nome, un: l.unidade, falta: falta, saldo: saldoCh[ch],
-            ofi: oficinaCh[ch] || 0, prom: promCh[ch] || 0, quem: quemCh[ch] || [], deficit: falta - disp });
-        } else ok++;
-      });
-
-      var h2 = '<p class="peq mut" style="margin-bottom:10px">Datas deste evento: <b>' +
-        (ini ? U.fmtData(ini) : '—') + (fim && fim !== ini ? ' a ' + U.fmtData(fim) : '') + '</b> · ' +
-        (outros.length ? 'comparado com ' + outros.length + ' evento(s) aberto(s) nas mesmas datas.' : 'nenhum outro evento aberto nas mesmas datas.') + '</p>';
-      if (!conflitos.length) {
-        h2 += '<div class="aviso aviso--verde"><span class="aviso__ico">✓</span><div>' +
-          '<b>Tudo disponível.</b>O galpão cobre o que este evento ainda precisa levar' +
-          (ok ? ' (' + ok + ' iten(s) conferidos)' : '') + '.</div></div>';
-      } else {
-        h2 += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
-          '<b>' + conflitos.length + ' item(ns) NÃO fecham a conta:</b></div></div>' +
-          conflitos.map(function (c) {
-            return '<div style="border:1px solid var(--linha);border-left:4px solid var(--vermelho);border-radius:10px;padding:9px 12px;margin-top:8px">' +
-              '<b>' + U.esc(c.nome) + '</b> — <b style="color:var(--vermelho)">faltam ' + U.fmt(c.deficit) + ' ' + U.esc(c.un || 'UN') + '</b>' +
-              '<span class="peq mut" style="display:block;margin-top:3px">precisa levar ' + U.fmt(c.falta) +
-                ' · no galpão ' + U.fmt(c.saldo) +
-                (c.ofi ? ' · na oficina ' + U.fmt(c.ofi) : '') +
-                (c.prom ? ' · prometido: ' + c.quem.map(U.esc).join(', ') : '') + '</span>' +
-            '</div>';
-          }).join('');
-      }
-      if (semCadastro.length) {
-        h2 += '<p class="peq mut" style="margin-top:10px">⚠ Sem cadastro no estoque (não deu para conferir): ' +
-          semCadastro.slice(0, 8).map(U.esc).join(', ') + (semCadastro.length > 8 ? '…' : '') + '</p>';
-      }
-      corpo.innerHTML = h2;
-    });
+  Material.carregar(true).then(function (d) {
+    var sem = Material.semaforo(d, ev), j = Material.janela(ev);
+    var nomeCh = {}, unCh = {};
+    (p.produtos || []).forEach(function (x) { nomeCh[Estoque.chave(x.nome)] = x.nome; unCh[Estoque.chave(x.nome)] = x.unidade || 'UN'; });
+    var grupos = { vermelho: [], amarelo: [], verde: [], sem: [], ok: [] };
+    Object.keys(sem).forEach(function (k) { grupos[sem[k].status].push(k); });
+    function bloco(k, cor) {
+      var x = sem[k], it = d.porChave[k];
+      return '<div style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--linha);border-left:4px solid ' + cor + ';border-radius:10px;padding:9px 12px;margin-top:8px">' +
+        (it && it.foto ? Material.fotoTag(it, 40) : '') +
+        '<span style="flex:1;min-width:0"><b>' + U.esc(nomeCh[k] || k) + '</b> — precisa levar <b>' + U.fmt(x.falta) + ' ' + U.esc(unCh[k]) + '</b>' +
+        (x.status === 'vermelho' ? ' · <b style="color:var(--vermelho)">LOCAR ' + U.fmt(x.deficit) + '</b>' : '') +
+        '<span class="peq mut" style="display:block;margin-top:3px">galpão ' + U.fmt(x.saldo) +
+          (x.ofi ? ' · oficina ' + U.fmt(x.ofi) : '') + (x.lav ? ' · lavagem ' + U.fmt(x.lav) : '') +
+          (x.prom ? ' · reservado p/ ' + x.quem.map(U.esc).join(', ') : '') + ' · <b>livre ' + U.fmt(Math.max(0, x.disp)) + '</b>' +
+          (x.deOnde && x.deOnde.length ? '<br>↩️ volta antes: ' + x.deOnde.map(U.esc).join(' · ') : '') + '</span></span></div>';
+    }
+    var h = '<p class="peq mut" style="margin-bottom:10px">Datas deste evento: <b>' + (j.ini ? U.fmtData(j.ini) : '—') +
+      (j.fim && j.fim !== j.ini ? ' a ' + U.fmtData(j.fim) : '') + '</b>. O livre já desconta oficina, lavagem e o que outros eventos das mesmas datas vão levar.</p>' +
+      '<div class="btn-linha" style="margin-bottom:6px">' +
+        '<span class="sit sit--finalizado">🟢 ' + grupos.verde.length + ' tem no galpão</span>' +
+        '<span class="sit sit--andamento">🟡 ' + grupos.amarelo.length + ' dependem de retorno</span>' +
+        '<span class="sit sit--divergencia">🔴 ' + grupos.vermelho.length + ' precisam locar</span>' +
+      '</div>';
+    if (grupos.vermelho.length) h += '<h3 style="margin-top:12px;color:var(--vermelho)">🔴 Não fecha — precisa locar</h3>' + grupos.vermelho.map(function (k) { return bloco(k, 'var(--vermelho)'); }).join('');
+    if (grupos.amarelo.length) h += '<h3 style="margin-top:12px;color:#B7791F">🟡 Fecha com o que volta antes</h3>' + grupos.amarelo.map(function (k) { return bloco(k, '#F2B01E'); }).join('');
+    if (grupos.verde.length) h += '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:800;color:var(--verde)">🟢 ' + grupos.verde.length + ' tem no galpão</summary>' + grupos.verde.map(function (k) { return bloco(k, 'var(--verde)'); }).join('') + '</details>';
+    if (grupos.sem.length) h += '<p class="peq mut" style="margin-top:10px">⚪ Sem cadastro no estoque (não deu para conferir): ' + grupos.sem.map(function (k) { return U.esc(nomeCh[k] || k); }).join(', ') + '</p>';
+    if (!grupos.vermelho.length && !grupos.amarelo.length && !grupos.verde.length && !grupos.sem.length) h += '<div class="aviso aviso--verde"><span class="aviso__ico">✓</span><div><b>Nada a tirar do galpão.</b>Tudo que o checklist pede já saiu.</div></div>';
+    corpo.innerHTML = h;
   }).catch(function (e) {
     console.error(e);
-    corpo.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
-      '<b>Não consegui verificar.</b>' + U.esc(e.message || '') + '</div></div>';
+    corpo.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div><b>Não consegui verificar.</b>' + U.esc(e.message || '') + '</div></div>';
   });
 }
 
@@ -3965,6 +4147,21 @@ function TelaPainel() {
         caixa.innerHTML = aba === 'terminados'
           ? porMes(lista, cartaoEvento)
           : lista.map(cartaoEvento).join('');
+        /* 🚦 eventos que ainda vão sair: o material fecha? (reserva do galpão) */
+        if (aba !== 'terminados' && aba !== 'andamento') {
+          Material.carregar().then(function (dm) {
+            U.$$('.js-abrir', caixa).forEach(function (card) {
+              var evC = dm.evDe[card.dataset.id]; if (!evC || !dm.prev[evC.id]) return;
+              var sc = Material.semaforo(dm, evC), n = { verde: 0, amarelo: 0, vermelho: 0 };
+              Object.keys(sc).forEach(function (k) { if (n[sc[k].status] !== undefined) n[sc[k].status]++; });
+              if (!(n.verde + n.amarelo + n.vermelho)) return;
+              var txt = n.vermelho ? '<b style="color:var(--vermelho)">🔴 ' + n.vermelho + ' item(ns) precisam locar</b>' + (n.amarelo ? ' · 🟡 ' + n.amarelo + ' dependem de retorno' : '')
+                : n.amarelo ? '<b style="color:#B7791F">🟡 ' + n.amarelo + ' item(ns) dependem de material que volta antes</b>'
+                : '<b style="color:var(--verde)">🟢 Material garantido no galpão</b>';
+              card.insertAdjacentHTML('beforeend', '<p class="peq" style="margin:8px 0 0;padding-top:8px;border-top:1px dashed var(--linha)">🚦 ' + txt + '</p>');
+            });
+          }).catch(function () { });
+        }
       }
       U.$$('.js-abrir', caixa).forEach(function (b) {
         b.addEventListener('click', function (e) {
@@ -4205,10 +4402,13 @@ function TelaEstoque() {
       .catch(function () { return []; }),
     Banco.cliente.from('produtos').select('id,nome')
       .then(function (r) { return r.error ? [] : (r.data || []); })
-      .catch(function () { return []; })
+      .catch(function () { return []; }),
+    Material.carregar(true).catch(function (e) { console.error(e); return null; })
   ])
     .then(function (r) {
       var cadastro = r[0], movimentos = r[1];
+      var mat = r[5];
+      TelaEstoque._mat = mat;
       var saldos = Estoque.saldos(cadastro, movimentos);
       var oficina = {};   /* chave do item -> qtd danificada esperando conserto */
       (function () {
@@ -4232,6 +4432,15 @@ function TelaEstoque() {
       function nomeEvento(id) {
         var ev = App.eventos.filter(function (e) { return e.id === id; })[0];
         return ev ? ev.nome : 'Evento apagado';
+      }
+      /* livre de verdade = galpão − oficina − lavagem − reservado pelos eventos abertos */
+      function reservadoDe(i) {
+        if (!mat) return 0;
+        return Material.reservas(mat, Estoque.chave(i.nome)).reduce(function (t, x) { return t + x.qtd; }, 0);
+      }
+      function lavagemDe(i) { return mat ? Material.soma(mat.lavagem[Estoque.chave(i.nome)]) : 0; }
+      function livreDe(i) {
+        return (saldos[i.id] || 0) - (oficina[Estoque.chave(i.nome)] || 0) - lavagemDe(i) - reservadoDe(i);
       }
 
       var familias = [];
@@ -4277,6 +4486,34 @@ function TelaEstoque() {
           '<p class="mut peq" style="margin-top:10px">As peças dos checklists entram sozinhas aqui na primeira ' +
             'saída finalizada (com saldo devendo, em vermelho, até você lançar a quantidade real).</p>' +
         '</div></div>';
+
+      /* 📊 atalhos das ferramentas do galpão */
+      var abaixoMin = [], nLav = 0, nOfi = 0;
+      cadastro.forEach(function (i) {
+        if (U.num(i.minimo) > 0 && livreDe(i) < U.num(i.minimo)) abaixoMin.push(i);
+      });
+      if (mat) {
+        Object.keys(mat.lavagem).forEach(function (k) { nLav += Material.soma(mat.lavagem[k]); });
+        Object.keys(mat.oficina).forEach(function (k) { nOfi += Material.soma(mat.oficina[k]); });
+      }
+      function pilula(n, cor) { return n ? ' <span style="background:' + cor + ';color:#fff;border-radius:99px;padding:0 8px;margin-left:4px;font-size:12px">' + U.fmt(n) + '</span>' : ''; }
+      h += '<div class="btn-linha" style="margin-bottom:12px">' +
+          '<button class="btn btn--branco" id="btn-inventario">📋 INVENTÁRIO RÁPIDO</button>' +
+          '<button class="btn btn--branco" id="btn-lavagem">🧼 FILA DE LAVAGEM' + pilula(nLav, '#0277BD') + '</button>' +
+          '<button class="btn btn--branco" id="btn-oficina-est">🛠️ OFICINA' + pilula(nOfi, 'var(--vermelho)') + '</button>' +
+          '<button class="btn btn--branco" id="btn-vida-util">📈 VIDA ÚTIL DAS PEÇAS</button>' +
+        '</div>';
+      if (abaixoMin.length) {
+        h += '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+          '<b>' + abaixoMin.length + ' peça(s) abaixo do estoque mínimo — comprar ou locar:</b>' +
+          abaixoMin.slice(0, 12).map(function (i) {
+            return '<br>• ' + U.esc(i.nome) + ': livre <b>' + U.fmt(livreDe(i)) + '</b> de mínimo <b>' + U.fmt(i.minimo) + '</b>';
+          }).join('') + (abaixoMin.length > 12 ? '<br>…' : '') + '</div></div>';
+      }
+      if (mat && Material.temColunasNovas === false) {
+        h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">🛠</span><div>' +
+          '<b>Falta rodar o materiais.sql no Supabase.</b>Sem ele não dá para salvar foto, peso, embalagem, mínimo, lavagem e perdas.</div></div>';
+      }
 
       h += '<div class="busca-prod"><input type="search" id="busca-estoque" ' +
         'placeholder="🔍 Buscar peça pelo nome..." autocomplete="off"></div>';
@@ -4349,8 +4586,10 @@ function TelaEstoque() {
           var fora = Math.max(0, emObra[i.id] || 0);
           var ofi = oficina[Estoque.chave(i.nome)] || 0;
           var disp = saldo - ofi;
-          return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '">' +
-            '<div class="carga__cam"><span>📦</span>' +
+          var lav = lavagemDe(i), res = reservadoDe(i), livre = livreDe(i);
+          var abaixo = U.num(i.minimo) > 0 && livre < U.num(i.minimo);
+          return '<div class="carga" data-nome="' + U.esc(i.nome.toLowerCase()) + '"' + (abaixo ? ' style="border-left:4px solid var(--vermelho)"' : '') + '>' +
+            '<div class="carga__cam">' + (i.foto ? Material.fotoTag(i, 44) : '<span>📦</span>') +
               '<span><b>' + U.esc(i.nome) + '</b>' +
                 Estoque.familiasDe(i).map(function (f) {
                   return ' <span class="terc-tag" style="background:#EAF2FD;border-color:#BFD6F5;color:var(--azul)">📂 ' + U.esc(f) + '</span>';
@@ -4363,10 +4602,18 @@ function TelaEstoque() {
                   U.fmt(saldo) + ' ' + U.esc(i.unidade || 'UN') + '</b>' +
                   (saldo < 0 ? ' (devendo — lance a quantidade real)' : '') +
                   (fora > 0 ? ' · Em evento: <b style="color:var(--laranja)">' + U.fmt(fora) + '</b>' : '') +
-                  (ofi > 0 ? ' · 🛠 Oficina: <b style="color:var(--vermelho)">' + U.fmt(ofi) + '</b>' +
-                    ' · Disponível de verdade: <b style="color:var(--azul)">' + U.fmt(disp) + '</b>' : '') +
+                  (ofi > 0 ? ' · 🛠 Oficina: <b style="color:var(--vermelho)">' + U.fmt(ofi) + '</b>' : '') +
+                  (lav > 0 ? ' · 🧼 Lavagem: <b style="color:#0277BD">' + U.fmt(lav) + '</b>' : '') +
+                  (res > 0 ? ' · <a href="#" class="js-es-reserva" data-id="' + i.id + '" style="color:#6A1B9A;font-weight:800">📌 Reservado: ' + U.fmt(res) + '</a>' : '') +
+                  ((ofi > 0 || lav > 0 || res > 0) ? ' · Livre de verdade: <b style="color:' + (livre < 0 ? 'var(--vermelho)' : 'var(--azul)') + '">' + U.fmt(livre) + '</b>' : '') +
+                  (abaixo ? ' · <b style="color:var(--vermelho)">⚠ abaixo do mínimo (' + U.fmt(i.minimo) + ')</b>' : '') +
+                  ((i.peso || i.por_embalagem)
+                    ? '<br>' + (i.peso ? '⚖️ ' + U.fmt(i.peso) + ' kg ' : '') + (i.volume ? '· ' + U.fmt(i.volume) + ' m³ ' : '') +
+                      (i.por_embalagem ? '· 📦 ' + U.fmt(i.por_embalagem) + ' por ' + U.esc((i.embalagem || 'palete').toLowerCase()) + ' ' : '')
+                    : '') +
                 '</span></span>' +
               '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
+                '<button class="btn btn--branco btn--peq js-es-ficha" data-id="' + i.id + '">⚙️ Ficha</button>' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
                 '<button class="btn btn--branco btn--peq js-es-ajuste" data-id="' + i.id + '">Ajustar</button>' +
                 '<button class="btn btn--branco btn--peq js-es-familia" data-id="' + i.id + '">Família</button>' +
@@ -4692,6 +4939,30 @@ function TelaEstoque() {
         });
       });
 
+      /* ⚙️ ficha da peça: foto, peso, volume, embalagem, ordem no caminhão, mínimo */
+      U.$$('.js-es-ficha', tela).forEach(function (b) {
+        b.addEventListener('click', function () { fichaPeca(cadastro.filter(function (i) { return i.id === b.dataset.id; })[0]); });
+      });
+      U.$$('.js-es-reserva', tela).forEach(function (a) {
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var item = cadastro.filter(function (i) { return i.id === a.dataset.id; })[0];
+          var rs = Material.reservas(mat, Estoque.chave(item.nome));
+          var m = U.modal({ titulo: '📌 Reservado — ' + item.nome,
+            html: '<p class="mut peq" style="margin-bottom:8px">Eventos abertos que ainda vão tirar esta peça do galpão:</p>' +
+              rs.map(function (x) {
+                return '<div style="border-bottom:1px solid var(--linha);padding:8px 0"><b>' + U.esc(x.ev.nome) + '</b> — <b>' + U.fmt(x.qtd) + ' ' + U.esc(item.unidade || 'UN') + '</b>' +
+                  '<span class="peq mut" style="display:block">📅 ' + U.fmtData(x.ev.data) + (x.ev.data_desmontagem ? ' · volta ' + rotuloDesmontagem(x.ev) : '') + '</span></div>';
+              }).join(''),
+            pe: '<button class="btn btn--branco" data-x>Fechar</button>' });
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        });
+      });
+      U.$('#btn-inventario').addEventListener('click', function () { inventarioRapido(cadastro, saldos); });
+      U.$('#btn-lavagem').addEventListener('click', function () { filaLavagem(); });
+      U.$('#btn-oficina-est').addEventListener('click', function () { filaOficina(); });
+      U.$('#btn-vida-util').addEventListener('click', function () { vidaUtil(cadastro); });
+
       U.$$('.js-es-mov', tela).forEach(function (b) {
         b.addEventListener('click', function () {
           var item = cadastro.filter(function (i) { return i.id === b.dataset.id; })[0];
@@ -4725,6 +4996,331 @@ function TelaEstoque() {
         '<button class="btn btn--branco btn--bloco" onclick="App.voltar()">Voltar</button>';
     });
   }
+}
+
+
+/* ============================================================
+   ⚙️ FICHA DA PEÇA — foto, peso, volume, embalagem, ordem no
+   caminhão e estoque mínimo (tudo opcional)
+   ============================================================ */
+function fichaPeca(item) {
+  if (!item) return;
+  var foto = item.foto || null;
+  var EMB = ['PALETE', 'CAIXA', 'FARDO', 'SACO', 'AMARRADO', 'GAIOLA'];
+  function num(v) { return v === null || v === undefined ? '' : String(v); }
+  var m = U.modal({
+    titulo: '⚙️ Ficha — ' + item.nome,
+    html:
+      '<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">' +
+        '<div id="fp-foto" style="width:96px;height:96px;border-radius:12px;border:1px dashed var(--linha);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--fundo);flex:none">' +
+          (foto ? '<img src="' + foto + '" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:30px">📦</span>') + '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+          '<button class="btn btn--branco btn--peq" id="fp-cam">📷 Câmera</button>' +
+          '<button class="btn btn--branco btn--peq" id="fp-gal">🖼️ Do telefone</button>' +
+          '<button class="btn btn--branco btn--peq" id="fp-tira" style="color:var(--vermelho)">Tirar foto</button>' +
+        '</div>' +
+        '<input type="file" id="fp-arq-cam" accept="image/*" capture="environment" hidden><input type="file" id="fp-arq-gal" accept="image/*" hidden>' +
+      '</div>' +
+      '<p class="mut peq" style="margin-bottom:10px">A foto aparece pequena no checklist e na conferência, pra ninguém confundir as peças.</p>' +
+      '<div class="btn-linha">' +
+        '<label class="campo" style="flex:1"><span class="campo__rot">⚖️ Peso (kg por unidade)</span><input class="entrada" id="fp-peso" type="number" step="any" inputmode="decimal" value="' + U.esc(num(item.peso)) + '"></label>' +
+        '<label class="campo" style="flex:1"><span class="campo__rot">📐 Volume (m³ por unidade)</span><input class="entrada" id="fp-vol" type="number" step="any" inputmode="decimal" value="' + U.esc(num(item.volume)) + '"></label>' +
+      '</div>' +
+      '<div class="btn-linha">' +
+        '<label class="campo" style="flex:1"><span class="campo__rot">📦 Quantas vêm na embalagem</span><input class="entrada" id="fp-por" type="number" inputmode="numeric" placeholder="ex.: 70" value="' + U.esc(num(item.por_embalagem)) + '"></label>' +
+        '<label class="campo" style="flex:1"><span class="campo__rot">Tipo de embalagem</span><select class="entrada" id="fp-emb">' +
+          EMB.map(function (e) { return '<option' + ((item.embalagem || 'PALETE') === e ? ' selected' : '') + '>' + e + '</option>'; }).join('') + '</select></label>' +
+      '</div>' +
+      '<label class="campo"><span class="campo__rot">⚠ Estoque mínimo (avisa quando o livre ficar abaixo)</span><input class="entrada" id="fp-min" type="number" inputmode="numeric" value="' + U.esc(num(item.minimo)) + '"></label>',
+    pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR FICHA</button>'
+  });
+  function desenhaFoto() {
+    m.querySelector('#fp-foto').innerHTML = foto ? '<img src="' + foto + '" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:30px">📦</span>';
+  }
+  function ler(campo) {
+    var f = campo.files && campo.files[0]; if (!f) return;
+    Material.miniatura(f).then(function (d) { foto = d; desenhaFoto(); campo.value = ''; }).catch(function (e) { U.aviso(e.message, 'erro'); });
+  }
+  m.querySelector('#fp-cam').addEventListener('click', function () { m.querySelector('#fp-arq-cam').click(); });
+  m.querySelector('#fp-gal').addEventListener('click', function () { m.querySelector('#fp-arq-gal').click(); });
+  m.querySelector('#fp-arq-cam').addEventListener('change', function () { ler(this); });
+  m.querySelector('#fp-arq-gal').addEventListener('change', function () { ler(this); });
+  m.querySelector('#fp-tira').addEventListener('click', function () { foto = null; desenhaFoto(); });
+  m.querySelector('[data-x]').addEventListener('click', m.fechar);
+  m.querySelector('[data-ok]').addEventListener('click', function () {
+    function n(id) { var v = m.querySelector(id).value; return v === '' ? null : U.num(v); }
+    var campos = { foto: foto, peso: n('#fp-peso'), volume: n('#fp-vol'), por_embalagem: n('#fp-por'),
+      embalagem: m.querySelector('#fp-emb').value, minimo: n('#fp-min') };
+    var b = m.querySelector('[data-ok]'); b.disabled = true; b.textContent = 'Salvando...';
+    Banco.atualizarEstoque(item.id, campos).then(function () {
+      m.fechar(); U.aviso('⚙️ Ficha de ' + item.nome + ' salva.', 'ok'); App.recarregar();
+    }).catch(function (e) {
+      b.disabled = false; b.textContent = 'SALVAR FICHA';
+      U.aviso(/column|schema cache/i.test(String(e.message)) ? 'Falta rodar o materiais.sql no Supabase.' : e.message, 'erro', 7000);
+    });
+  });
+}
+
+/* ============================================================
+   📋 INVENTÁRIO RÁPIDO — conta o galpão por família no celular,
+   compara com o sistema e lança os acertos (ajuste) de uma vez
+   ============================================================ */
+function inventarioRapido(cadastro, saldos) {
+  var fams = [];
+  cadastro.forEach(function (i) { Estoque.familiasDe(i).forEach(function (f) { if (fams.indexOf(f) < 0) fams.push(f); }); });
+  fams.sort();
+  var temSem = cadastro.some(function (i) { return !Estoque.familiasDe(i).length; });
+  var fam = null, contado = {};
+  var m = U.modal({ titulo: '📋 Inventário rápido', html: '<div id="inv-corpo"></div>', pe: '<div id="inv-pe" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;width:100%"></div>', travado: true });
+  var corpo = m.querySelector('#inv-corpo'), pe = m.querySelector('#inv-pe');
+  function itensDa(f) {
+    return cadastro.filter(function (i) {
+      var fs = Estoque.familiasDe(i);
+      return f === '__todas' ? true : f === '__sem' ? !fs.length : fs.indexOf(f) >= 0;
+    });
+  }
+  function telaEscolha() {
+    corpo.innerHTML = '<p class="mut peq" style="margin-bottom:10px">Escolha o setor que vai contar. Conte <b>tudo que está fisicamente no galpão</b> (inclusive oficina e lavagem). O sistema mostra a diferença e você acerta de uma vez.</p>' +
+      '<div style="display:flex;flex-direction:column;gap:8px">' +
+      fams.map(function (f) { return '<button class="btn btn--branco js-inv-fam" data-f="' + U.esc(f) + '" style="justify-content:space-between">📂 ' + U.esc(f) + '<span class="mut peq">' + itensDa(f).length + ' peças</span></button>'; }).join('') +
+      (temSem ? '<button class="btn btn--branco js-inv-fam" data-f="__sem" style="justify-content:space-between">Sem família<span class="mut peq">' + itensDa('__sem').length + ' peças</span></button>' : '') +
+      '<button class="btn btn--branco js-inv-fam" data-f="__todas" style="justify-content:space-between">📦 Galpão inteiro<span class="mut peq">' + cadastro.length + ' peças</span></button>' +
+      '</div>';
+    pe.innerHTML = '<button class="btn btn--branco" data-x>Fechar</button>';
+    pe.querySelector('[data-x]').addEventListener('click', m.fechar);
+    corpo.querySelectorAll('.js-inv-fam').forEach(function (b) { b.addEventListener('click', function () { fam = b.dataset.f; contado = {}; telaContagem(); }); });
+  }
+  function difs() {
+    var out = [];
+    itensDa(fam).forEach(function (i) {
+      if (contado[i.id] === undefined || contado[i.id] === '') return;
+      var d = U.num(contado[i.id]) - (saldos[i.id] || 0);
+      out.push({ i: i, d: d });
+    });
+    return out;
+  }
+  function pintaResumo() {
+    var ds = difs(), dif = ds.filter(function (x) { return x.d !== 0; });
+    var r = corpo.querySelector('#inv-res');
+    if (r) r.innerHTML = '<b>' + ds.length + '</b> contada(s) de ' + itensDa(fam).length + ' · ' +
+      (dif.length ? '<b style="color:var(--vermelho)">' + dif.length + ' com diferença</b>' : '<b style="color:var(--verde)">nenhuma diferença</b>');
+  }
+  function telaContagem() {
+    var lista = itensDa(fam);
+    corpo.innerHTML = '<p class="peq" style="font-weight:800;color:var(--azul);margin-bottom:6px">' +
+        (fam === '__todas' ? '📦 Galpão inteiro' : fam === '__sem' ? 'Sem família' : '📂 ' + U.esc(fam)) + '</p>' +
+      '<input type="search" class="entrada" id="inv-busca" placeholder="🔍 Buscar peça..." style="margin-bottom:8px">' +
+      '<div style="max-height:48vh;overflow:auto;border:1px solid var(--linha);border-radius:10px;padding:4px 10px">' +
+      lista.map(function (i) {
+        return '<div class="js-inv-lin" data-nome="' + U.esc(i.nome.toLowerCase()) + '" style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--linha);padding:7px 0">' +
+          (i.foto ? Material.fotoTag(i, 34) : '') +
+          '<span style="flex:1;min-width:0"><b>' + U.esc(i.nome) + '</b><span class="peq mut" style="display:block">sistema: ' + U.fmt(saldos[i.id] || 0) + ' ' + U.esc(i.unidade || 'UN') + ' <span class="js-inv-dif" data-id="' + i.id + '"></span></span></span>' +
+          '<input class="entrada js-inv-q" data-id="' + i.id + '" type="number" inputmode="numeric" min="0" placeholder="contei" style="width:92px;min-height:44px;text-align:center" value="' + U.esc(contado[i.id] || '') + '">' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="peq" id="inv-res" style="margin-top:8px"></p>';
+    pe.innerHTML = '<button class="btn btn--branco" data-v>← Setores</button><button class="btn btn--verde" data-ok>LANÇAR ACERTOS</button>';
+    pe.querySelector('[data-v]').addEventListener('click', telaEscolha);
+    corpo.querySelector('#inv-busca').addEventListener('input', function () {
+      var t = this.value.trim().toLowerCase();
+      corpo.querySelectorAll('.js-inv-lin').forEach(function (l) { l.style.display = !t || l.dataset.nome.indexOf(t) >= 0 ? '' : 'none'; });
+    });
+    corpo.querySelectorAll('.js-inv-q').forEach(function (c) {
+      c.addEventListener('input', function () {
+        contado[c.dataset.id] = c.value;
+        var el = corpo.querySelector('.js-inv-dif[data-id="' + c.dataset.id + '"]');
+        if (c.value === '') { el.textContent = ''; } else {
+          var d = U.num(c.value) - (saldos[c.dataset.id] || 0);
+          el.innerHTML = d === 0 ? '<b style="color:var(--verde)">✓ bateu</b>' : '<b style="color:' + (d < 0 ? 'var(--vermelho)' : 'var(--laranja)') + '">' + (d > 0 ? 'sobra +' : 'falta ') + U.fmt(d) + '</b>';
+        }
+        pintaResumo();
+      });
+    });
+    pintaResumo();
+    pe.querySelector('[data-ok]').addEventListener('click', function () {
+      var dif = difs().filter(function (x) { return x.d !== 0; });
+      if (!difs().length) return U.aviso('Conte pelo menos uma peça.', 'erro');
+      var rot = fam === '__todas' ? 'galpão inteiro' : fam === '__sem' ? 'sem família' : fam;
+      var obs = 'Inventário ' + U.fmtData(U.hojeISO()) + ' (' + rot + ') por ' + Sessao.atual.nome;
+      var b = pe.querySelector('[data-ok]'); b.disabled = true; b.textContent = 'Lançando...';
+      Banco.criarMovimentos(dif.map(function (x) {
+        return { estoque_id: x.i.id, tipo: 'ajuste', quantidade: x.d, usuario_id: Sessao.atual.id, observacao: obs };
+      })).then(function () {
+        m.fechar();
+        U.aviso(dif.length ? '📋 Inventário lançado: ' + dif.length + ' acerto(s).' : '📋 Inventário conferido: tudo bateu.', 'ok', 6000);
+        App.recarregar();
+      }).catch(function (e) { b.disabled = false; b.textContent = 'LANÇAR ACERTOS'; App.falhou(e); });
+    });
+  }
+  telaEscolha();
+}
+
+/* ============================================================
+   🧼 FILA DE LAVAGEM — o que voltou sujo só conta como livre
+   depois de lavado
+   ============================================================ */
+function filaLavagem() {
+  var m = U.modal({ titulo: '🧼 Fila de lavagem', html: '<p class="mut">Buscando…</p>', pe: '<button class="btn btn--branco" data-x>Fechar</button>' });
+  m.querySelector('[data-x]').addEventListener('click', m.fechar);
+  var corpo = m.querySelector('.modal__corpo');
+  function desenha() {
+    Material.carregar(true).then(function (d) {
+      var linhas = [];
+      Object.keys(d.lavagem).forEach(function (k) {
+        d.lavagem[k].forEach(function (x) { linhas.push({ k: k, x: x, item: d.porChave[k] }); });
+      });
+      linhas.sort(function (a, b) { return String(a.x.em || '').localeCompare(String(b.x.em || '')); });
+      if (!linhas.length) { corpo.innerHTML = '<p class="mut">Nada esperando lavagem. 🎉</p>'; return; }
+      var tot = linhas.reduce(function (t, l) { return t + l.x.qtd; }, 0);
+      corpo.innerHTML = '<p class="peq" style="margin-bottom:8px"><b>' + U.fmt(tot) + '</b> peça(s) esperando lavagem. Elas estão no galpão, mas <b>não contam como livres</b> até lavar. As mais antigas primeiro.</p>' +
+        linhas.map(function (l) {
+          var ev = d.evDe[l.x.evento_id];
+          var dias = l.x.em ? Math.floor((Date.now() - new Date(l.x.em).getTime()) / 86400000) : 0;
+          return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:9px 0">' +
+            (l.item && l.item.foto ? Material.fotoTag(l.item, 38) : '') +
+            '<span style="flex:1;min-width:0"><b>' + U.fmt(l.x.qtd) + '×</b> ' + U.esc(l.item ? l.item.nome : l.k) +
+              '<span class="peq mut" style="display:block">' + U.esc(ev ? ev.nome : '—') + ' · ' + (dias ? 'há ' + dias + ' dia(s)' : 'hoje') + '</span></span>' +
+            '<input class="entrada js-lav-q" data-id="' + l.x.id + '" type="number" inputmode="numeric" min="1" max="' + l.x.qtd + '" value="' + l.x.qtd + '" style="width:74px;min-height:40px;text-align:center">' +
+            '<button class="btn btn--verde btn--peq js-lav-ok" data-id="' + l.x.id + '" data-tot="' + l.x.qtd + '">✅ LAVADO</button>' +
+          '</div>';
+        }).join('');
+      corpo.querySelectorAll('.js-lav-ok').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var q = U.num(corpo.querySelector('.js-lav-q[data-id="' + b.dataset.id + '"]').value);
+          var tot2 = U.num(b.dataset.tot);
+          if (!(q > 0)) return U.aviso('Informe quantas foram lavadas.', 'erro');
+          var campos = q >= tot2
+            ? { lavagem_status: 'lavada', lavagem_em: new Date().toISOString(), lavagem_por: Sessao.atual.nome }
+            : { qtd_lavagem: tot2 - q };
+          b.disabled = true;
+          Banco.cliente.from('itens_conferencia').update(campos).eq('id', b.dataset.id).then(function (r) {
+            if (r.error) throw r.error;
+            U.aviso('🧼 ' + U.fmt(q) + ' lavada(s) — voltam a contar como livres.', 'ok');
+            desenha();
+          }).catch(function (e) { b.disabled = false; App.falhou(e); });
+        });
+      });
+    }).catch(function (e) { corpo.innerHTML = '<p class="aviso aviso--vermelho">' + U.esc(e.message) + '</p>'; });
+  }
+  desenha();
+}
+
+/* ============================================================
+   🛠️ OFICINA — peças danificadas, com DATA PREVISTA do conserto
+   (entra no semáforo: se fica pronta antes do evento, vira 🟡)
+   ============================================================ */
+function darBaixaSucata(itemConfId, nomePeca, qtd) {
+  /* sucata sai do saldo do galpão (ajuste negativo) */
+  return Banco.listarEstoque().then(function (cad) {
+    var alvo = cad.filter(function (i) { return Estoque.chave(i.nome) === Estoque.chave(nomePeca); })[0];
+    if (!alvo || !(qtd > 0)) return true;
+    return Banco.criarMovimentos([{ estoque_id: alvo.id, tipo: 'ajuste', quantidade: -Math.abs(qtd),
+      usuario_id: Sessao.atual.id, observacao: '🗑️ Sucata (oficina)' }]);
+  }).catch(function () { return true; });
+}
+function filaOficina() {
+  var m = U.modal({ titulo: '🛠️ Oficina', html: '<p class="mut">Buscando…</p>', pe: '<button class="btn btn--branco" data-x>Fechar</button>' });
+  m.querySelector('[data-x]').addEventListener('click', m.fechar);
+  var corpo = m.querySelector('.modal__corpo');
+  function desenha() {
+    Material.carregar(true).then(function (d) {
+      var linhas = [];
+      Object.keys(d.oficina).forEach(function (k) { d.oficina[k].forEach(function (x) { linhas.push({ k: k, x: x, item: d.porChave[k] }); }); });
+      linhas.sort(function (a, b) { return String(a.x.previsao || '9999').localeCompare(String(b.x.previsao || '9999')); });
+      if (!linhas.length) { corpo.innerHTML = '<p class="mut">Nenhuma peça na oficina. 🎉</p>'; return; }
+      var hoje = U.hojeISO();
+      corpo.innerHTML = '<p class="peq" style="margin-bottom:8px">Coloque a <b>data prevista</b> de cada conserto: se a peça fica pronta antes de um evento, o checklist dele mostra 🟡 em vez de 🔴.</p>' +
+        linhas.map(function (l) {
+          var ev = d.evDe[l.x.evento_id];
+          var atras = l.x.previsao && l.x.previsao < hoje;
+          return '<div style="border-bottom:1px solid var(--linha);padding:9px 0">' +
+            '<div style="display:flex;gap:10px;align-items:center">' + (l.item && l.item.foto ? Material.fotoTag(l.item, 38) : '') +
+              '<span style="flex:1;min-width:0"><b>' + U.fmt(l.x.qtd) + '×</b> ' + U.esc(l.item ? l.item.nome : l.k) +
+              '<span class="peq mut" style="display:block">' + U.esc(ev ? ev.nome : '—') + (atras ? ' · <b style="color:var(--vermelho)">previsão vencida</b>' : '') + '</span></span></div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+              '<span class="peq">📅 Pronta em</span><input type="date" class="entrada js-ofi-prev" data-id="' + l.x.id + '" value="' + U.esc(l.x.previsao || '') + '" style="width:160px;min-height:40px">' +
+              '<button class="btn btn--verde btn--peq js-ofi" data-id="' + l.x.id + '" data-acao="consertada" data-nome="' + U.esc(l.item ? l.item.nome : l.k) + '" data-q="' + l.x.qtd + '">🔧 Consertada</button>' +
+              '<button class="btn btn--branco btn--peq js-ofi" data-id="' + l.x.id + '" data-acao="descartada" data-nome="' + U.esc(l.item ? l.item.nome : l.k) + '" data-q="' + l.x.qtd + '" style="color:var(--vermelho)">🗑️ Sucata</button>' +
+            '</div></div>';
+        }).join('');
+      corpo.querySelectorAll('.js-ofi-prev').forEach(function (c) {
+        c.addEventListener('change', function () {
+          Banco.cliente.from('itens_conferencia').update({ manutencao_previsao: c.value || null }).eq('id', c.dataset.id).then(function (r) {
+            if (r.error) throw r.error; U.aviso('📅 Previsão salva.', 'ok', 2500); Material._cache = null;
+          }).catch(function (e) { U.aviso(/column|schema/i.test(String(e.message)) ? 'Falta rodar o materiais.sql no Supabase.' : e.message, 'erro', 6000); });
+        });
+      });
+      corpo.querySelectorAll('.js-ofi').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var acao = b.dataset.acao;
+          U.confirmar(acao === 'consertada' ? '🔧 Peça consertada?' : '🗑️ Dar baixa como sucata?',
+            b.dataset.nome + (acao === 'consertada' ? ' volta a contar como livre.' : ' sai do saldo do galpão.')).then(function (ok) {
+            if (!ok) return;
+            Banco.cliente.from('itens_conferencia').update({ manutencao_status: acao, manutencao_em: new Date().toISOString(), manutencao_por: Sessao.atual.nome })
+              .eq('id', b.dataset.id).then(function (r) {
+                if (r.error) throw r.error;
+                return acao === 'descartada' ? darBaixaSucata(b.dataset.id, b.dataset.nome, U.num(b.dataset.q)) : true;
+              }).then(function () { U.aviso(acao === 'consertada' ? '🔧 Consertada.' : '🗑️ Baixa registrada.', 'ok'); desenha(); })
+              .catch(App.falhou);
+          });
+        });
+      });
+    }).catch(function (e) { corpo.innerHTML = '<p class="aviso aviso--vermelho">' + U.esc(e.message) + '</p>'; });
+  }
+  desenha();
+}
+
+/* ============================================================
+   📈 VIDA ÚTIL — quantas vezes cada peça saiu e quantas voltou
+   avariada/perdida: mostra o que precisa trocar
+   ============================================================ */
+function vidaUtil(cadastro) {
+  var m = U.modal({ titulo: '📈 Vida útil das peças', html: '<p class="mut">Somando o histórico…</p>', pe: '<button class="btn btn--branco" data-x>Fechar</button>' });
+  m.querySelector('[data-x]').addEventListener('click', m.fechar);
+  var corpo = m.querySelector('.modal__corpo');
+  var L = Material._lista, cli = Banco.cliente;
+  Promise.all([
+    L(cli.from('produtos').select('id,nome,evento_id')),
+    L(cli.from('conferencias').select('id,evento_id,tipo')),
+    L(cli.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada,qtd_perdida'))
+      .catch(function () { return L(cli.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_danificada')); })
+  ]).then(function (r) {
+    var prod = {}, conf = {};
+    r[0].forEach(function (p) { prod[p.id] = p; });
+    r[1].forEach(function (c) { conf[c.id] = c; });
+    var v = {};
+    r[2].forEach(function (i) {
+      var p = prod[i.produto_id], c = conf[i.conferencia_id]; if (!p || !c) return;
+      var k = Estoque.chave(p.nome);
+      var x = v[k] || (v[k] = { nome: p.nome, saidas: 0, pecas: 0, eventos: {}, avarias: 0, vezesAv: 0, perdas: 0 });
+      if (c.tipo === 'saida') { x.saidas++; x.pecas += U.num(i.quantidade); x.eventos[c.evento_id] = 1; }
+      if (c.tipo === 'retorno') {
+        if (U.num(i.qtd_danificada) > 0) { x.avarias += U.num(i.qtd_danificada); x.vezesAv++; }
+        x.perdas += U.num(i.qtd_perdida);
+      }
+    });
+    var foto = {};
+    (cadastro || []).forEach(function (i) { foto[Estoque.chave(i.nome)] = i; });
+    var lista = Object.keys(v).map(function (k) {
+      var x = v[k]; x.k = k; x.nEv = Object.keys(x.eventos).length;
+      x.taxa = x.pecas ? (x.avarias + x.perdas) / x.pecas : 0;
+      return x;
+    }).filter(function (x) { return x.nEv > 0; });
+    lista.sort(function (a, b) { return (b.taxa - a.taxa) || (b.avarias - a.avarias) || (b.nEv - a.nEv); });
+    if (!lista.length) { corpo.innerHTML = '<p class="mut">Ainda não tem histórico de saídas.</p>'; return; }
+    corpo.innerHTML = '<p class="peq" style="margin-bottom:8px">Ordenado pela <b>taxa de avaria + perda</b> (peças avariadas ou perdidas ÷ peças que saíram). No topo: o que mais precisa trocar ou revisar.</p>' +
+      '<div style="max-height:56vh;overflow:auto">' +
+      lista.map(function (x) {
+        var pct = Math.round(x.taxa * 1000) / 10;
+        var cor = pct >= 10 ? 'var(--vermelho)' : pct >= 3 ? 'var(--laranja)' : 'var(--verde)';
+        return '<div style="display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--linha);padding:8px 0">' +
+          (foto[x.k] && foto[x.k].foto ? Material.fotoTag(foto[x.k], 36) : '') +
+          '<span style="flex:1;min-width:0"><b>' + U.esc(x.nome) + '</b><span class="peq mut" style="display:block">' +
+            'saiu em <b>' + x.nEv + '</b> evento(s) · ' + U.fmt(x.pecas) + ' peças · avariou <b>' + U.fmt(x.avarias) + '</b> (' + x.vezesAv + ' vez(es))' +
+            (x.perdas ? ' · perdeu <b>' + U.fmt(x.perdas) + '</b>' : '') + '</span></span>' +
+          '<b style="color:' + cor + ';font-size:17px;flex:none">' + String(pct).replace('.', ',') + '%</b></div>';
+      }).join('') + '</div>';
+  }).catch(function (e) { corpo.innerHTML = '<p class="aviso aviso--vermelho">' + U.esc(e.message) + '</p>'; });
 }
 
 /* ============================================================
@@ -6299,7 +6895,12 @@ function TelaEvento(eventoId) {
       /* família (e kit) de cada produto, pelo cadastro do estoque */
       var famPorChave = {};
       var subPorChave = {};
+      var itemPorChave = {};
       var subDeEvento = Estoque.subgrupoValido(p.estoque || []);
+      /* 🚦 semáforo: só pro coordenador, com evento aberto e material ainda por sair */
+      var mostraSem = ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência' &&
+        linhas.some(function (l) { return !(l.produto && l.produto.terceirizado) && l.prevista > (l.saida || 0); });
+      (p.estoque || []).forEach(function (i) { itemPorChave[Estoque.chave(i.nome)] = i; });
       (p.estoque || []).forEach(function (i) {
         var fams = Estoque.familiasDe(i);
         if (fams.length) famPorChave[Estoque.chave(i.nome)] = fams;
@@ -6319,7 +6920,9 @@ function TelaEvento(eventoId) {
             'Cada caminhão continua cobrando <b>apenas o seu</b> checklist (veja nos cards abaixo).' +
             '</div></div>'
           : '') +
+        (mostraSem ? '<div id="sem-resumo" class="peq" style="margin:10px 14px 0;font-weight:700">🚦 Conferindo o galpão…</div>' : '') +
         '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
+          (mostraSem ? '<th style="width:54px;text-align:center" title="Tem no galpão?">🚦</th>' : '') +
           '<th>Produto</th><th style="width:60px">Un.</th><th class="num">Previsto</th>' +
           (temSaida ? '<th class="num">Saída (total)</th><th class="num">Diferença</th>' : '') +
           (temRetorno ? '<th class="num">Retorno (total)</th><th class="num">Diferença</th>' : '') +
@@ -6328,7 +6931,10 @@ function TelaEvento(eventoId) {
           var ch = Estoque.chave(l.nome);
           var famsL = famPorChave[ch] || [];
           var subL = subPorChave[ch] || '';
-          return '<tr><td>' + U.esc(l.nome) + tagTerc(l.produto) +
+          var itL = itemPorChave[ch];
+          return '<tr>' +
+            (mostraSem ? '<td class="js-sem" data-ch="' + U.esc(ch) + '" style="text-align:center;font-size:18px;cursor:pointer" title="Toque para ver">' + ((l.produto && l.produto.terceirizado) ? '🔗' : '⏳') + '</td>' : '') +
+            '<td>' + (itL && itL.foto ? Material.fotoTag(itL, 34) : '') + U.esc(l.nome) + tagTerc(l.produto) +
             (l.composta > 0
               ? ' <span class="terc-tag" style="background:#F3EEFD;border-color:#D6C8F2;color:#5B3FA8">🧩 ' +
                 U.fmt(l.composta) + ' por composição</span>'
@@ -6377,7 +6983,7 @@ function TelaEvento(eventoId) {
 
       if (ehCoord && ev.status !== 'Finalizado' && ev.status !== 'Com divergência') {
         h += '<div class="btn-linha" style="margin-top:2px">' +
-          '<button class="btn btn--branco" id="btn-disponibilidade">🔍 VERIFICAR DISPONIBILIDADE (conflito de datas)</button>' +
+          '<button class="btn btn--branco" id="btn-disponibilidade">🚦 DISPONIBILIDADE (tem no galpão? precisa locar?)</button>' +
           '<button class="btn btn--branco" id="btn-transferir">🔁 TRANSFERIR MATERIAL P/ OUTRO EVENTO</button>' +
         '</div>';
       }
@@ -6402,7 +7008,8 @@ function TelaEvento(eventoId) {
           '<span>' + tot.pct + '%</span></div>' +
           (tot.falta > 0
             ? '<p class="peq" style="color:var(--laranja);font-weight:700;margin-top:6px">O retorno pode chegar em vários caminhões: registre um retorno para cada caminhão que chegar. A contagem é às cegas e dá baixa parcial ou total.</p>'
-            : (tot.retornado > 0 ? '<p class="peq" style="color:var(--verde);font-weight:700;margin-top:6px">🟢 Tudo que saiu já voltou.</p>' : '')) +
+            : (tot.retornado > 0 ? '<p class="peq" style="color:var(--verde);font-weight:700;margin-top:6px">🟢 Tudo que saiu já voltou' +
+                (tot.perdido ? ' <span style="color:var(--vermelho)">(❌ ' + U.fmt(tot.perdido) + ' dado(s) como perdido(s) — cobrança)</span>' : '') + '.</p>' : '')) +
           ((barraTemSaidaFinal && !barraFechado)
             ? '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center">' +
               (tot.falta > 0
@@ -7653,6 +8260,29 @@ function TelaEvento(eventoId) {
 
     var btnDisp = U.$('#btn-disponibilidade', tela);
     if (btnDisp) btnDisp.addEventListener('click', function () { verificarDisponibilidade(p); });
+    /* 🚦 preenche o semáforo do checklist */
+    if (U.$('.js-sem', tela)) {
+      Material.carregar().then(function (d) {
+        var sem = Material.semaforo(d, ev), c = { verde: 0, amarelo: 0, vermelho: 0 };
+        U.$$('.js-sem', tela).forEach(function (td) {
+          if (td.textContent === '🔗') return;
+          var x = sem[td.dataset.ch];
+          if (!x) { td.textContent = '✔️'; return; }
+          td.textContent = Material.bolinha(x.status);
+          if (c[x.status] !== undefined) c[x.status]++;
+          td.title = x.status === 'verde' ? 'Tem no galpão' : x.status === 'amarelo' ? 'Depende de material que volta antes' :
+            x.status === 'vermelho' ? 'Não fecha: locar ' + U.fmt(x.deficit) : x.status === 'sem' ? 'Sem cadastro no estoque' : 'Já saiu';
+          td.addEventListener('click', function () { verificarDisponibilidade(p); });
+        });
+        var r = U.$('#sem-resumo', tela);
+        if (r) r.innerHTML = '🚦 Galpão: <span style="color:var(--verde)">🟢 ' + c.verde + ' tem</span> · ' +
+          '<span style="color:#B7791F">🟡 ' + c.amarelo + ' dependem de retorno</span> · ' +
+          '<span style="color:var(--vermelho)">🔴 ' + c.vermelho + ' precisam locar</span>' +
+          ' <a href="#" id="sem-ver" style="margin-left:6px">ver detalhes</a>';
+        var sv = U.$('#sem-ver', tela);
+        if (sv) sv.addEventListener('click', function (e) { e.preventDefault(); verificarDisponibilidade(p); });
+      }).catch(function () { var r = U.$('#sem-resumo', tela); if (r) r.textContent = '🚦 Não consegui conferir o galpão agora.'; });
+    }
     var btnTransf = U.$('#btn-transferir', tela);
     if (btnTransf) btnTransf.addEventListener('click', function () { transferirMaterial(p); });
 
@@ -8232,6 +8862,7 @@ function TelaConferencia(arg) {
   var contagem = {};    /* produto_id -> valor digitado (string) */
   var embalagem = {};   /* produto_id -> como a conta foi feita (pallet/caixa) */
   var dano = {};        /* produto_id -> { qtd, desc, foto } (só no retorno) */
+  var triagem = {};     /* produto_id -> { lav: suja p/ lavagem, perd: perdida, obs } (só no retorno) */
   var terc = {};        /* produto_id -> quantos do total contado são terceirizados */
   var correcaoPendente = null;   /* texto obrigatório ao re-finalizar uma conferência corrigida */
   /* Composição: peça que não tinha e foi montada com outras
@@ -8252,6 +8883,7 @@ function TelaConferencia(arg) {
   var fornecedoresT = [];
   var saldosT = {};     /* saldos de terceiros por fornecedor (módulo 🔗) */
   var familiasPorChave = {};  /* nome normalizado -> [famílias] (vem do estoque) */
+  var itemEstPorChave = {};   /* nome normalizado -> ficha do estoque (foto, embalagem, ordem) */
   var subgrupoPorChave = {};  /* nome normalizado -> subgrupo/kit */
   var filtroFamilia = '';     /* chip escolhido ('' = todas) */
   var foto = null;      /* base64 da foto obrigatória do carregamento */
@@ -8273,6 +8905,7 @@ function TelaConferencia(arg) {
     movFerramentas = tudo[5] || [];
     var subDeConf = Estoque.subgrupoValido(tudo[3] || []);
     (tudo[3] || []).forEach(function (i) {
+      itemEstPorChave[Estoque.chave(i.nome)] = i;
       var fams = Estoque.familiasDe(i);
       if (fams.length) familiasPorChave[Estoque.chave(i.nome)] = fams;
       var sg = subDeConf(i);
@@ -8304,8 +8937,11 @@ function TelaConferencia(arg) {
       contagem[l.produto.id] = (v === null || v === undefined) ? '' : String(v);
 
       var d = (l.detalhes && l.detalhes[tipo]) || {};
+      var fichaL = itemEstPorChave[Estoque.chave(l.nome)];
       embalagem[l.produto.id] = {
-        por: d.por_embalagem === null || d.por_embalagem === undefined ? '' : String(d.por_embalagem),
+        por: d.por_embalagem === null || d.por_embalagem === undefined || d.por_embalagem === ''
+          ? (fichaL && U.num(fichaL.por_embalagem) > 0 ? String(fichaL.por_embalagem) : '')
+          : String(d.por_embalagem),
         qtd: d.embalagens === null || d.embalagens === undefined ? '' : String(d.embalagens),
         soltas: d.avulsas === null || d.avulsas === undefined ? '' : String(d.avulsas),
         obs: d.observacao || ''
@@ -8317,6 +8953,9 @@ function TelaConferencia(arg) {
         desc: dd.descricao || '',
         foto: dd.foto || null
       };
+
+      var tg = l.triagem || {};
+      triagem[l.produto.id] = { lav: tg.lav ? String(tg.lav) : '', perd: tg.perd ? String(tg.perd) : '', obs: tg.obs || '', _tinhaLav: !!tg.lav, _tinhaPerd: !!tg.perd };
 
       var tq = (d.qtd_terceirizada || 0);
       terc[l.produto.id] = tq ? String(tq) : '';
@@ -8362,6 +9001,7 @@ function TelaConferencia(arg) {
         if (ras.contagem) contagem = ras.contagem;
         if (ras.embalagem) embalagem = ras.embalagem;
         if (ras.dano) dano = ras.dano;
+        if (ras.triagem) triagem = ras.triagem;
         if (ras.terc) terc = ras.terc;
         if (ras.tercSel) tercSel = ras.tercSel;
         if (ras.composicao) composicao = ras.composicao;
@@ -8387,7 +9027,7 @@ function TelaConferencia(arg) {
   var rascunhoTimer = null;
   function pacoteRascunho() {
     return {
-      contagem: contagem, embalagem: embalagem, dano: dano, terc: terc, tercSel: tercSel,
+      contagem: contagem, embalagem: embalagem, dano: dano, triagem: triagem, terc: terc, tercSel: tercSel,
       composicao: composicao, obsGeral: obsGeral, foto: foto
     };
   }
@@ -8434,11 +9074,14 @@ function TelaConferencia(arg) {
     return dano[id];
   }
   function danoQtd(id) { return cega ? U.num(danoDe(id).qtd) : 0; }
+  function triDe(id) { if (!triagem[id]) triagem[id] = { lav: '', perd: '', obs: '' }; return triagem[id]; }
+  function lavQtd(id) { return cega ? U.num(triDe(id).lav) : 0; }     /* voltou SUJA: está no galpão, vai pra lavagem */
+  function perdQtd(id) { return cega ? U.num(triDe(id).perd) : 0; }   /* PERDIDA: não voltou — vai pra cobrança */
   /* total que vale para a comparação: nosso material + danificado + terceirizado (que SOMA) */
   function valorTotal(id) {
     var v = valor(id);
     if (v === null) return null;
-    return v + danoQtd(id) + (ehFlag100(id) ? 0 : U.num(terc[id]));
+    return v + danoQtd(id) + lavQtd(id) + (ehFlag100(id) ? 0 : U.num(terc[id]));
   }
   function ehFlag100(id) {
     var linha = linhas.filter(function (l) { return l.produto.id === id; })[0];
@@ -8473,12 +9116,14 @@ function TelaConferencia(arg) {
   function travada() { return (finalizada() || eventoFechado()) && !desbloqueada; }
 
   function resumoAtual() {
-    var r = { produtos: linhas.length, base: 0, contado: 0, divergencias: 0, pendentes: 0, danificados: 0, terceirizados: 0 };
+    var r = { produtos: linhas.length, base: 0, contado: 0, divergencias: 0, pendentes: 0, danificados: 0, terceirizados: 0, sujas: 0, perdidas: 0 };
     linhas.forEach(function (l) {
       var b = Calculo.base(l, tipo);
       var c = valorTotal(l.produto.id);
       r.base += b;
       r.danificados += danoQtd(l.produto.id);
+      r.sujas += lavQtd(l.produto.id);
+      r.perdidas += perdQtd(l.produto.id);
       if (c === null) { r.pendentes++; return; }
       r.contado += c;
       r.terceirizados += tercQtd(l.produto.id);
@@ -8563,7 +9208,7 @@ function TelaConferencia(arg) {
       h += '<div class="cartao"><div class="cartao__topo"><h3>O que chegou neste caminhão</h3>' + selo(conferencia.status) + '</div>' +
         '<div class="tabela-rolagem"><table class="tab"><thead><tr>' +
           '<th>Produto</th><th style="width:56px">Un.</th>' +
-          '<th class="num">Registrado</th><th class="num">Danif.</th>' +
+          '<th class="num">Registrado</th><th class="num">Danif.</th><th class="num">Suja</th><th class="num">Perdida</th>' +
         '</tr></thead><tbody>' +
         registrados.map(function (l) {
           var conta = Calculo.detalhe(l, tipo);
@@ -8573,7 +9218,10 @@ function TelaConferencia(arg) {
             '<td>' + U.esc(l.unidade) + '</td>' +
             '<td class="num">' + U.fmt(l.retorno) +
               (l.tercRetorno ? '<br><span class="terc-tag">🔗 ' + U.fmt(l.tercRetorno) + ' terc.</span>' : '') + '</td>' +
-            '<td class="num" style="color:#8a5a00;font-weight:800">' + (dq ? '🟠 ' + U.fmt(dq) : '—') + '</td></tr>';
+            '<td class="num" style="color:#8a5a00;font-weight:800">' + (dq ? '🟠 ' + U.fmt(dq) : '—') + '</td>' +
+            '<td class="num" style="color:#0277BD;font-weight:800">' + (l.triagem && l.triagem.lav ? '🧼 ' + U.fmt(l.triagem.lav) : '—') + '</td>' +
+            '<td class="num" style="color:var(--vermelho);font-weight:800">' + (l.triagem && l.triagem.perd ? '❌ ' + U.fmt(l.triagem.perd) +
+              (l.triagem.obs ? '<br><span class="peq" style="font-weight:600">' + U.esc(l.triagem.obs) + '</span>' : '') : '—') + '</td></tr>';
         }).join('') +
         '</tbody></table></div>' +
         '<div class="cartao__corpo"><p class="mut peq">' +
@@ -8786,6 +9434,7 @@ function TelaConferencia(arg) {
         ' <span class="n">' + listaDesenho.length + '</span></h2>';
     }
 
+    {
     /* dentro da lista: os kits (subgrupos) juntos, com cabecinho roxo */
     var temSubgrupo = listaDesenho.some(function (l) { return subgrupoPorChave[Estoque.chave(l.nome)]; });
     if (temSubgrupo) {
@@ -8807,15 +9456,19 @@ function TelaConferencia(arg) {
     } else {
       h += listaDesenho.map(function (l) { return cardProduto(l); }).join('');
     }
+    }
 
     function cardProduto(l) {
       var id = l.produto.id;
       var base = Calculo.base(l, tipo);
+      var fichaC = itemEstPorChave[Estoque.chave(l.nome)];
       return '<div class="prod" data-id="' + id + '" data-nome="' + U.esc(l.nome.toLowerCase()) + '">' +
-        '<p class="prod__nome">' + U.esc(l.nome) + tagTerc(l.produto) + '</p>' +
+        '<p class="prod__nome" style="display:flex;align-items:center">' + (fichaC && fichaC.foto ? Material.fotoTag(fichaC, 52) : '') +
+          '<span>' + U.esc(l.nome) + tagTerc(l.produto) +
+          (!cega && l.prioridade ? ' <span class="terc-tag" style="background:#FFF3D6;border-color:#F2C46B;color:#8a5a00">⭐ prioridade</span>' : '') + '</span></p>' +
         (cega
-          ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + '). ' +
-            'Separe o que voltou <b>em bom estado</b> do que voltou <b>danificado</b>.</p>' +
+          ? '<p class="prod__prev mut">Conte o que voltou (' + U.esc(l.unidade) + ') e separe em 4: ' +
+            '<b>🟢 bom</b> · <b>🧼 suja</b> · <b>🟠 avariada</b> · <b>❌ perdida</b>.</p>' +
             '<p class="dano__rot" style="color:var(--verde)">🟢 BOM (voltou inteiro)</p>'
           : '<p class="prod__prev mut">Conte o que está indo no caminhão (' + U.esc(l.unidade) + ').</p>') +
         '<div class="contador">' +
@@ -8827,7 +9480,7 @@ function TelaConferencia(arg) {
         '<div class="atalhos">' +
           '<button class="atalho js-zero" data-id="' + id + '">' + (cega ? 'Não veio nada (0)' : 'Não foi (0)') + '</button>' +
         '</div>' +
-        (cega ? blocoDano(l) : blocoComposicao(l)) +
+        (cega ? blocoTriagem(l, 'lav') + blocoDano(l) + blocoTriagem(l, 'perd') : blocoComposicao(l)) +
         blocoTerc(l) +
         (cega ? '' : blocoNaoCoube(l)) +
         blocoObs(l) +
@@ -9160,6 +9813,21 @@ function TelaConferencia(arg) {
       });
     });
 
+    /* 🧼 suja / ❌ perdida (retorno) */
+    U.$$('.js-tri', tela).forEach(function (el) {
+      el.addEventListener('input', function () {
+        var id = el.dataset.id;
+        triDe(id)[el.dataset.k] = el.value;
+        if (el.dataset.k === 'perd') {
+          var ob = U.$('.js-tri[data-k="obs"][data-id="' + id + '"]', tela);
+          if (ob) ob.hidden = !(U.num(el.value) > 0);
+        }
+        /* só a triagem preenchida: o contador de BOM vale 0 */
+        if (el.dataset.k !== 'obs' && U.num(el.value) > 0 && valor(id) === null) definir(id, 0);
+        else pintar(id);
+      });
+    });
+
     /* danificados (retorno) */
     U.$$('.js-dano-qtd', tela).forEach(function (el) {
       el.addEventListener('input', function () {
@@ -9452,11 +10120,15 @@ function TelaConferencia(arg) {
   function blocoEmbalagem(linha, base) {
     var id = linha.produto.id;
     var e = embalagem[id] || { por: '', qtd: '', soltas: '', obs: '' };
-    var aberta = !!(e.por || e.qtd || e.soltas || e.obs);
+    var aberta = !!(e.qtd || e.soltas || e.obs);
+    var fichaE = itemEstPorChave[Estoque.chave(linha.nome)];
+    var nomeEmb = fichaE && fichaE.embalagem ? String(fichaE.embalagem).toLowerCase() : 'pallet ou caixa';
 
     return '<div class="emb' + (aberta ? ' is-aberta' : '') + '" data-id="' + id + '">' +
       '<button type="button" class="emb__abrir js-emb-abrir" data-id="' + id + '">' +
-        '<span>📦</span><span>Vem em pallet ou caixa? Faça a conta aqui</span>' +
+        '<span>📦</span><span>' + (fichaE && U.num(fichaE.por_embalagem) > 0
+          ? 'Contar por ' + U.esc(nomeEmb) + ' (' + U.fmt(fichaE.por_embalagem) + ' por ' + U.esc(nomeEmb) + ')'
+          : 'Vem em pallet ou caixa? Faça a conta aqui') + '</span>' +
         '<span class="seta">▾</span>' +
       '</button>' +
       '<div class="emb__corpo">' +
@@ -9635,6 +10307,22 @@ function TelaConferencia(arg) {
     }
   }
 
+  /* ---------- triagem do retorno: 🧼 suja (lavagem) e ❌ perdida (cobrança) ---------- */
+  function blocoTriagem(l, qual) {
+    var id = l.produto.id, t = triDe(id);
+    if (qual === 'lav') {
+      return '<div class="dano" style="border-color:#9CC9EA;background:#EEF7FD" data-tri="' + id + '">' +
+        '<p class="dano__rot" style="color:#0277BD">🧼 SUJA (voltou, mas vai pra LAVAGEM)</p>' +
+        '<input class="dano__campo js-tri" data-id="' + id + '" data-k="lav" type="number" inputmode="numeric" min="0" placeholder="0" value="' + U.esc(t.lav) + '">' +
+      '</div>';
+    }
+    return '<div class="dano" style="border-color:#F2B8B5;background:#FDF0EF" data-tri="' + id + '">' +
+      '<p class="dano__rot" style="color:var(--vermelho)">❌ PERDIDA (não voltou — vai pra COBRANÇA)</p>' +
+      '<input class="dano__campo js-tri" data-id="' + id + '" data-k="perd" type="number" inputmode="numeric" min="0" placeholder="0" value="' + U.esc(t.perd) + '">' +
+      '<input class="entrada js-tri" data-id="' + id + '" data-k="obs" placeholder="O que aconteceu? (ex.: cliente ficou, sumiu na desmontagem)" value="' + U.esc(t.obs) + '" style="margin-top:6px"' + (U.num(t.perd) > 0 ? '' : ' hidden') + '>' +
+    '</div>';
+  }
+
   /* ---------- danificados (só no retorno às cegas) ---------- */
   function blocoDano(l) {
     var id = l.produto.id;
@@ -9792,10 +10480,13 @@ function TelaConferencia(arg) {
       var partes = [];
       if (v > 0 || (!dq && !tqc)) partes.push('<b>' + U.fmt(v) + '</b>' + (dq || tqc ? ' em bom estado' : ''));
       if (dq > 0) partes.push('<b>' + U.fmt(dq) + '</b> danificado' + (dq > 1 ? 's' : ''));
+      var lq = lavQtd(id);
+      if (lq > 0) { partes.push('<b>' + U.fmt(lq) + '</b> suja' + (lq > 1 ? 's' : '')); dq = dq || lq; }
       if (tqc > 0) partes.push('<b>' + U.fmt(tqc) + '</b> terceirizado' + (tqc > 1 ? 's' : ''));
       res.innerHTML = (dq || tqc)
         ? '🔵 Registrado: ' + partes.join(' + ') + ' = <b>' + U.fmt(valorTotal(id)) + ' ' + U.esc(linha.unidade) + '</b>'
         : '🔵 Registrado: <b>' + U.fmt(v) + ' ' + U.esc(linha.unidade) + '</b>';
+      if (perdQtd(id) > 0) res.innerHTML += ' <span style="color:var(--vermelho);font-weight:800">· ❌ ' + U.fmt(perdQtd(id)) + ' perdida(s)</span>';
     } else {
       /* saída às cegas: mostra o que foi contado, sem revelar o previsto */
       var total = valorTotal(id);
@@ -9840,6 +10531,8 @@ function TelaConferencia(arg) {
         '<dt>Conferido</dt><dd>' + U.fmt(r.contado) + '</dd>' +
         (r.terceirizados ? '<dt>Terceirizados</dt><dd>🔗 ' + U.fmt(r.terceirizados) + ' (fora do estoque)</dd>' : '') +
         (cega && r.danificados ? '<dt>Danificados</dt><dd>🟠 ' + U.fmt(r.danificados) + '</dd>' : '') +
+        (cega && r.sujas ? '<dt>Sujas</dt><dd>🧼 ' + U.fmt(r.sujas) + ' (vão pra fila de lavagem)</dd>' : '') +
+        (cega && r.perdidas ? '<dt>Perdidas</dt><dd style="color:var(--vermelho);font-weight:800">❌ ' + U.fmt(r.perdidas) + ' (cobrança)</dd>' : '') +
         (r.pendentes
           ? (cega
               ? '<dt>Em branco</dt><dd>' + r.pendentes + ' produtos (não vieram neste caminhão)</dd>'
@@ -9872,6 +10565,12 @@ function TelaConferencia(arg) {
         dano_descricao: dq > 0 ? (d.desc || '').trim() : null,
         dano_foto_base64: dq > 0 ? d.foto : null
       });
+      /* triagem só vai quando usada: banco sem o materiais.sql continua funcionando */
+      var ultimo = itens[itens.length - 1], tri = triDe(l.produto.id);
+      if (lavQtd(l.produto.id) > 0) { ultimo.qtd_lavagem = lavQtd(l.produto.id); ultimo.lavagem_status = 'pendente'; }
+      else if (tri._tinhaLav) { ultimo.qtd_lavagem = 0; }
+      if (perdQtd(l.produto.id) > 0) { ultimo.qtd_perdida = perdQtd(l.produto.id); ultimo.perda_obs = (tri.obs || '').trim() || null; }
+      else if (tri._tinhaPerd) { ultimo.qtd_perdida = 0; }
     });
 
     if (!itens.length) {
@@ -9951,13 +10650,17 @@ function TelaConferencia(arg) {
           if (l.produto && l.produto.terceirizado) return;
           var v = valor(l.produto.id);
           if (v === null) return;
-          var qtd = v + danoQtd(l.produto.id);   /* o que saiu/voltou de material NOSSO */
+          var qtd = v + danoQtd(l.produto.id) + lavQtd(l.produto.id);   /* o que saiu/voltou de material NOSSO (suja também está no galpão) */
           if (qtd > 0) porChaveQtd[Estoque.chave(l.nome)] = (porChaveQtd[Estoque.chave(l.nome)] || 0) + qtd;
         });
         var rotulo = (cega ? 'Retorno' : 'Saída') + ' — ' + U.esc(pacote.evento.nome) +
           ' · Carreg. ' + (carregamento ? carregamento.numero : '');
-        Banco.sincronizarEstoqueConferencia(c.id, eventoId, tipo, porChaveQtd, Sessao.atual.id, rotulo)
-          .catch(function () { /* estoque é espelho: falha aqui não trava a conferência */ });
+        /* UM caminho só para o estoque (antes eram dois em paralelo e podiam duplicar o movimento) */
+        return Banco.sincronizarEstoqueConferencia(c.id, eventoId, tipo, porChaveQtd, Sessao.atual.id, rotulo)
+          .then(function () { return c; }, function () {
+            U.aviso('⚠ A conferência foi finalizada, mas o estoque não atualizou (rode o SQL novo no Supabase).', 'erro', 7000);
+            return c;
+          });
       }
       return c;
     }).then(function (c) {
@@ -9977,52 +10680,8 @@ function TelaConferencia(arg) {
         return Banco.atualizarEvento(eventoId, { status: 'Em andamento' });
       }
     }).then(function () {
-      /* ---- estoque: saída finalizada desconta, retorno finalizado devolve ----
-         Antes de lançar, apaga os movimentos antigos desta conferência:
-         desbloquear e finalizar de novo corrige o estoque em vez de duplicar. */
-      if (!finalizando) return;
-      return Banco.apagarMovimentosConferencia(conferencia.id).then(function () {
-        return Banco.listarEstoque();
-      }).then(function (cadastro) {
-        var porChave = {};
-        cadastro.forEach(function (i) { porChave[Estoque.chave(i.nome)] = i; });
-
-        var nomePorProduto = {};
-        linhas.forEach(function (l) {
-          nomePorProduto[l.produto.id] = {
-            nome: l.nome, unidade: l.unidade,
-            terceirizado: !!(l.produto && l.produto.terceirizado)
-          };
-        });
-
-        /* O estoque só movimenta produtos que o coordenador CADASTROU
-           (a escolha é feita no anexo do checklist). Produto fora do
-           estoque não gera movimento — nem cria cadastro sozinho. */
-        return Promise.resolve().then(function () {
-          var movimentos = [];
-          itens.forEach(function (i) {
-            if (!(Number(i.quantidade) > 0)) return;   /* contagem zero não mexe no estoque */
-            var info = nomePorProduto[i.produto_id];
-            if (info && info.terceirizado) return;     /* material 100% de fora: estoque não vê */
-            /* linha mista: só a parte PRÓPRIA mexe no estoque */
-            var propria = Number(i.quantidade) - (Number(i.qtd_terceirizada) || 0);
-            if (!(propria > 0)) return;
-            var alvo = info && porChave[Estoque.chave(info.nome)];
-            if (!alvo) return;
-            movimentos.push({
-              estoque_id: alvo.id,
-              evento_id: eventoId,
-              conferencia_id: conferencia.id,
-              tipo: tipo,                       /* 'saida' desconta · 'retorno' devolve */
-              quantidade: propria,
-              usuario_id: Sessao.atual.id
-            });
-          });
-          return Banco.criarMovimentos(movimentos);
-        });
-      }).catch(function () {
-        U.aviso('⚠ A conferência foi finalizada, mas o estoque não atualizou (rode o SQL novo no Supabase).', 'erro', 7000);
-      });
+      /* estoque já foi lançado acima (sincronizarEstoqueConferencia) */
+      return;
     }).then(function () {
       /* ---- estoque DO FORNECEDOR: o terceirizado sai (saída) e volta (retorno) ----
          Apaga os lançamentos antigos desta conferência antes: re-finalizar corrige. */
@@ -11107,6 +11766,10 @@ function TelaRelatorios() {
               manutencao_obs: (m.querySelector('#mnt-obs').value || '').trim() || null
             }).eq('id', b.dataset.id).then(function (r) {
               if (r.error) throw r.error;
+              if (acao === 'descartada') {
+                var itSuc = todosItens.filter(function (i) { return i.id === b.dataset.id; })[0];
+                darBaixaSucata(b.dataset.id, b.dataset.nome, itSuc ? U.num(itSuc.qtd_danificada) : 0);
+              }
               /* atualiza na memória e redesenha */
               todosItens.forEach(function (i) {
                 if (i.id === b.dataset.id) {
@@ -13763,6 +14426,58 @@ function TelaPatio() {
   carregar();
 }
 
+/* 🔄 Sobra × falta: a peça que voltou A MAIS no evento A é a que falta no B.
+   A: o retorno que tem a peça perde a quantidade (e o estoque é re-sincronizado);
+   B: ganha um retorno finalizado com a mesma quantidade. Estoque: −q e +q = não muda. */
+function acertarSobra(x, todosProdutos, todosItens, todosCgs) {
+  var ch = x.sb.ch, q = x.qtd, agora = new Date().toISOString();
+  var prodA = todosProdutos.filter(function (p) { return p.evento_id === x.sb.ev.id && Estoque.chave(p.nome) === ch; }).map(function (p) { return p.id; });
+  var prodB = todosProdutos.filter(function (p) { return p.evento_id === x.f.ev.id && Estoque.chave(p.nome) === ch; })[0];
+  if (!prodB) return Promise.reject(new Error('A peça não está no checklist de ' + x.f.ev.nome + '.'));
+  var confsRetA = App.conferencias.filter(function (c) { return c.evento_id === x.sb.ev.id && c.tipo === 'retorno'; }).map(function (c) { return c.id; });
+  /* o retorno de A que mais tem a peça */
+  var itA = todosItens.filter(function (i) { return confsRetA.indexOf(i.conferencia_id) >= 0 && prodA.indexOf(i.produto_id) >= 0; })
+    .sort(function (a, b) { return U.num(b.quantidade) - U.num(a.quantidade); })[0];
+  if (!itA) return Promise.reject(new Error('Não achei o retorno com a sobra.'));
+  var obsA = '🔄 ' + U.fmt(q) + ' ' + x.sb.nome + ' eram do evento "' + x.f.ev.nome + '" (sobra acertada por ' + Sessao.atual.nome + ')';
+  var obsB = '🔄 Voltou junto no retorno de "' + x.sb.ev.nome + '" (sobra acertada por ' + Sessao.atual.nome + ')';
+  var nomePorProd = {};
+  todosProdutos.forEach(function (p) { nomePorProd[p.id] = p.nome; });
+  var confA = App.conferencias.filter(function (c) { return c.id === itA.conferencia_id; })[0];
+  /* 1) A: diminui a sobra e re-sincroniza o estoque desse retorno */
+  return Banco.cliente.from('itens_conferencia').update({ quantidade: Math.max(0, U.num(itA.quantidade) - q) }).eq('id', itA.id)
+    .then(function (r) {
+      if (r.error) throw r.error;
+      itA.quantidade = Math.max(0, U.num(itA.quantidade) - q);
+      var porChave = {};
+      todosItens.filter(function (i) { return i.conferencia_id === itA.conferencia_id; }).forEach(function (i) {
+        var k = Estoque.chave(nomePorProd[i.produto_id] || '');
+        var prod = todosProdutos.filter(function (p) { return p.id === i.produto_id; })[0];
+        if (!k || (prod && prod.terceirizado)) return;
+        porChave[k] = (porChave[k] || 0) + Math.max(0, U.num(i.quantidade) - U.num(i.qtd_terceirizada));
+      });
+      var corr = ((confA && confA.correcoes) || []).concat([{ texto: obsA, nome: Sessao.atual.nome, em: agora }]);
+      return Promise.all([
+        Banco.sincronizarEstoqueConferencia(itA.conferencia_id, x.sb.ev.id, 'retorno', porChave, Sessao.atual.id, 'Retorno (acerto de sobra)'),
+        Banco.atualizarConferencia(itA.conferencia_id, { correcoes: corr }).catch(function () { return null; })
+      ]);
+    })
+    /* 2) B: retorno finalizado com a peça */
+    .then(function () {
+      var num = 1;
+      todosCgs.forEach(function (c) { if (c.evento_id === x.f.ev.id) num = Math.max(num, U.num(c.numero) + 1); });
+      return Banco.criarCarregamento({ evento_id: x.f.ev.id, numero: num, nome: '🔄 SOBRA ← ' + x.sb.ev.nome, sentido: 'retorno', status: 'Finalizado' });
+    }).then(function (cg) {
+      return Banco.criarConferencia({ evento_id: x.f.ev.id, carregamento_id: cg.id, tipo: 'retorno', status: 'Finalizado',
+        conferente_id: Sessao.atual.id, finalizada_em: agora, observacao: obsB });
+    }).then(function (c) {
+      return Banco.salvarItens(c.id, [{ produto_id: prodB.id, quantidade: q, observacao: obsB }]).then(function () {
+        var pc = {}; pc[ch] = q;
+        return Banco.sincronizarEstoqueConferencia(c.id, x.f.ev.id, 'retorno', pc, Sessao.atual.id, obsB);
+      });
+    });
+}
+
 function TelaPendencias() {
   App.topo('PENDÊNCIAS DE RETORNO', 'O que ainda não voltou para o galpão');
   var tela = U.$('#tela');
@@ -13799,11 +14514,10 @@ function TelaPendencias() {
     });
 
     /* um evento tem pendência quando SAIU material e nem tudo voltou */
-    var pendencias = [];
+    var pendencias = [], sobras = [], perdas = [], faltaPorChave = {};
     App.eventos.forEach(function (ev) {
       var produtos = prodPorEvento[ev.id] || [];
       if (!produtos.length) return;
-      if (ev.pendencia_resolvida_em) return;   /* coordenador já deu baixa */
       var confs = App.conferencias.filter(function (c) { return c.evento_id === ev.id; });
       var temSaidaFinal = confs.some(function (c) { return c.tipo === 'saida' && c.finalizada_em; });
       if (!temSaidaFinal) return;
@@ -13818,19 +14532,30 @@ function TelaPendencias() {
       linhas.forEach(function (l) {
         var ch = Estoque.chave(l.nome);
         var b = porNome[ch] || (porNome[ch] = {
-          nome: l.nome, unidade: l.unidade, saiu: 0, voltou: 0,
+          nome: l.nome, unidade: l.unidade, saiu: 0, voltou: 0, perd: 0, ch: ch,
           terc: !!(l.produto && l.produto.terceirizado)
         });
         b.saiu += (l.saida === null ? 0 : l.saida) + (l.composta || 0);
         b.voltou += l.retorno === null ? 0 : l.retorno;
+        b.perd += l.perdida || 0;
         if (l.produto && l.produto.terceirizado) b.terc = true;
       });
       var faltando = Object.keys(porNome).map(function (ch) {
         var b = porNome[ch];
-        b.falta = b.saiu - b.voltou;
+        b.falta = b.saiu - b.voltou - b.perd;   /* ❌ perdida vai pra cobrança, não fica "faltando voltar" */
         return b;
-      }).filter(function (b) { return b.falta > 0; });
+      });
+      /* 🔄 sobra: voltou MAIS do que saiu (pode ser peça de outro evento) */
+      faltando.forEach(function (b) {
+        if (b.falta < 0 && !b.terc) sobras.push({ ev: ev, nome: b.nome, unidade: b.unidade, ch: b.ch, qtd: -b.falta });
+        if (b.perd > 0) perdas.push({ ev: ev, nome: b.nome, unidade: b.unidade, qtd: b.perd });
+      });
+      faltando = faltando.filter(function (b) { return b.falta > 0; });
       if (!faltando.length) return;
+      if (ev.pendencia_resolvida_em) return;   /* coordenador já deu baixa */
+      faltando.forEach(function (b) {
+        if (!b.terc) (faltaPorChave[b.ch] = faltaPorChave[b.ch] || []).push({ ev: ev, qtd: b.falta });
+      });
 
       var totalFalta = 0;
       faltando.forEach(function (f) { totalFalta += f.falta; });
@@ -13845,6 +14570,39 @@ function TelaPendencias() {
     pendencias.sort(function (a, b) { return b.dias - a.dias || b.totalFalta - a.totalFalta; });
 
     var h = '';
+    /* 🔄 SOBRAS × FALTAS: a peça que sobrou num retorno é a que falta em outro evento */
+    var pares = [];
+    sobras.forEach(function (sb) {
+      (faltaPorChave[sb.ch] || []).forEach(function (f) {
+        if (f.ev.id !== sb.ev.id) pares.push({ sb: sb, f: f, qtd: Math.min(sb.qtd, f.qtd) });
+      });
+    });
+    TelaPendencias._pares = pares;
+    if (pares.length) {
+      h += '<div class="cartao" style="border:2px solid #7E57C2"><div class="cartao__topo"><h3>🔄 Sobras que são de outro evento</h3>' +
+        '<span class="mut peq">' + pares.length + '</span></div><div class="cartao__corpo">' +
+        '<p class="peq mut" style="margin-bottom:8px">Voltou peça A MAIS num evento e está FALTANDO a mesma peça em outro: provavelmente veio no caminhão errado. ' +
+        'O <b>ACERTAR</b> tira a sobra de um e dá o retorno no outro (o estoque não muda).</p>' +
+        pares.map(function (x, i) {
+          return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--linha);padding:8px 0">' +
+            '<span style="flex:1;min-width:220px"><b>' + U.fmt(x.qtd) + ' ' + U.esc(x.sb.unidade) + ' — ' + U.esc(x.sb.nome) + '</b>' +
+            '<span class="peq mut" style="display:block">sobrou no retorno de <b>' + U.esc(x.sb.ev.nome) + '</b> (+' + U.fmt(x.sb.qtd) + ') · falta em <b>' + U.esc(x.f.ev.nome) + '</b> (' + U.fmt(x.f.qtd) + ')</span></span>' +
+            (Sessao.ehCoordenador() ? '<button class="btn btn--laranja btn--peq js-acertar" data-i="' + i + '">🔄 ACERTAR</button>' : '') +
+          '</div>';
+        }).join('') + '</div></div>';
+    }
+    if (perdas.length) {
+      var totPerd = perdas.reduce(function (t, x) { return t + x.qtd; }, 0);
+      h += '<div class="cartao" style="border:2px solid var(--vermelho)"><div class="cartao__topo js-pend-toggle" data-ev="__perdas" style="cursor:pointer">' +
+        '<h3><span class="js-pend-seta" data-ev="__perdas" style="display:inline-block;transition:transform .18s;margin-right:8px">▶</span>💰 Perdas para cobrança</h3>' +
+        '<span class="peq" style="color:var(--vermelho);font-weight:800">' + U.fmt(totPerd) + ' peça(s)</span></div>' +
+        '<div class="cartao__corpo js-pend-corpo" data-ev="__perdas" hidden>' +
+        perdas.map(function (x) {
+          return '<div class="peq" style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linha)">' +
+            '<span><b>' + U.esc(x.nome) + '</b> <span class="mut">· ' + U.esc(x.ev.nome) + (x.ev.cliente ? ' · ' + U.esc(x.ev.cliente) : '') + '</span></span>' +
+            '<b style="color:var(--vermelho);flex:none">❌ ' + U.fmt(x.qtd) + ' ' + U.esc(x.unidade) + '</b></div>';
+        }).join('') + '</div></div>';
+    }
     if (!pendencias.length) {
       h += '<div class="vazio"><p class="vazio__ico">🟢</p><h3>Nada pendente</h3>' +
         '<p>Todo material que saiu já voltou para o galpão.</p></div>';
@@ -13870,6 +14628,10 @@ function TelaPendencias() {
             '<p class="peq mut" style="margin-bottom:8px">' +
               (p.ev.cliente ? 'Cliente: <b>' + U.esc(p.ev.cliente) + '</b> · ' : '') +
               (p.ev.local ? U.esc(p.ev.local) + ' · ' : '') + U.fmtData(p.ev.data) + '</p>' +
+            (p.ev.data_desmontagem
+              ? '<p class="peq" style="margin-bottom:8px;font-weight:700;color:' + (fimDesmontagem(p.ev) < U.hojeISO() ? 'var(--vermelho)' : 'var(--azul)') + '">' +
+                (fimDesmontagem(p.ev) < U.hojeISO() ? '⏰ Era pra ter voltado ' : '📅 Volta prevista ') + rotuloDesmontagem(p.ev) + '</p>'
+              : '<p class="peq mut" style="margin-bottom:8px">📅 Sem data de desmontagem informada.</p>') +
             (p.ev.encerrado_com_falta_motivo
               ? '<p class="peq" style="margin-bottom:8px;color:var(--laranja)">📝 Motivo do encerramento com falta: <b>' +
                 U.esc(p.ev.encerrado_com_falta_motivo) + '</b></p>'
@@ -13885,6 +14647,7 @@ function TelaPendencias() {
             '</div>' +
             '<div class="btn-linha" style="margin-top:10px">' +
               '<button class="btn btn--branco btn--peq" data-abrir="' + p.ev.id + '" style="flex:1">ABRIR O EVENTO</button>' +
+              '<button class="btn btn--verde btn--peq js-cobrar" data-ev="' + p.ev.id + '">📲 COBRAR PRODUTOR</button>' +
               (Sessao.ehCoordenador() && (p.ev.status === 'Finalizado' || p.ev.status === 'Com divergência')
                 ? '<button class="btn btn--azul btn--peq js-reabrir-ev" data-id="' + p.ev.id + '" data-nome="' + U.esc(p.ev.nome) + '">' +
                   '🔓 REABRIR EVENTO</button>'
@@ -13900,6 +14663,42 @@ function TelaPendencias() {
     }
 
     tela.innerHTML = h;
+
+    /* 📲 cobrar o produtor pelo WhatsApp: mensagem pronta com o que falta */
+    U.$$('.js-cobrar', tela).forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var p = pendencias.filter(function (x) { return x.ev.id === b.dataset.ev; })[0];
+        if (!p) return;
+        var txt = 'Olá! Aqui é da Grupo Tendas Plenart. Sobre o evento *' + p.ev.nome + '*' +
+          (p.ev.data_desmontagem ? ' (desmontagem ' + rotuloDesmontagem(p.ev) + ')' : '') +
+          ', ainda não voltou para o nosso galpão:\n' +
+          p.faltando.map(function (f) { return '• ' + U.fmt(f.falta) + ' ' + f.unidade + ' — ' + f.nome; }).join('\n') +
+          '\n\nConsegue verificar e nos dar um retorno? Obrigado!';
+        var tel = String(p.ev.produtor_telefone || p.ev.telefone || '').replace(/\D/g, '');
+        if (tel && tel.length <= 11) tel = '55' + tel;
+        window.open('https://wa.me/' + (tel || '') + '?text=' + encodeURIComponent(txt), '_blank');
+      });
+    });
+
+    /* 🔄 acertar sobra × falta */
+    U.$$('.js-acertar', tela).forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var x = TelaPendencias._pares[+b.dataset.i];
+        U.confirmar('🔄 Acertar sobra?',
+          U.fmt(x.qtd) + ' ' + x.sb.unidade + ' de ' + x.sb.nome + ' saem do retorno de "' + x.sb.ev.nome +
+          '" e entram como retorno de "' + x.f.ev.nome + '". O estoque do galpão não muda.', '🔄 ACERTAR', 'btn--laranja')
+          .then(function (ok) {
+            if (!ok) return;
+            b.disabled = true; b.textContent = 'Acertando...';
+            acertarSobra(x, todosProdutos, todosItens, todosCgs).then(function () {
+              U.aviso('🔄 Sobra acertada: ' + U.fmt(x.qtd) + ' ' + x.sb.nome + ' agora contam no retorno de ' + x.f.ev.nome + '.', 'ok', 7000);
+              App.recarregar();
+            }).catch(function (er) { b.disabled = false; b.textContent = '🔄 ACERTAR'; App.falhou(er); });
+          });
+      });
+    });
 
     /* ▶ seta que expande e fecha o card do evento */
     U.$$('.js-pend-toggle', tela).forEach(function (topo) {
