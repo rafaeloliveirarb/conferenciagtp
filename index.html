@@ -2868,7 +2868,7 @@ var Rascunho = {
   window.addEventListener('online', function () {
     pintarConexao();
     if (Rascunho.pendentes() > 0) {
-      U.aviso('🌐 Internet de volta! Há contagem guardada neste aparelho — abra a conferência e toque em SALVAR.', 'ok', 8000);
+      U.aviso('🌐 Internet de volta! Há contagem guardada neste aparelho — abra a conferência e toque em FINALIZAR.', 'ok', 8000);
     } else {
       U.aviso('🌐 Internet de volta.', 'ok', 3000);
     }
@@ -8368,7 +8368,7 @@ function TelaConferencia(arg) {
         if (ras.obsGeral) obsGeral = ras.obsGeral;
         if (ras.foto) foto = ras.foto;
         m.fechar();
-        U.aviso('✓ Contagem recuperada. Toque em SALVAR para enviar ao sistema.', 'ok', 6000);
+        U.aviso('✓ Contagem recuperada. Continue contando e toque em FINALIZAR.', 'ok', 6000);
         desenhar();
       });
       return;
@@ -8892,8 +8892,7 @@ function TelaConferencia(arg) {
     h += blocoFoto();
 
     h += '<div class="barra-fixa">' +
-      '<button class="btn btn--laranja btn--bloco btn--gg" id="btn-salvar">SALVAR CONFERÊNCIA</button>' +
-      '<button class="btn btn--verde btn--bloco" id="btn-finalizar" style="margin-top:10px">FINALIZAR ' +
+      '<button class="btn btn--verde btn--bloco btn--gg" id="btn-finalizar">FINALIZAR ' +
         (cega ? 'RETORNO' : 'CONFERÊNCIA') + '</button>' +
       '</div>';
 
@@ -9431,19 +9430,7 @@ function TelaConferencia(arg) {
       });
     });
 
-    U.$('#btn-salvar').addEventListener('click', function () {
-      salvarComBotao().then(function () {
-        U.aviso('✓ Conferência salva com sucesso.', 'ok', 4000);
-        recarregarDados();
-      }).catch(function (e) {
-        if (e.message === 'vazio') return;
-        if (!navigator.onLine) {
-          U.aviso('📴 Sem internet. Sua contagem está guardada neste aparelho — toque em SALVAR quando a conexão voltar.', 'erro', 8000);
-          return;
-        }
-        App.falhou(e);
-      });
-    });
+    /* botão SALVAR saiu (30/09): a contagem fica guardada no aparelho sozinha e vai pro sistema no FINALIZAR */
     U.$('#btn-finalizar').addEventListener('click', function () { finalizar(); });
 
     linhas.forEach(function (l) { pintar(l.produto.id); pintarEmbalagem(l.produto.id); });
