@@ -2460,6 +2460,42 @@ function statusVivo(ev, pct, fase) {
   return retComecou ? 'Retorno em andamento' : 'Aguardando retorno';
 }
 
+/* Evento 100% contado que não anda: diz O QUE falta (saída sem finalizar, retorno sem
+   finalizar ou tudo pronto só esperando ENCERRAR) e ajusta o selo. */
+function travado(ev, confs, cgs, pct, totalItens, fase) {
+  var r = { aviso: '', st: statusVivo(ev, undefined, fase), pronto: false };
+  if (ev.status === 'Finalizado' || ev.status === 'Com divergência' || !(pct >= 100) || !(totalItens > 0)) return r;
+  if (fase === 'saida') {
+    var presas = (cgs || [])
+      .filter(function (c) { return c.evento_id === ev.id && c.sentido !== 'retorno'; })
+      .map(function (cg) {
+        var conf = confs.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida'; })[0];
+        return { cg: cg, conf: conf || null };
+      })
+      .filter(function (x) { return !(x.conf && x.conf.finalizada_em); });
+    if (presas.length) {
+      r.aviso = '⚠ Tudo contado, mas a saída não foi finalizada: ' + presas.map(function (x) {
+        return x.conf
+          ? 'abra a conferência do carregamento ' + (x.cg.numero || 1) + ' e toque em FINALIZAR (' +
+            U.esc(App.nomeUsuario(x.conf.conferente_id)) + ' parou antes de finalizar)'
+          : 'o carregamento ' + (x.cg.numero || 1) + (x.cg.caminhao_id ? '' : ' (sem caminhão)') + ' ainda não tem conferência de saída';
+      }).join(' · ');
+    }
+    return r;
+  }
+  var retAbertas = confs.filter(function (c) { return c.tipo === 'retorno' && !c.finalizada_em; });
+  if (retAbertas.length) {
+    r.aviso = '⚠ Tudo voltou, mas falta tocar em FINALIZAR no retorno (' +
+      retAbertas.map(function (c) { return U.esc(App.nomeUsuario(c.conferente_id)); }).join(', ') + ')';
+    r.st = 'Retorno em andamento';
+  } else {
+    r.aviso = '✅ Tudo voltou e o retorno está finalizado — abra o evento e toque em ENCERRAR EVENTO (gera o relatório final)';
+    r.st = 'Retorno 100% — pode encerrar';
+    r.pronto = true;
+  }
+  return r;
+}
+
 function selo(situacao) {
   var mapa = {
     'Aguardando conferência': 'aguardando',
@@ -3836,7 +3872,8 @@ function TelaPainel() {
       if (fechado) { pct = 100; feitos = totalItens; }
       var corPct = pct >= 100 ? 'var(--verde)' : pct > 0 ? 'var(--laranja)' : 'var(--vermelho)';
       var caminhoes = caminhoesDoEvento(ev.id);
-      var st = statusVivo(ev, undefined, fechado ? undefined : fase);
+      var tv = fechado ? { aviso: '', st: statusVivo(ev) } : travado(ev, confs, todosCarregamentos, pct, totalItens, fase);
+      var st = tv.st;
 
       return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
         '<div style="display:flex;gap:14px;align-items:flex-start">' +
@@ -3855,7 +3892,9 @@ function TelaPainel() {
               (fase === 'retorno' && !fechado ? '↩️ ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens voltaram'
                 : '📦 ' + U.fmt(feitos) + '/' + U.fmt(totalItens) + ' itens') +
               (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
-            '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">👆 Toque para abrir e conferir os itens</p>' +
+            (tv.aviso
+              ? '<p class="peq" style="margin:5px 0 0;color:' + (tv.pronto ? 'var(--verde)' : 'var(--laranja)') + ';font-weight:800">' + tv.aviso + '</p>'
+              : '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">👆 Toque para abrir e conferir os itens</p>') +
           '</div>' +
           '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
             '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
@@ -5734,32 +5773,8 @@ function TelaMeusEventos() {
           : jaComecou ? '👆 Toque para continuar a conferência' : '👆 Toque para conferir e marcar os itens';
 
       /* ⚠ 100% contado mas o evento não anda: fala O QUE está faltando */
-      var aviso = '';
-      if (!fechado && pct >= 100 && totalItens > 0) {
-        if (fase === 'saida') {
-          var presas = todosCarregamentos
-            .filter(function (c) { return c.evento_id === ev.id && c.sentido !== 'retorno'; })
-            .map(function (cg) {
-              var conf = confs.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === 'saida'; })[0];
-              return { cg: cg, conf: conf || null };
-            })
-            .filter(function (x) { return !(x.conf && x.conf.finalizada_em); });
-          if (presas.length) {
-            aviso = '⚠ Tudo contado, mas a saída não foi finalizada: ' + presas.map(function (x) {
-              return x.conf
-                ? 'abra a conferência do carregamento ' + (x.cg.numero || 1) + ' e toque em FINALIZAR (' +
-                  U.esc(App.nomeUsuario(x.conf.conferente_id)) + ' parou antes de finalizar)'
-                : 'o carregamento ' + (x.cg.numero || 1) + (x.cg.caminhao_id ? '' : ' (sem caminhão)') + ' ainda não tem conferência de saída';
-            }).join(' · ');
-          }
-        } else {
-          var retAbertas = confs.filter(function (c) { return c.tipo === 'retorno' && !c.finalizada_em; });
-          if (retAbertas.length) {
-            aviso = '⚠ Tudo voltou, mas falta tocar em FINALIZAR no retorno (' +
-              retAbertas.map(function (c) { return U.esc(App.nomeUsuario(c.conferente_id)); }).join(', ') + ')';
-          }
-        }
-      }
+      var tv = fechado ? { aviso: '', st: statusVivo(ev) } : travado(ev, confs, todosCarregamentos, pct, totalItens, fase);
+      var aviso = tv.aviso;
 
       return '<div class="evento js-abrir" data-id="' + ev.id + '" style="cursor:pointer">' +
         '<div style="display:flex;gap:14px;align-items:flex-start">' +
@@ -5777,13 +5792,13 @@ function TelaMeusEventos() {
               (caminhoes.length ? ' · 🚚 ' + U.esc(caminhoes.join(' + ')) : '') + '</p>' +
             (quemFez ? '<p class="peq mut" style="margin:3px 0 0">✔️ ' + quemFez + '</p>' : '') +
             (aviso
-              ? '<p class="peq" style="margin:5px 0 0;color:var(--laranja);font-weight:800">' + aviso + '</p>'
+              ? '<p class="peq" style="margin:5px 0 0;color:' + (tv.pronto ? 'var(--verde)' : 'var(--laranja)') + ';font-weight:800">' + aviso + '</p>'
               : '<p class="peq" style="margin:5px 0 0;color:var(--verde);font-weight:700">' + dica + '</p>') +
           '</div>' +
           '<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px">' +
             '<span style="background:' + corPct + ';color:#fff;font-weight:800;font-size:12px;' +
               'padding:4px 10px;border-radius:999px">' + pct + '%</span>' +
-            selo(statusVivo(ev, undefined, fechado ? undefined : fase)) +
+            selo(tv.st) +
           '</div>' +
         '</div>' +
       '</div>';
