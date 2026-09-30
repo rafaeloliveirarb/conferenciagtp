@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantificação de Material | Plenart</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --azul:#1a2d6b; --azul-med:#2a4490; --azul-claro:#e8ecf5;
+  --laranja:#f47920; --laranja-esc:#d96a17; --laranja-claro:#fff1e6;
+  --verde:#2e7d32; --verde-claro:#e8f5e9; --vermelho:#c62828; --vermelho-claro:#fde8e8;
+  --cinza:#607d8b; --cinza-claro:#f5f7fa; --bg:#f0f4f8; --texto:#1a2a3a; --borda:#d0dde8;
+  --sombra:0 2px 12px rgba(26,45,107,.10);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Source Sans 3',system-ui,sans-serif;background:var(--bg);color:var(--texto);min-height:100vh;padding:18px}
+button,input,select,textarea{font-family:inherit}
+.container{max-width:1320px;margin:0 auto}
+.hidden{display:none!important}
+
+/* topo */
+.topo{background:linear-gradient(135deg,var(--azul),var(--azul-med));color:#fff;padding:16px 24px;border-radius:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:var(--sombra);margin-bottom:16px}
+.topo h1{font-family:Montserrat,sans-serif;font-weight:800;font-size:1.2rem;letter-spacing:.3px}
+.topo h1 b{color:var(--laranja)}
+.topo .tag{background:var(--laranja);padding:5px 13px;border-radius:20px;font-family:Montserrat,sans-serif;font-weight:700;font-size:.76rem}
+.topo .dir{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btop{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);color:#fff;border:0;padding:8px 13px;border-radius:8px;font-family:Montserrat,sans-serif;font-weight:700;font-size:.76rem;cursor:pointer;text-decoration:none}
+.btop:hover{background:rgba(255,255,255,.28)}
+
+/* layout */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:18px;align-items:flex-start}
+.layout>*{min-width:0}
+@media(max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+.card{background:#fff;border-radius:12px;box-shadow:var(--sombra);margin-bottom:16px;overflow:hidden}
+.card-h{background:var(--azul-claro);padding:12px 20px;display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--laranja)}
+.card-h h2{font-family:Montserrat,sans-serif;font-weight:700;font-size:.92rem;color:var(--azul);text-transform:uppercase;letter-spacing:.5px;flex:1}
+.card-b{padding:18px 20px}
+.badge{background:var(--laranja);color:#fff;font-family:Montserrat,sans-serif;font-weight:700;font-size:.72rem;padding:4px 11px;border-radius:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+@media(max-width:700px){.g2,.g3{grid-template-columns:minmax(0,1fr)}}
+.g2>*,.g3>*,.fg{min-width:0}
+.fg select{min-width:0;text-overflow:ellipsis}
+.fg{display:flex;flex-direction:column;gap:4px;min-width:0}
+.fg label{font-family:Montserrat,sans-serif;font-weight:700;font-size:.68rem;color:var(--azul);text-transform:uppercase;letter-spacing:.4px}
+.fg label i{font-family:'Source Sans 3';font-weight:400;font-style:italic;text-transform:none;letter-spacing:0;color:var(--cinza);margin-left:4px}
+.fg input,.fg select{padding:9px 11px;border:1.5px solid var(--borda);border-radius:7px;font-size:.95rem;color:var(--texto);background:#fafcff;width:100%}
+.fg input:focus,.fg select:focus{outline:none;border-color:var(--laranja);background:#fff}
+.dica{font-size:.84rem;color:var(--cinza);margin-bottom:12px}
+
+/* ambientes */
+.amb{border:1.5px solid var(--borda);border-radius:11px;margin-bottom:14px;overflow:hidden;background:#fff}
+.amb-h{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--azul-claro);border-bottom:2px solid var(--laranja)}
+.amb-h .n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--azul);color:#fff;display:flex;align-items:center;justify-content:center;font-family:Montserrat;font-weight:800;font-size:.85rem}
+.amb-h input{flex:1;min-width:120px;padding:8px 11px;border:1.5px solid var(--borda);border-radius:7px;font-family:Montserrat;font-weight:700;font-size:.95rem;color:var(--azul);text-transform:uppercase}
+.amb-h input:focus{outline:none;border-color:var(--laranja)}
+@media(max-width:560px){.amb-h{flex-wrap:wrap;gap:8px;padding:10px}.amb-h input{flex:1 1 calc(100% - 44px);min-width:0;order:1}.amb-h .n{order:0}.amb-h .m2,.amb-h .ib{order:2}.amb-h .m2{margin-right:auto}}
+.amb-h .m2{flex:none;background:var(--laranja-claro);color:var(--laranja-esc);font-family:Montserrat;font-weight:800;font-size:.74rem;padding:5px 11px;border-radius:14px}
+.ib{flex:none;border:1.5px solid var(--borda);background:#fff;border-radius:7px;width:34px;height:34px;cursor:pointer;font-size:.95rem;display:inline-flex;align-items:center;justify-content:center}
+.ib:hover{border-color:var(--azul)}
+.ib.rem:hover{border-color:var(--vermelho);background:var(--vermelho-claro)}
+.amb-b{padding:14px}
+.addrow{display:flex;gap:8px;margin-bottom:12px}
+.addrow select{flex:1;min-width:0;padding:10px 11px;border:1.5px solid var(--borda);border-radius:7px;font-size:.95rem;background:#fafcff}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 16px;border:0;border-radius:8px;font-family:Montserrat,sans-serif;font-weight:700;font-size:.82rem;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.55;cursor:default}
+.b-azul{background:var(--azul);color:#fff}.b-azul:hover{background:var(--azul-med)}
+.b-lar{background:var(--laranja);color:#fff}.b-lar:hover{background:var(--laranja-esc)}
+.b-verde{background:var(--verde);color:#fff}.b-verde:hover{background:#256428}
+.b-branco{background:#fff;color:var(--azul);border:1.5px solid var(--borda)}.b-branco:hover{border-color:var(--azul)}
+.b-verm{background:#fff;color:var(--vermelho);border:1.5px solid var(--vermelho)}
+.bloco-vazio{border:1.5px dashed var(--borda);border-radius:9px;padding:14px;text-align:center;color:var(--cinza);font-size:.88rem}
+.add-amb{width:100%;padding:13px;border:2px dashed var(--laranja);background:var(--laranja-claro);color:var(--laranja-esc);border-radius:11px;font-family:Montserrat;font-weight:800;font-size:.86rem;cursor:pointer}
+
+/* produto */
+.prod{border:1.5px solid var(--borda);border-left:4px solid var(--laranja);border-radius:9px;margin-bottom:10px;background:#fcfdff}
+.prod-h{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer}
+.prod-h .pn{flex:1;min-width:0;font-family:Montserrat;font-weight:800;font-size:.86rem;color:var(--azul)}
+.prod-h .pn small{display:block;font-family:'Source Sans 3';font-weight:600;font-size:.78rem;color:var(--laranja-esc);margin-top:1px}
+.prod-h .ib{width:30px;height:30px;font-size:.85rem}
+.prod-b{padding:4px 12px 12px}
+.opcs{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.opc{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--borda);border-radius:8px;padding:7px 11px;cursor:pointer;font-family:Montserrat;font-weight:700;font-size:.72rem;color:var(--azul);text-transform:uppercase;background:#fff}
+.opc input{width:17px;height:17px;accent-color:var(--laranja)}
+.opc.on{border-color:var(--laranja);background:var(--laranja-claro)}
+.sub{margin-top:10px;padding:12px;border:1.5px dashed var(--borda);border-radius:8px;background:#fff}
+.sub h5{font-family:Montserrat;font-size:.68rem;text-transform:uppercase;color:var(--laranja-esc);margin-bottom:8px}
+.pinfo{margin-top:10px;font-size:.84rem;color:var(--azul);background:var(--azul-claro);border-radius:7px;padding:7px 10px}
+.pinfo:empty{display:none}
+.lista-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px}
+.li{display:flex;align-items:center;gap:6px;border:1px solid var(--borda);border-radius:7px;padding:4px 6px 4px 9px;background:#fff;font-size:.84rem}
+.li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.li input{width:64px;padding:6px;border:1.5px solid var(--borda);border-radius:6px;text-align:center;font-size:.9rem}
+.li.tem{border-color:var(--laranja);background:var(--laranja-claro)}
+.filtro{margin-bottom:8px;padding:8px 11px;border:1.5px solid var(--borda);border-radius:7px;width:100%;font-size:.9rem}
+
+/* painel direito */
+.painel{position:sticky;top:18px}
+@media(max-width:1100px){.painel{position:static}}
+.pl-h{background:linear-gradient(135deg,var(--azul),var(--azul-med));color:#fff;padding:14px 20px}
+.pl-h h2{font-family:Montserrat;font-weight:800;font-size:.98rem}
+.pl-h p{font-size:.8rem;opacity:.85}
+.totais{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--borda)}
+.totais div{padding:10px 12px;text-align:center;border-right:1px solid var(--borda)}
+.totais div:last-child{border-right:0}
+.totais b{display:block;font-family:Montserrat;font-weight:800;font-size:1.15rem;color:var(--azul)}
+.totais span{font-size:.68rem;text-transform:uppercase;color:var(--cinza);font-weight:700;letter-spacing:.3px}
+.abas{display:flex;border-bottom:1px solid var(--borda)}
+.abas button{flex:1;padding:10px;border:0;background:#fff;font-family:Montserrat;font-weight:700;font-size:.74rem;color:var(--cinza);cursor:pointer;border-bottom:3px solid transparent;text-transform:uppercase}
+.abas button.on{color:var(--azul);border-bottom-color:var(--laranja)}
+.pl-lista{max-height:calc(100vh - 360px);min-height:120px;overflow:auto}
+@media(max-width:1100px){.pl-lista{max-height:none}}
+table.mat{width:100%;border-collapse:collapse;font-size:.88rem}
+table.mat td{padding:7px 12px;border-bottom:1px solid var(--borda);vertical-align:top}
+table.mat td.q{text-align:right;white-space:nowrap;font-family:Montserrat;font-weight:800;color:var(--azul)}
+table.mat td.q small{font-family:'Source Sans 3';font-weight:600;color:var(--cinza)}
+table.mat tr.gr td{background:var(--cinza-claro);font-family:Montserrat;font-weight:800;font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;color:var(--azul);padding:6px 12px}
+table.mat tr.amb td{background:var(--azul);color:#fff;font-family:Montserrat;font-weight:800;font-size:.76rem;padding:7px 12px}
+table.mat .org{display:block;font-size:.74rem;color:var(--cinza);margin-top:1px}
+table.mat .ren{display:block;font-size:.72rem;color:var(--laranja-esc);font-weight:700}
+table.mat tr.fora td{opacity:.45;text-decoration:line-through}
+.mini{border:0;background:none;cursor:pointer;font-size:.9rem;padding:2px 4px;opacity:.55}
+.mini:hover{opacity:1}
+.vazio{padding:34px 20px;text-align:center;color:var(--cinza)}
+.vazio b{display:block;font-family:Montserrat;color:var(--azul);font-size:1rem;margin:6px 0}
+.pl-acoes{padding:14px;display:grid;gap:8px;border-top:1px solid var(--borda)}
+.pl-acoes .linha{display:flex;gap:8px}
+.pl-acoes .linha .btn{flex:1}
+.aviso-env{margin:10px 14px 0;padding:9px 12px;border-radius:8px;background:var(--verde-claro);color:var(--verde);font-size:.82rem;font-weight:700}
+.aviso-env:empty{display:none}
+.carga{margin:0;padding:8px 16px;background:#fff8e6;border-bottom:1px solid var(--borda);font-size:.84rem;color:var(--texto)}.carga span{display:block;font-size:.7rem;color:var(--cinza)}
+.fora-aviso{margin:10px 14px 0;padding:8px 12px;border-radius:8px;background:var(--laranja-claro);color:#8a5200;font-size:.82rem;display:flex;gap:8px;align-items:center;justify-content:space-between}
+
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(10,20,50,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal .box{background:#fff;border-radius:14px;width:100%;max-width:620px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal .mh{display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--azul);color:#fff}
+.modal .mh h3{flex:1;font-family:Montserrat;font-weight:800;font-size:.95rem}
+.modal .mh button{background:none;border:0;color:#fff;font-size:1.5rem;cursor:pointer;line-height:1}
+.modal .mb{padding:14px 18px;overflow:auto}
+.modal .mf{padding:12px 18px;border-top:1px solid var(--borda);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.esc{display:block;width:100%;text-align:left;border:1.5px solid var(--borda);background:#fff;border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-size:.9rem}
+.esc:hover{border-color:var(--laranja);background:var(--laranja-claro)}
+.esc b{font-family:Montserrat;color:var(--azul);font-size:.88rem}
+.esc span{display:block;color:var(--cinza);font-size:.8rem;margin-top:2px}
+.esc.novo{border-color:var(--laranja);background:var(--laranja-claro)}
+.esc.ja{border-color:var(--vermelho)}
+.msg{padding:10px 12px;border-radius:8px;font-size:.88rem;margin-bottom:10px}
+.msg.ok{background:var(--verde-claro);color:var(--verde);font-weight:700}
+.msg.erro{background:var(--vermelho-claro);color:var(--vermelho);font-weight:700}
+.msg.info{background:var(--azul-claro);color:var(--azul)}
+.sv{display:flex;gap:8px;align-items:center;border:1.5px solid var(--borda);border-radius:9px;padding:9px 11px;margin-bottom:8px}
+.sv .t{flex:1;min-width:0;cursor:pointer}
+.sv .t b{font-family:Montserrat;color:var(--azul);font-size:.88rem}
+.sv .t span{display:block;color:var(--cinza);font-size:.8rem}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(120px);background:var(--azul);color:#fff;padding:12px 20px;border-radius:9px;font-family:Montserrat;font-weight:700;font-size:.84rem;box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .3s;z-index:90;max-width:90vw}
+.toast.on{transform:translateX(-50%) translateY(0)}
+.toast.erro{background:var(--vermelho)}.toast.ok{background:var(--verde)}
+.rodape{text-align:center;color:var(--cinza);font-size:.76rem;margin:18px 0 6px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="topo">
+    <h1>GRUPO TENDAS <b>PLENART</b></h1>
+    <span class="tag">📐 QUANTIFICAÇÃO DE MATERIAL</span>
+    <div class="dir">
+      <button class="btop" id="bNova" type="button">🗒️ NOVA</button>
+      <button class="btop" id="bAbrir" type="button">📂 ABRIR SALVAS</button>
+      <button class="btop" id="bSalvar" type="button">💾 SALVAR</button>
+      <a class="btop" href="index.html">🏠 CENTRAL</a>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="card">
+        <div class="card-h"><h2>1. Dados da quantificação</h2></div>
+        <div class="card-b">
+          <div class="g3">
+            <div class="fg"><label>Evento</label><input id="mEvento" placeholder="Ex.: OKTOBERFEST CAXIAS" style="text-transform:uppercase"></div>
+            <div class="fg"><label>Data do evento</label><input id="mData" type="date"></div>
+            <div class="fg"><label>Responsável</label><input id="mResp" placeholder="Seu nome"></div>
+          </div>
+          <div class="g3" style="margin-top:12px">
+            <div class="fg"><label>Local</label><input id="mLocal" placeholder="Ex.: NOVA ARENA DA BAIXADA" style="text-transform:uppercase"></div>
+            <div class="fg"><label>O.S.</label><input id="mOs" placeholder="Nº da O.S."></div>
+            <div class="fg"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>2. Ambientes</h2><span class="badge" id="bdAmb">0 ambientes</span></div>
+        <div class="card-b">
+          <p class="dica">Crie um ambiente (palco, área VIP, bar…) e adicione os produtos dentro dele. Os ambientes somam num checklist único.</p>
+          <div id="listaAmb"></div>
+          <button class="add-amb" id="bAddAmb" type="button">➕ NOVO AMBIENTE</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <div class="card" style="margin-bottom:0">
+        <div class="pl-h"><h2>📋 Lista de Material</h2><p id="plSub">Soma de todos os ambientes</p></div>
+        <div id="plCorpo"></div>
+      </div>
+    </div>
+  </div>
+  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 B</div>
+</div>
+
+<div class="modal hidden" id="modal"><div class="box">
+  <div class="mh"><h3 id="mTit"></h3><button type="button" id="mX">&times;</button></div>
+  <div class="mb" id="mCorpo"></div>
+  <div class="mf" id="mPe"></div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================================================================
+   MOTOR DE CÁLCULO — portado do MODULO_QUANTIFICACAO_v2 e das
+   calculadoras (TendaPiramidal*, PisoTelescopico, PisoPraticavel*,
+   Treliça Box Truss). As contas são as mesmas dos originais.
+   ================================================================ */
+function getMod(x){ var f = x - Math.floor(x); f = Math.round(f*10)/10; if(f===0) return 0; if(f===0.5) return 1; return 0; }
+function num(v){ var n = parseFloat(String(v===undefined?'':v).replace(',','.')); return isNaN(n) ? 0 : n; }
+function int(v){ var n = parseInt(v,10); return isNaN(n) ? 0 : n; }
+function M(lista, grupo, nome, qtd, un, emb){ var o={ grupo:grupo, nome:nome, unidade:un||'un', qtd:qtd }; if(emb) o.emb=emb; lista.push(o); }
+/* embalagem: é recalculada em cima do TOTAL consolidado (não soma caixa de cada produto) */
+function E(base, cap){ return { base:base, cap:cap }; }
+var N_ELE = {
+  t1:'TRAVESSA DE FERRO PARA PISO 960MM', t050:'TRAVESSA DE FERRO PARA PISO 460MM',
+  sup:'SUPORTE DE FERRO PISO ELEVADO REGULÁVEL 100A170H',
+  p1:'PLACA DE PISO ELEVADO 1000X1000 COMPENSADO PLASTIFICADO', p2:'PLACA DE PISO ELEVADO 1000X500 COMPENSADO PLASTIFICADO',
+  p3:'PLACA DE PISO ELEVADO 500X500 COMPENSADO PLASTIFICADO', trava:'TRAVA DE PLACA DE PISO ELEVADO',
+  calco:'CALÇO PISO 300MMX300MM', chapa:'CHAPA DE ALUMÍNIO 90X60MM',
+  al30:'ALONGADOR DE PISO ELEVADO REGULÁVEL 30-34 CM', al20:'ALONGADOR DE PISO ELEVADO REGULÁVEL DE 20 A 27 CM',
+  gc:'GUARDA CORPO PISO ELEVADO 1000X1000MM',
+  pal250:'PALETE TRAVESSA ATÉ 250 UNIDADES', pal100:'PALETE TRAVESSA ATÉ 100 UNIDADES',
+  cxSup:'CAIXA PARA SUPORTE PISO ELEVADO', palPlaca:'PALETE PARA PLACA DE PISO ELEVADO',
+  cxTrava:'CAIXA PARA TRAVA DE PLACA DE PISO ELEVADO',
+  cxAl30:'CAIXA PARA ALONGADOR DE PISO ELEVADO REGULÁVEL 30-34 CM', cxAl20:'CAIXA PARA ALONGADOR DE PISO ELEVADO REGULÁVEL 20-27 CM',
+  cinta:'CINTA AMARRAÇÃO C/ CATRACA 9M LARANJA 3T',
+  d1:'PLACA DECK 1,00 X 1,00', d2:'PLACA DECK 0,50 X 1,00', d3:'PLACA DECK 0,50 X 0,50', palDeck:'PALETE DE MADEIRA PARA PLACA DECK', saco:'SACO PARA CALÇO'
+};
+/* ficha técnica real (cadastro de produtos Plenart) — peso kg/un e volume m³/un */
+var FICHA = {
+  'TRAVESSA DE FERRO PARA PISO 960MM':{p:2,v:0.0015}, 'TRAVESSA DE FERRO PARA PISO 460MM':{p:1.1,v:0.0007},
+  'PALETE TRAVESSA ATÉ 250 UNIDADES':{p:37,v:0.6392}, 'PALETE TRAVESSA ATÉ 100 UNIDADES':{p:30,v:0.4078},
+  'SUPORTE DE FERRO PISO ELEVADO REGULÁVEL 100A170H':{p:0.4,v:0.0003}, 'CAIXA PARA SUPORTE PISO ELEVADO':{p:1.6,v:0.0075},
+  'PLACA DE PISO ELEVADO 1000X1000 COMPENSADO PLASTIFICADO':{p:10,v:0.02}, 'PLACA DE PISO ELEVADO 1000X500 COMPENSADO PLASTIFICADO':{p:6.3,v:0.01},
+  'PLACA DE PISO ELEVADO 500X500 COMPENSADO PLASTIFICADO':{p:3.1,v:0.005}, 'PALETE PARA PLACA DE PISO ELEVADO':{p:12.2,v:0.15},
+  'GUARDA CORPO PISO ELEVADO 1000X1000MM':{p:5,v:0.033}, 'TRAVA DE PLACA DE PISO ELEVADO':{p:0.1,v:0},
+  'ALONGADOR DE PISO ELEVADO REGULÁVEL 30-34 CM':{p:0.4,v:0.006}, 'CAIXA PARA ALONGADOR DE PISO ELEVADO REGULÁVEL 30-34 CM':{p:1.98,v:0.0336},
+  'ALONGADOR DE PISO ELEVADO REGULÁVEL DE 20 A 27 CM':{p:0.4,v:0.0001}, 'CALÇO PISO 300MMX300MM':{p:0.08,v:0.0018},
+  'CINTA AMARRAÇÃO C/ CATRACA 9M LARANJA 3T':{p:2.2,v:0.0023}, 'CHAPA DE ALUMÍNIO 90X60MM':{p:0.05,v:0}
+};
+
+/* ---------- PISO ELEVADO 1x1 (memória oficial) ---------- */
+function paletesTravessa(total, cap250, cap100){
+  var p250 = Math.floor(total / cap250), resto = total - p250 * cap250, p100 = 0;
+  if(resto > 0){ if(resto <= cap100) p100 = 1; else p250 += 1; }
+  return { p250:p250, p100:p100 };
+}
+function calcPisoElevado(v, emb){
+  function cap(k,d){ var n=parseFloat(emb && emb[k]); return n>0?n:d; }
+  var capTrav250=cap('travessasPorPalete250',250), capTrav100=cap('travessasPorPalete100',100);
+  var capSuporte=cap('suportesPorCaixa',24), capPlaca=cap('placasPorPalete',70);
+  var capTrava=cap('travasPorCaixa',100), capAlong=cap('alongadoresPorCaixa',50);
+  var C=num(v.C), L=num(v.L), Cm=getMod(C), Lm=getMod(L), area=C*L;
+  var t1=0, t050=0;
+  if(Cm===0&&Lm===0){ t1=((C+1)*L)+((L+1)*C); }
+  else if(Cm===0&&Lm===1){ t1=((C+1)*(L-0.5))+(((L-0.5)+2)*C); t050=C+1; }
+  else if(Cm===1&&Lm===0){ t1=(((C-0.5)+2)*L)+((L+1)*(C-0.5)); t050=L+1; }
+  else if(Cm===1&&Lm===1){ t1=((C+1.5)*(L-0.5))+((L+1.5)*(C-0.5)); t050=(L+2)+(C+2); }
+  var pt = paletesTravessa(t1+t050, capTrav250, capTrav100);
+  var sup=0;
+  if(Cm===0&&Lm===0) sup=(C+1)*(L+1); else if(Cm===0&&Lm===1) sup=(C+1)*(L+1.5);
+  else if(Cm===1&&Lm===0) sup=(C+1.5)*(L+1); else if(Cm===1&&Lm===1) sup=(C+1.5)*(L+1.5);
+  var cxSup = Math.ceil(sup/capSuporte);
+  var p1x1=0, p050x1=0, p050=0;
+  if(Cm===0&&Lm===0){ p1x1=C*L; }
+  else if(Cm===0&&Lm===1){ p1x1=C*(L-0.5); p050x1=C; }
+  else if(Cm===1&&Lm===0){ p1x1=L*(C-0.5); p050x1=L; }
+  else if(Cm===1&&Lm===1){ p1x1=(L-0.5)*(C-0.5); p050x1=(L-0.5)+(C-0.5); p050=1; }
+  var rampaPlacas=0;
+  if(v.rampa && v.rampa.ativo){ var rq=int(v.rampa.qtd), rl=num(v.rampa.largura); if(rq>0 && rl>0) rampaPlacas = rq*rl; }
+  p1x1 += rampaPlacas;
+  var chapas = rampaPlacas*2;
+  var totalPlacas = p1x1 + p050x1 + p050, paletesPlaca = Math.ceil(totalPlacas/capPlaca);
+  var trava=0;
+  if(area<=200){
+    if(Cm===0&&Lm===0) trava=(C*2)+(L*2); else if(Cm===0&&Lm===1) trava=(C*2)+((L+0.5)*2);
+    else if(Cm===1&&Lm===0) trava=((L+0.5)*2)+(C*2); else if(Cm===1&&Lm===1) trava=((L+0.5)*2)+((C+0.5)*2);
+  } else {
+    if(Cm===0&&Lm===0) trava=(C*3)+(L*2); else if(Cm===0&&Lm===1) trava=(C*3)+((L+0.5)*2);
+    else if(Cm===1&&Lm===0) trava=((L+0.5)*2)+(C*3); else if(Cm===1&&Lm===1) trava=((L+0.5)*2)+((C+0.5)*3);
+  }
+  var cxTrava = Math.ceil(trava/capTrava);
+  var along=0, acima30=false;
+  if(v.desnivel && v.desnivel.ativo){
+    var Cd=num(v.desnivel.comprimento), Ld=num(v.desnivel.largura);
+    acima30 = (v.desnivel.altura==='acima30');
+    if(Cd>0 && Ld>0){ var Cdm=getMod(Cd), Ldm=getMod(Ld);
+      if(Cdm===0&&Ldm===0) along=(Cd+1)*(Ld+1); else if(Cdm===0&&Ldm===1) along=(Cd+1)*(Ld+1.5);
+      else if(Cdm===1&&Ldm===0) along=(Cd+1.5)*(Ld+1); else if(Cdm===1&&Ldm===1) along=(Cd+1.5)*(Ld+1.5); }
+  }
+  var cxAlong = Math.ceil(along/capAlong);
+  var calcos = sup*2, cintas = paletesPlaca;
+  var gc=0; if(v.guardaCorpo && v.guardaCorpo.ativo){ var gm=num(v.guardaCorpo.metros); if(gm>0) gc=gm; }
+  var m=[], n=N_ELE, trav=[n.t1,n.t050];
+  M(m,'Piso',n.t1,t1);
+  if(t050>0) M(m,'Piso',n.t050,t050);
+  M(m,'Piso',n.sup,sup);
+  M(m,'Piso',n.p1,p1x1);
+  if(p050x1>0) M(m,'Piso',n.p2,p050x1);
+  if(p050>0) M(m,'Piso',n.p3,p050);
+  M(m,'Piso',n.trava,trava);
+  M(m,'Piso',n.calco,calcos);
+  if(chapas>0) M(m,'Piso',n.chapa,chapas);
+  if(along>0) M(m,'Piso',acima30?n.al30:n.al20,along);
+  if(gc>0) M(m,'Opcionais',n.gc,gc);
+  if(pt.p250>0) M(m,'Embalagem',n.pal250,pt.p250,'un',{tipo:'pal',base:trav,c250:capTrav250,c100:capTrav100,qual:250});
+  if(pt.p100>0) M(m,'Embalagem',n.pal100,pt.p100,'un',{tipo:'pal',base:trav,c250:capTrav250,c100:capTrav100,qual:100});
+  if(cxSup>0) M(m,'Embalagem',n.cxSup,cxSup,'un',E([n.sup],capSuporte));
+  if(paletesPlaca>0) M(m,'Embalagem',n.palPlaca,paletesPlaca,'un',E([n.p1,n.p2,n.p3],capPlaca));
+  if(cxTrava>0) M(m,'Embalagem',n.cxTrava,cxTrava,'un',E([n.trava],capTrava));
+  if(cxAlong>0) M(m,'Embalagem',acima30?n.cxAl30:n.cxAl20,cxAlong,'un',E([acima30?n.al30:n.al20],capAlong));
+  if(cintas>0) M(m,'Embalagem',n.cinta,cintas,'un',{tipo:'igual',base:[n.palPlaca,n.palDeck]});
+  return { area:area, materiais:m, info: area>0 ? fmt(area)+' m² · '+fmt(totalPlacas)+' placas' : '' };
+}
+
+/* ---------- PISO DECK 1x1 ---------- */
+function calcDeck(v){
+  var C=num(v.C), L=num(v.L), Cm=getMod(C), Lm=getMod(L), area=C*L;
+  var t1=0,t050=0;
+  if(Cm===0&&Lm===0){ t1=((C+1)*L)+((L+1)*C); }
+  else if(Cm===0&&Lm===1){ t1=((C+1)*(L-0.5))+(((L-0.5)+2)*C); t050=C+1; }
+  else if(Cm===1&&Lm===0){ t1=(((C-0.5)+2)*L)+((L+1)*(C-0.5)); t050=L+1; }
+  else if(Cm===1&&Lm===1){ t1=((C+1.5)*(L-0.5))+((L+1.5)*(C-0.5)); t050=(L+2)+(C+2); }
+  var sup=0;
+  if(Cm===0&&Lm===0) sup=(C+1)*(L+1); else if(Cm===0&&Lm===1) sup=(C+1)*(L+1.5);
+  else if(Cm===1&&Lm===0) sup=(C+1.5)*(L+1); else if(Cm===1&&Lm===1) sup=(C+1.5)*(L+1.5);
+  var p1x1=0,p050x1=0,p050=0;
+  if(Cm===0&&Lm===0){ p1x1=C*L; }
+  else if(Cm===0&&Lm===1){ p1x1=C*(L-0.5); p050x1=C; }
+  else if(Cm===1&&Lm===0){ p1x1=L*(C-0.5); p050x1=L; }
+  else if(Cm===1&&Lm===1){ p1x1=(L-0.5)*(C-0.5); p050x1=(L-0.5)+(C-0.5); p050=1; }
+  var along=0;
+  if(v.desnivel && v.desnivel.ativo){
+    var Cd=num(v.desnivel.comprimento), Ld=num(v.desnivel.largura);
+    if(Cd>0&&Ld>0){ var Cdm=getMod(Cd), Ldm=getMod(Ld);
+      if(Cdm===0&&Ldm===0) along=(Cd+1)*(Ld+1); else if(Cdm===0&&Ldm===1) along=(Cd+1)*(Ld+1.5);
+      else if(Cdm===1&&Ldm===0) along=(Cd+1.5)*(Ld+1); else if(Cdm===1&&Ldm===1) along=(Cd+1.5)*(Ld+1.5); }
+  }
+  var calcos=sup*2, rampaPlacas=0;
+  if(v.rampa && v.rampa.ativo){ var rq=int(v.rampa.qtd), rl=num(v.rampa.largura); if(rq>0&&rl>0) rampaPlacas=rq*rl; }
+  p1x1 += rampaPlacas;
+  var gc=0; if(v.guardaCorpo && v.guardaCorpo.ativo){ var gm=num(v.guardaCorpo.metros); if(gm>0) gc=gm; }
+  var m=[], n=N_ELE, trav=[n.t1,n.t050];
+  var pt=paletesTravessa(t1+t050,250,100), cxSup=Math.ceil(sup/24), totP=p1x1+p050x1+p050, palD=Math.ceil(totP/40);
+  M(m,'Piso',n.t1,t1);
+  if(t050>0) M(m,'Piso',n.t050,t050);
+  M(m,'Piso',n.sup,sup);
+  M(m,'Piso',n.d1,p1x1);
+  if(p050x1>0) M(m,'Piso',n.d2,p050x1);
+  if(p050>0) M(m,'Piso',n.d3,p050);
+  M(m,'Piso',n.calco,calcos);
+  if(along>0) M(m,'Piso',n.al30,along);
+  if(gc>0) M(m,'Opcionais',n.gc,gc);
+  if(pt.p250>0) M(m,'Embalagem',n.pal250,pt.p250,'un',{tipo:'pal',base:trav,c250:250,c100:100,qual:250});
+  if(pt.p100>0) M(m,'Embalagem',n.pal100,pt.p100,'un',{tipo:'pal',base:trav,c250:250,c100:100,qual:100});
+  if(cxSup>0) M(m,'Embalagem',n.cxSup,cxSup,'un',E([n.sup],24));
+  if(palD>0) M(m,'Embalagem',n.palDeck,palD,'un',E([n.d1,n.d2,n.d3],40));
+  if(calcos>0) M(m,'Embalagem',n.saco,1,'un',{tipo:'um',base:[n.calco]});
+  if(palD>0) M(m,'Embalagem',n.cinta,palD,'un',{tipo:'igual',base:[n.palPlaca,n.palDeck]});
+  return { area:area, materiais:m, info: area>0 ? fmt(area)+' m² · '+fmt(totP)+' placas' : '' };
+}
+
+/* ---------- PRATICÁVEL 2,20x1,60 (normal / Cesar) ---------- */
+function calcPraticavel(v, modo){
+  var X=num(v.X), Y=num(v.Y), alt=num(v.altura);
+  function determinarPe(a){ if(modo==='cesar'){ return a<=0.6?'Pé de 0,40m':'Pé de 1,50m'; }
+    if(a<=0.1)return'Pé de 10cm'; if(a<=0.5)return'Pé de 0,30m'; if(a<=0.9)return'Pé de 0,60m'; if(a<=1.4)return'Pé de 1,00m'; return'Pé de 1,50m'; }
+  function calcItens(nome,mx,my,larg,altm,pe){
+    var areaCob=mx*larg*my*altm, placas=mx*my, metalon = modo==='cesar'? placas*1 : placas*2, t22,t16;
+    if(nome.indexOf('A (2.2')>=0){ t22=mx*(my+1); t16=my*(mx+1); } else { t22=my*(mx+1); t16=mx*(my+1); }
+    var pes=(mx+1)*(my+1), gc22,gc16;
+    if(nome.indexOf('B (1.6')>=0){ gc22=my*2; gc16=mx; } else { gc22=mx; gc16=my*2; }
+    var o={nome:nome,areaCob:areaCob,placas:placas,metalon:metalon,t22:t22,t16:t16,pes:pes,pe:pe,gc22:gc22,gc16:gc16,supGc:((my*2)+2)+(mx+1),escada:1};
+    if(modo==='cesar'){ o.maoF=pes*4; o.parafMaoF=o.maoF*2; }
+    else { o.travaPe=pes; o.maoF=(t16*2)+(t22*2); o.contraPino=o.maoF*2; }
+    return o;
+  }
+  var pe=determinarPe(alt);
+  /* +0,000001: 4,8 ÷ 1,6 dá 2,9999999 no computador e virava 2 placas (erro da calculadora antiga) */
+  function cabe(t,l){ return Math.floor(t/l + 1e-6); }
+  var A=calcItens('Configuração A (2.2 x 1.6)',cabe(X,2.2),cabe(Y,1.6),2.2,1.6,pe);
+  var B=calcItens('Configuração B (1.6 x 2.2)',cabe(X,1.6),cabe(Y,2.2),1.6,2.2,pe);
+  var c = v.config==='A' ? A : v.config==='B' ? B : (A.areaCob>=B.areaCob ? A : B), m=[];
+  M(m,'Piso','Placas',c.placas); M(m,'Piso','Metalon',c.metalon);
+  M(m,'Piso','Travessas de 2,2m',c.t22); M(m,'Piso','Travessas de 1,6m',c.t16);
+  M(m,'Piso','Pés ('+c.pe+')',c.pes);
+  M(m,'Piso','Guarda-corpos de 2,20m',c.gc22); M(m,'Piso','Guarda-corpos de 1,60m',c.gc16);
+  M(m,'Piso','Suporte guarda-corpo',c.supGc);
+  if(modo==='cesar'){ M(m,'Piso','Mão francesa',c.maoF); M(m,'Piso','Parafuso de mão francesa',c.parafMaoF); }
+  else { M(m,'Piso','Travas de pé',c.travaPe); M(m,'Piso','Mão francesa',c.maoF); M(m,'Piso','Contra pino',c.contraPino); }
+  M(m,'Piso','Escada',c.escada);
+  var pedida = X*Y;
+  return { area:c.areaCob, materiais:m,
+    info: c.placas>0 ? (v.config==='A'||v.config==='B' ? 'Escolhida: ' : 'Melhor: ')+c.nome+' · cobre '+fmt(c.areaCob)+' m² de '+fmt(pedida)+' m² pedidos' : (X>0&&Y>0?'⚠ Medida pequena demais para uma placa 2,20 × 1,60':'') };
+}
+
+/* ---------- TELESCÓPICO 2x1 ---------- */
+function calcTelescopico(v){
+  var largura=num(v.largura), comprimento=num(v.comprimento), altura=v.altura, foot='';
+  if(altura==='0.30') foot='de 0.30m'; else if(altura==='0.40') foot='de 0.40m';
+  else if(altura==='0.60') foot='de 0.60m'; else if(altura==='0.90-1.60') foot='de 0.90m com regulagem';
+  var placa2x1=Math.floor((largura*comprimento)/2);
+  var placa1x1=(largura%2!==0 && comprimento%2!==0)?1:0;
+  var pe=(placa2x1*4)+(placa1x1*4), travaPlacas=(placa2x1*2)+(placa1x1*1);
+  var travaW = v.travaW ? (placa2x1+placa1x1)*2 : 0;
+  var lycra = v.lycra ? Math.round(((2*largura+2*comprimento)*1.1)*100)/100 : 0;
+  var gc1=0, gc2=0; if(v.guardaCorpo && v.guardaCorpo.ativo){ gc1=int(v.guardaCorpo.gc1); gc2=int(v.guardaCorpo.gc2); }
+  var m=[];
+  M(m,'Piso','Placas 2x1',placa2x1); M(m,'Piso','Placas 1x1',placa1x1);
+  M(m,'Piso','Pés '+foot,pe); M(m,'Piso','Trava de Placas',travaPlacas);
+  M(m,'Piso','Caixa para Trava de Placas',Math.ceil(travaPlacas/50));
+  if(travaW>0){ M(m,'Piso','Trava W',travaW); M(m,'Piso','Balde para Trava W',Math.ceil(travaW/50)); }
+  if(lycra>0) M(m,'Piso','Lycra (c/ 10% margem)',lycra,'m');
+  if(gc1>0) M(m,'Opcionais','Guarda Corpo de 1M',gc1);
+  if(gc2>0) M(m,'Opcionais','Guarda Corpo de 2M',gc2);
+  return { area:largura*comprimento, materiais:m, info: largura*comprimento>0 ? fmt(largura*comprimento)+' m²' : '' };
+}
+
+/* ---------- PANTOGRÁFICO ---------- */
+function calcPantografico(v){
+  var qtd=int(v.qtd), tpQ=0, rf=0, rc=0;
+  if(v.trava && v.trava.ativo) tpQ=int(v.trava.qtd);
+  if(v.rodinhas && v.rodinhas.ativo){ rf=int(v.rodinhas.freio); rc=int(v.rodinhas.comum); }
+  var m=[];
+  M(m,'Piso','Piso Pantográfico',qtd);
+  if(tpQ>0) M(m,'Piso','Trava de Placa',tpQ);
+  if(tpQ>0) M(m,'Embalagem','Caixa para Trava de Placa',Math.ceil(tpQ/50),'un',E(['TRAVA DE PLACA'],50));
+  if(rf>0) M(m,'Piso','Rodinhas com Freio',rf);
+  if(rc>0) M(m,'Piso','Rodinha Comum',rc);
+  if(rf+rc>0) M(m,'Embalagem','Caixa para Rodinhas',Math.ceil((rf+rc)/50),'un',E(['RODINHAS COM FREIO','RODINHA COMUM'],50));
+  return { area:0, materiais:m, info:'' };
+}
+
+/* ---------- FORRAÇÃO (rolo) ---------- */
+function calcForracao(v, emb, titulo, rend, tubo){
+  var X=num(v.X), Y=num(v.Y), area=X*Y, rolo=num(emb && emb.rolo)||rend;
+  var rolos=Math.ceil(area/rolo), sobra=(rolos*rolo)-area, mk=0;
+  if(v.marreta && v.marreta.ativo) mk=int(v.marreta.qtd);
+  var m=[];
+  M(m,'Forração','Rolos de '+titulo,rolos,'rolo');
+  if(tubo && rolos>0){ M(m,'Forração',tubo,rolos); M(m,'Forração','Cordas para Desmontagem',rolos); }
+  if(mk>0) M(m,'Opcionais','Marreta de Borracha',mk);
+  return { area:area, materiais:m, info: area>0 ? fmt(area)+' m² · '+rolos+' rolo(s) de '+fmt(rolo)+' m² · sobra '+fmt(sobra)+' m²' : '' };
+}
+
+/* ---------- TENDAS PIRAMIDAIS ---------- */
+var TENDA_DEFS = {
+  t33:{nome:'3x3', e:4, g:8, gemE:function(q){return q*2+2;}, gemG:function(q){return q*4+4;}, along:'simples', pref:'TENDA PIRAMIDAL 3x3',
+    itens:function(q){return {"TENDA PIRAMIDAL 3x3 - ESCADA 2,90 MTS":q*4,"TENDA PIRAMIDAL 3x3 - BARRA 2,25 MTS":q*4,"TENDA PIRAMIDAL 3x3 - CANTO":q*4,"TENDA PIRAMIDAL 3x3 - ESTRELA":q*1,"TENDA PIRAMIDAL 3x3 - PÉ 2,20 MTS":q*4,"TENDA PIRAMIDAL 3x3 - CORDAS":q*4};}},
+  t44:{nome:'4x4', e:4, g:8, gemE:function(q){return q*2+2;}, gemG:function(q){return q*4+4;}, along:'tam', fmtAl:'.', pref:'TENDA PIRAMIDAL 4x4',
+    itens:function(q){return {"TENDA PIRAMIDAL 4x4 - ESCADA 3,90 MTS":q*4,"TENDA PIRAMIDAL 4x4 - BARRA 2,98 MTS":q*4,"TENDA PIRAMIDAL 4x4 - CANTO":q*4,"TENDA PIRAMIDAL 4x4 - ESTRELA":q*1,"TENDA PIRAMIDAL 4x4 - PÉ 2,50 MTS":q*4,"TENDA PIRAMIDAL 4x4 - CORDAS":q*4};}},
+  t55:{nome:'5x5', e:4, g:8, gemE:function(q){return q*2+2;}, gemG:function(q){return q*4+4;}, along:'tam', fmtAl:'.', pref:'TENDA PIRAMIDAL 5x5',
+    itens:function(q){return {"TENDA PIRAMIDAL 5x5 - ESCADA 4,90 MTS":q*4,"TENDA PIRAMIDAL 5x5 - BARRA 2,82 MTS":q*4,"TENDA PIRAMIDAL 5x5 - VARÃO 3,72 MTS":q*4,"TENDA PIRAMIDAL 5x5 - CANTO":q*4,"TENDA PIRAMIDAL 5x5 - ESTRELA":q*1,"TENDA PIRAMIDAL 5x5 - PÉ 2,50 MTS":q*4,"TENDA PIRAMIDAL 5x5 - CORDAS":q*4};}},
+  t66:{nome:'6x6', e:4, g:8, gemE:function(q){return q*2+2;}, gemG:function(q){return q*4+4;}, along:'tam', fmtAl:',', pref:'TENDA PIRAMIDAL 6x6',
+    itens:function(q){return {"TENDA PIRAMIDAL 6x6 - ESCADA 5,87 MTS":q*4,"TENDA PIRAMIDAL 6x6 - BARRA 3,37 MTS":q*4,"TENDA PIRAMIDAL 6x6 - VARÃO 4,44 MTS":q*4,"TENDA PIRAMIDAL 6x6 - CANTO":q*4,"TENDA PIRAMIDAL 6x6 - ESTRELA":q*1,"TENDA PIRAMIDAL 6x6 - PÉ 3,00 MTS":q*4,"TENDA PIRAMIDAL 6x6 - CORDAS":q*4};}},
+  t88:{nome:'8x8', e:8, g:18, gemE:function(q){return q*5+3;}, gemG:function(q){return q*10+6;}, along:'tam', fmtAl:'.', pref:'Tenda Piramidal 8x8',
+    itens:function(q){return {"Tenda Piramidal 8x8 - ESCADA 3,90 MTS":q*8,"Tenda Piramidal 8x8 - BARRA 2,87 MTS":q*8,"Tenda Piramidal 8x8 - VARÃO T 5,74 MTS":q*4,"Tenda Piramidal 8x8 - VARÃO DE MEIO 4,20 MTS":q*4,"Tenda Piramidal 8x8 - CANTO":q*4,"Tenda Piramidal 8x8 - MEIO":q*4,"Tenda Piramidal 8x8 - ESTRELA":q*1,"Tenda Piramidal 8x8 - PÉ 3,00 MTS":q*8,"Tenda Piramidal 8x8 - CINTAS":q*8};}},
+  t1010:{nome:'10x10', e:8, g:18, gemE:function(q){return q*5+3;}, gemG:function(q){return q*10+6;}, along:'tam', fmtAl:'.', pref:'Tenda Piramidal 10x10',
+    itens:function(q){return {"Tenda Piramidal 10x10 - ESCADA 4,90 MTS":q*8,"Tenda Piramidal 10x10 - BARRINHA 2,60 MTS":q*8,"Tenda Piramidal 10x10 - ENCAIXES 3,61 MTS":q*4,"Tenda Piramidal 10x10 - BARRA MEDIA 3,61 MTS":q*8,"Tenda Piramidal 10x10 - TÊ 3,61 MTS":q*4,"Tenda Piramidal 10x10 - VARÃO 5,30 MTS":q*4,"Tenda Piramidal 10x10 - CANTO":q*4,"Tenda Piramidal 10x10 - MEIO":q*4,"Tenda Piramidal 10x10 - ESTRELA":q*1,"Tenda Piramidal 10x10 - PÉ 3,00 MTS":q*8,"Tenda Piramidal 10x10 - CINTAS":q*8};}},
+  t1212:{nome:'12x12', e:8, g:18, gemE:function(q){return q*5+3;}, gemG:function(q){return q*10+6;}, along:'tam', fmtAl:'.', pref:'Tenda Piramidal 12x12',
+    itens:function(q){return {"Tenda Piramidal 12x12 - ESCADA 5,90 MTS":q*8,"Tenda Piramidal 12x12 - BARRINHA 3,11 MTS":q*8,"Tenda Piramidal 12x12 - MASTRO SUPERIOR 4,33 MTS":q*4,"Tenda Piramidal 12x12 - VARA CENTRAL 4,33 MTS":q*8,"Tenda Piramidal 12x12 - TÊ 4,33 MTS":q*4,"Tenda Piramidal 12x12 - VARÃO MEDIANO 6,39 MTS":q*4,"Tenda Piramidal 12x12 - CANTO":q*4,"Tenda Piramidal 12x12 - MEIO":q*4,"Tenda Piramidal 12x12 - ESTRELA":q*1,"Tenda Piramidal 12x12 - PÉ 3,00 MTS":q*8,"Tenda Piramidal 12x12 - CINTAS":q*8};}},
+  t1510:{nome:'15x10', e:12, g:18, gemE:function(q){return q*9+3;}, gemG:function(q){return q*10+6;}, along:'tam', fmtAl:'.', pref:'Tenda Piramidal 15x10',
+    itens:function(q){return {"Tenda Piramidal 15x10 - ESCADA PEQ. 3,66 MTS":q*8,"Tenda Piramidal 15x10 - ESCADA GRANDE 4,90 MTS":q*4,"Tenda Piramidal 15x10 - MASTRO DE MEIO 3,18 MTS":q*8,"Tenda Piramidal 15x10 - MASTRO SUPERIOR 3,18 MTS":q*4,"Tenda Piramidal 15x10 - MASTRO INFERIOR DIREITO 3,22 MTS":q*2,"Tenda Piramidal 15x10 - MASTRO INFERIOR ESQUERDO 3,22 MTS":q*2,"Tenda Piramidal 15x10 - VARA CENTRAL 5,25 MTS":q*6,"Tenda Piramidal 15x10 - TUBO ESTRELA MACHO":q*1,"Tenda Piramidal 15x10 - TUBO ESTRELA FÊMEA":q*1,"Tenda Piramidal 15x10 - VARA DE CANTO":q*2,"Tenda Piramidal 15x10 - VARÃO MEDIANO 6,39 MTS":q*4,"Tenda Piramidal 15x10 - PÉ 3,00 MTS":q*12,"Tenda Piramidal 15x10 - CINTAS":q*12,"Tenda Piramidal 15x10 - CANTO ESQUERDO":q*2,"Tenda Piramidal 15x10 - CANTO DIREITO":q*2,"Tenda Piramidal 15x10 - MEIO DE 10":q*2,"Tenda Piramidal 15x10 - MEIO DE 15":q*2,"Tenda Piramidal 15x10 - MEIO DIREITO":q*2,"Tenda Piramidal 15x10 - MEIO ESQUERDO":q*2};}}
+};
+/* estaqueamento do 15x10 com geminadas usa 9 por tenda + 3 (igual ao original) */
+TENDA_DEFS.t1510.gemE = function(q){ return q*9+3; };
+
+function calcTenda(v, def){
+  var q=int(v.qtd)||1, gem=v.geminadas==='sim', est=v.estaqueamento, itens=def.itens(q), k;
+  if(v.lona==='cristal') itens[def.pref+' - LONA CRISTAL']=q; else itens[def.pref+' - LONA BRANCA']=q;
+  if(est==='estaca') itens['ESTACAS']= gem?def.gemE(q):q*def.e;
+  else if(est==='galao'){ var ng=gem?def.gemG(q):q*def.g; itens['GALÕES DE ÁGUA 50LTS']=ng; itens['CAPA DE GALÃO']=ng; }
+  else if(est==='peso') itens['PESOS DE CONCRETO']= gem?def.gemE(q):q*def.e;
+  else if(est==='contentor'){ var qc=int(v.qtdContentor); itens['CONTENTORES DE ÁGUA 1000LTS']=qc; itens['CAPA DE CONTENTOR']=qc; }
+  if(v.calha && v.calha.ativo){ var c=int(v.calha.qtd); if(c>0) itens[def.pref+' - CALHAS']=c; }
+  if(v.fechamento && v.fechamento.ativo){ var f=int(v.fechamento.qtd); if(f>0) itens[def.pref+' - FECHAMENTO LATERAL']=f; }
+  if(v.alongador && v.alongador.ativo){
+    var a=int(v.alongador.qtd);
+    if(a>0){
+      if(def.along==='simples') itens[def.pref+' - ALONGADOR']=a;
+      else { var tam=v.alongador.tam||'0.50'; if(def.fmtAl===',') tam=tam.replace('.',','); itens[def.pref+' - ALONGADOR '+tam+' MTS']=a; }
+    }
+  }
+  var m=[]; for(k in itens){ if(itens.hasOwnProperty(k)) M(m, k==='ESTACAS'||/GAL[ÃA]O|PESOS|CONTENTOR/.test(k)?'Estaqueamento':'Tenda', k, itens[k]); }
+  return { area:0, materiais:m, info: q+' tenda'+(q>1?'s':'')+' '+def.nome+(gem?' geminadas':'') };
+}
+
+/* ---------- TRELIÇA BOX TRUSS (lista livre, do Treliça_Box_Truss.html) ---------- */
+var LISTA_Q30 = ["P30 0,05m","Q30 0,10m","Q30 0,20m","Q30 0,30m","Q30 0,40m","Q30 0,50m","Q30 0,60m","Q30 0,70m","Q30 0,80m","Q30 0,83m",
+  "Q30 0,86m (ESPECIAL)","Q30 0,90m","Q30 1m","Q30 1,25m","Q30 1,5m","Q30 1,76m (ESPECIAL)","Q30 2m","Q30 2,67m","Q30 3m","Q30 4m",
+  "Q30 5m","Q30 ÂNGULO 15º","Q30 ÂNGULO 45º","Q30 CUBO 4 FACES","Q30 CUBO 5 FACES","Q30 CUBO 5 FACES PARA SLEEVES","Q30 CUBO 6 FACES",
+  "Q30 CUBOS 12,5º","Q30 CUMEEIRA 12,5º DE FERRO","Q30 CUMEEIRA 15º RETA FACETADA","Q30 CUMEEIRA CURVA","Q30 CURVA R1,5m","Q30 CURVA R2,5m","Q30 GREPO (PAR)",
+  "PAU DE CARGA","Q30 SLEEVE","Q30 COPINHO PARA SLEEVE DE TENDA","SAPATA 5cm","SAPATA 7,5cm","SAPATA 9cm","SAPATA FINA","SAPATA GROSSA"];
+var LISTA_Q50 = ["Q50 0,23 (PEÇA ESPECIAL)","Q50 1m","Q50 2m","Q50 3m","Q50 4,30m","Q50 4m","Q50 5 FLANGEADA","Q50 5m","Q50 BLOCO LATERAL",
+  "Q50 CUBO 5 FACES","Q50 CUMEEIRA 15º","Q50 GREPO (PAR)","Q50 SLEEVE","Q50 ÂNGULO 15º"];
+var LISTA_DIV = ["PARAFUSO 5/8","TALHA","CINTA DE SLEEV","CINTA DE 9M","CINTA DE 12M","CABO DE AÇO","ESTACA","CONTENTOR","MARRETA","GERADOR",
+  "EXTENSÃO","MARTELETE","CARRINHO 4 RODAS","FITA HELLERMANN"];
+function calcLista(v, grupo){
+  var m=[], q=v.q||{}, k, tot=0;
+  for(k in q){ if(q.hasOwnProperty(k) && num(q[k])>0){
+    if(k==='CABO DE AÇO'){
+      var cq=int(q[k]), mt=num((v.cabo||{}).metros);
+      M(m, grupo, mt>0 ? 'CABO DE AÇO '+fmt(mt).replace('.',',')+' M' : 'CABO DE AÇO', cq); tot+=cq;
+    } else { M(m, grupo, k, num(q[k])); tot+=num(q[k]); }
+  } }
+  return { area:0, materiais:m, info: tot ? fmt(tot)+' peça(s)' : '' };
+}
+
+/* ---------- ITEM AVULSO ---------- */
+function calcAvulso(v){
+  var nome=String(v.nome||'').trim(), q=num(v.qtd), m=[];
+  if(nome && q>0) M(m,'Avulso',nome,q,v.unidade||'un');
+  return { area:0, materiais:m, info:'' };
+}
+
+/* ---------- CARPETE (área + 25%) ---------- */
+function calcCarpete(v){
+  var X=num(v.X), Y=num(v.Y), area=X*Y, tot=Math.round(area*1.25*100)/100, m=[], fita=0;
+  if(v.fita && v.fita.ativo) fita=int(v.fita.qtd);
+  if(tot>0) M(m,'Forração','Carpete',tot,'m²');
+  if(fita>0) M(m,'Forração','Fita Dupla Face',fita,'rolo');
+  return { area:area, materiais:m, info: area>0 ? fmt(area)+' m² + 25% = '+fmt(tot)+' m²'+(fita>0?'':' · ⚠ lembrete: incluir FITA DUPLA FACE') : '' };
+}
+
+/* ---------- GALPÃO TFS (15/20/30 aba curva, 30/40 aba reta) ---------- */
+var G='GALPÃO TFS - ';
+var GALPAO_ORD = {
+  c15:['LONA','TESOURA 4,84 MT','PEÇA INTERMEDIARIA 2,50 MT','PEÇA CURVA 2,60 MT','PÉ 4,00 MT','ALONGADOR 2,00 MT','SAPATA 0,80 MT','PINO DE SAPATA 0,80 MT','TRAVESSA COMUM 5,00 MT','TRAVESSA DIAGONAL 5,00 MT','MAO FRANCESA 5,00 MT','CABO DE AÇO AMARELO 6,60 MT','CABO DE AÇO PRETO 7,50 MT','CABO DE AÇO VERMELHO 7,60 MT','PARAFUSOS 1/2 x 1.1/2','PARAFUSOS DE 6"','ESTACAS 1 MT / 0.60CM','CAVALETE','TUBOS DE LONA 5,00 MT','TUBOS DE LONA 0,40 MT','ANILHA','CINTAS 9,00 MT','CINTAS 15,00M','BANDEIRA','PÉ DA BANDEIRA 6 MT','TRAVESSA DE CANTO 2,70 MT','FECHAMENTO LATERAL','FECHAMENTO CANTO','FECHAMENTO SAIDA DE EMERGENCIA','TUBO DE ESTIQUE','PARAFUSOS DE ESTIQUE COM PORCA'],
+  c20:['LONA','TESOURA 4,84 MT','PEÇA INTERMEDIARIA 4,84 MT','PEÇA CURVA 2,60 MT','PÉ 4,00 MT','ALONGADOR 2,00 MT','SAPATA 0,80 MT','PINO DE SAPATA 0,80 MT','TRAVESSA COMUM 5,00 MT','TRAVESSA DIAGONAL 5,00 MT','MAO FRANCESA 5,00 MT','CABO DE AÇO AMARELO 6,60 MT','CABO DE AÇO PRETO 7,50 MT','CABO DE AÇO VERMELHO 7,60 MT','PARAFUSOS 1/2 x 1.1/2','PARAFUSOS DE 6"','ESTACAS 1 MT / 0.60CM','CAVALETE','TUBOS DE LONA 5,00 MT','TUBOS DE LONA 0,40 MT','ANILHA','CINTAS 9,00 MT','CINTAS 15,00M','BANDEIRA','PÉ DA BANDEIRA 6 MT','TRAVESSA DE CANTO 2,70 MT','FECHAMENTO LATERAL','FECHAMENTO CANTO','FECHAMENTO SAIDA DE EMERGENCIA','TUBO DE ESTIQUE','PARAFUSOS DE ESTIQUE COM PORCA'],
+  c30:['LONA','TESOURA 4,84 MT','PEÇA INTERMEDIARIA 5,45 MT','PEÇA INTERMEDIARIA 4,84 MT','PEÇA CURVA 2,60 MT','PÉ 4,00 MT','ALONGADOR 2,00 MT','SAPATA 0,80 MT','PINO DE SAPATA 0,80 MT','TRAVESSA COMUM 5,00 MT','TRAVESSA DIAGONAL 5,00 MT','MAO FRANCESA 5,00 MT','CABO DE AÇO AZUL 8,60 MT','CABO DE AÇO AMARELO 6,60 MT','CABO DE AÇO PRETO 7,50 MT','CABO DE AÇO VERMELHO 7,60 MT','PARAFUSOS 1/2 x 1.1/2','PARAFUSOS DE 6"','ESTACAS 1 MT / 0.60CM','CAVALETE','TUBOS DE LONA 5,00 MT','TUBOS DE LONA 0,40 MT','ANILHA','CINTAS 9,00 MT','CINTAS 15,00M','BANDEIRA','PÉ DA BANDEIRA 6 MT','TRAVESSA DE CANTO 2,70 MT','FECHAMENTO LATERAL','FECHAMENTO CANTO','FECHAMENTO SAIDA DE EMERGENCIA','TUBO DE ESTIQUE','PARAFUSOS DE ESTIQUE COM PORCA'],
+  r30:['LONA','PEÇA RETA INTERMEDIARIA','RABETA','PÉ 4,00 MT','SAPATA 0,80 MT','PINO DE SAPATA 0,80 MT','TRAVESSA COMUM 5,00 MT','TRAVESSA DIAGONAL 5,00 MT','TRAVESSA DE CANTO 2,70 MT','MAO FRANCESA 5,00 MT','CABO DE AÇO LARANJA 6,50 MT','PARAFUSOS 1/2 x 1.1/2','PARAFUSOS DE 6"','ESTACAS 1 MT / 0.60CM','CAVALETE','TUBOS DE LONA 5,00 MT','TUBOS DE LONA 0,40 MT','ANILHA','CINTAS 9,00 MT','CINTAS 15,00M','BANDEIRA','PÉ DA BANDEIRA 6 MT','FECHAMENTO LATERAL','FECHAMENTO CANTO','FECHAMENTO SAIDA DE EMERGENCIA','TUBO DE ESTIQUE','PARAFUSOS DE ESTIQUE COM PORCA','CUMEEIRA']
+};
+GALPAO_ORD.r40 = GALPAO_ORD.r30;
+var GALPAO_NOME = { c15:'15 m (aba curva)', c20:'20 m (aba curva)', c30:'30 m (aba curva)', r30:'30 m (aba reta)', r40:'40 m (aba reta)' };
+function calcGalpao(v, tipo){
+  var L=int(v.comprimento), altura=int(v.altura)||(tipo.charAt(0)==='r'?4:6);
+  var qB=int(v.bandeira), qLat=int(v.lateral), qCan=int(v.canto), qSai=int(v.saida);
+  if(L<=0) return { area:0, materiais:[], info:'' };
+  var bays=L/5, t=bays+1, I={}, reta=tipo.charAt(0)==='r';
+  function comum(){
+    I['CAVALETE'] = L>20 ? 40 : Math.floor(L/5)*10+10;
+    I['CINTAS 15,00M']=12; I['TUBOS DE LONA 5,00 MT']=bays*2; I['TUBOS DE LONA 0,40 MT']=(bays-1)*2;
+    I['LONA']=bays; I['TRAVESSA DIAGONAL 5,00 MT']=bays;
+  }
+  comum();
+  if(!reta){
+    var c;
+    if(tipo==='c15'){ c=((bays/2)+1)*2; I['CABO DE AÇO AMARELO 6,60 MT']=c; I['CABO DE AÇO PRETO 7,50 MT']=c; I['CABO DE AÇO VERMELHO 7,60 MT']=c; I['ANILHA']=2*(c*3); }
+    else if(tipo==='c20'){ var a=Math.ceil(bays*0.65*4), vm=Math.ceil(bays*0.65*8); I['CABO DE AÇO AMARELO 6,60 MT']=a; I['CABO DE AÇO PRETO 7,50 MT']=a; I['CABO DE AÇO VERMELHO 7,60 MT']=vm; I['ANILHA']=2*(a+a+vm); }
+    else { var a3=Math.ceil(bays*0.65*4), v3=Math.ceil(bays*0.65*8); I['CABO DE AÇO AZUL 8,60 MT']=a3; I['CABO DE AÇO AMARELO 6,60 MT']=a3; I['CABO DE AÇO PRETO 7,50 MT']=a3; I['CABO DE AÇO VERMELHO 7,60 MT']=v3; I['ANILHA']=2*(a3*3+v3); }
+    I['TESOURA 4,84 MT']=t*2;
+    if(tipo==='c15') I['PEÇA INTERMEDIARIA 2,50 MT']=t*2;
+    else if(tipo==='c20') I['PEÇA INTERMEDIARIA 4,84 MT']=t*2;
+    else { I['PEÇA INTERMEDIARIA 5,45 MT']=t*2; I['PEÇA INTERMEDIARIA 4,84 MT']=t*2; }
+    I['PEÇA CURVA 2,60 MT']=t*2; I['PÉ 4,00 MT']=t*2; I['SAPATA 0,80 MT']=t*2; I['PINO DE SAPATA 0,80 MT']=t*2;
+    I['TRAVESSA COMUM 5,00 MT'] = tipo==='c15' ? ((L/5)+1)*8 : tipo==='c20' ? bays*10 : bays*14;
+    I['MAO FRANCESA 5,00 MT']=t;
+    I['PARAFUSOS 1/2 x 1.1/2'] = tipo==='c20' ? ((L/5+1)*70+70) : ((bays+1)*90)+90;
+    I['PARAFUSOS DE 6"']=2*t+qB*5;
+    I['ESTACAS 1 MT / 0.60CM'] = tipo==='c20' ? t*4 : t*8;
+    if(altura===6){ I['ALONGADOR 2,00 MT']=t*2; I['PARAFUSOS 1/2 x 1.1/2'] += 10*(t*2); }
+    if(qB>0){ I['BANDEIRA']=qB; I['PÉ DA BANDEIRA 6 MT']=qB*5; I['TRAVESSA DE CANTO 2,70 MT']=qB*2;
+      I['TRAVESSA COMUM 5,00 MT'] += qB*(tipo==='c20'?6:8); I['TUBOS DE LONA 5,00 MT'] += qB*6; I['TUBOS DE LONA 0,40 MT'] += qB*5; }
+  } else {
+    var sap=t*2, lar = Math.ceil(bays*0.6)*(tipo==='r30'?16:20);
+    I['PEÇA RETA INTERMEDIARIA'] = tipo==='r30' ? t*6 : (L/5+1)*8;
+    I['RABETA']=t*2; I['PÉ 4,00 MT']=t*2; I['SAPATA 0,80 MT']=sap; I['PINO DE SAPATA 0,80 MT']=sap;
+    I['TRAVESSA COMUM 5,00 MT'] = bays*(tipo==='r30'?18:25);
+    I['MAO FRANCESA 5,00 MT']=bays+1; I['CABO DE AÇO LARANJA 6,50 MT']=lar;
+    I['PARAFUSOS 1/2 x 1.1/2'] = tipo==='r30' ? ((bays+1)*90)+90 : Math.ceil(((L/5+1)*80)*1.1);
+    I['PARAFUSOS DE 6"'] = tipo==='r30' ? 2*t+qB*5 : (bays+1)*4+qB*7;
+    I['ESTACAS 1 MT / 0.60CM']=(sap*4)+12; I['ANILHA']=2*lar; I['CUMEEIRA']=bays+1;
+    if(qB>0){ var pb = qB*(tipo==='r30'?5:7);
+      I['BANDEIRA']=qB; I['PÉ DA BANDEIRA 6 MT']=pb; I['TRAVESSA DE CANTO 2,70 MT']=qB*2;
+      I['TRAVESSA COMUM 5,00 MT'] += qB*(tipo==='r30'?8:12);
+      I['TUBOS DE LONA 5,00 MT'] += qB*(tipo==='r30'?6:8);
+      I['TUBOS DE LONA 0,40 MT'] += (tipo==='r30'? qB*5 : pb); }
+  }
+  I['CINTAS 9,00 MT']=(t*2)+(qB*7);
+  if(qLat>0){ I['FECHAMENTO LATERAL']=qLat; I['TUBO DE ESTIQUE']=(I['TUBO DE ESTIQUE']||0)+qLat; I['PARAFUSOS DE ESTIQUE COM PORCA']=(I['PARAFUSOS DE ESTIQUE COM PORCA']||0)+qLat*2; }
+  if(qCan>0){ I['FECHAMENTO CANTO']=qCan; I['TUBO DE ESTIQUE']=(I['TUBO DE ESTIQUE']||0)+qCan; I['PARAFUSOS DE ESTIQUE COM PORCA']=(I['PARAFUSOS DE ESTIQUE COM PORCA']||0)+qCan*2; }
+  if(qSai>0) I['FECHAMENTO SAIDA DE EMERGENCIA']=qSai;
+  var m=[];
+  GALPAO_ORD[tipo].forEach(function(k){ if(I.hasOwnProperty(k) && Math.floor(I[k])>0) M(m,'Galpão TFS',G+k,Math.floor(I[k])); });
+  var larg={c15:15,c20:20,c30:30,r30:30,r40:40}[tipo];
+  return { area:larg*L, materiais:m,
+    info: larg+' × '+L+' m = '+fmt(larg*L)+' m² · '+bays+' lona(s) · altura '+altura+',00 m'+(L%5?' · ⚠ comprimento tem que ser múltiplo de 5':'') };
+}
+
+/* ---------- PISO IMPORTADO DE ALUMÍNIO 1,25 × 1,25 ---------- */
+function peAluminio(a){ if(a===0.20||a===0.36) return 'Pé de 0,20'; if(a===0.54) return 'Pé de 0,40';
+  if(a===0.72||a===0.90||a===1.08) return 'Pé de 0,70'; if(a===1.62||a===1.80||a===1.98) return 'Pé de 1,35'; return 'N/A'; }
+var ESC_OK = { '0.2':[], '0.36':['af'], '0.54':['al'], '0.72':['al'], '0.9':['af'], '1.08':['af','al'], '1.62':['af'], '1.8':['af','al'], '1.98':['al'] };
+function escadaAluminio(tipo, alt){
+  /* mesma tabela da calculadora PisoImportadodeAluminio1,25x1,25 */
+  var r={ih:0,il1:0,il2:0,af:0,al:0,dg:0,pd:0,co:0,co2:0,pc:0,pt:0,p20:0,cav:0};
+  if(tipo==='1-modulo'){ r={ih:2,il1:0,il2:0,af:2,al:0,dg:2,pd:4,co:2,co2:0,pc:16,pt:0,p20:2,cav:2}; }
+  else if(tipo==='2-modulos'){ r={ih:3,il1:0,il2:0,af:3,al:0,dg:4,pd:8,co:3,co2:0,pc:24,pt:0,p20:3,cav:3}; }
+  else if(tipo==='1-modulo-afastador'){
+    if(alt===1.62){ r={ih:2,il1:2,il2:0,af:2,al:0,dg:9,pd:18,co:2,co2:0,pc:16,pt:2,p20:0,cav:2}; }
+    else {
+      r.ih=2; if(alt===1.08||alt===1.80){ r.il2=2; } else { r.il1=2; }
+      r.af=2;
+      if(alt===0.90){ r.dg=5; r.pd=10; } else if(alt===1.08){ r.dg=6; r.pd=12; } else if(alt===1.80){ r.dg=10; r.pd=20; } else { r.dg=3; r.pd=6; }
+      r.co=2; if(alt===1.08||alt===1.80){ r.co2=2; r.pc=32; } else { r.pc=16; }
+      if(alt===1.08||alt===1.80){ r.p20=2; } else if(alt===0.90||alt===0.54){ r.pt=2; }
+      r.cav = (alt===1.08||alt===0.90||alt===0.54||alt===1.80) ? 2 : 0;
+    }
+  }
+  else if(tipo==='1-modulo-alongador'){
+    r.ih=2;
+    if(alt===0.72||alt===1.08||alt===1.80) r.il1=2; else if(alt===1.98) r.il2=2;
+    r.al=2;
+    if(alt===1.98){ r.dg=10; r.pd=20; r.co2=2; r.pc=32; r.p20=2; }
+    else if(alt===1.80){ r.dg=9; r.pd=18; r.pc=16; r.pt=2; }
+    else if(alt===1.08){ r.dg=5; r.pd=10; r.pc=16; r.pt=2; }
+    else { r.dg=3; r.pd=6; r.pc=16; r.pt=2; }
+    r.co=2;
+    if(alt===0.54){ r.pt=0; r.p20=2; }
+    r.cav = (alt===1.08||alt===0.72||alt===0.54||alt===1.80||alt===1.98) ? 2 : 0;
+  }
+  else if(tipo==='2-modulos-afastador'){
+    if(alt===1.62){ r={ih:3,il1:3,il2:0,af:3,al:0,dg:18,pd:36,co:3,co2:0,pc:24,pt:3,p20:0,cav:3}; }
+    else {
+      r.ih=3; if(alt===1.08||alt===1.80) r.il2=3; else if(alt===0.90||alt===0.54) r.il1=3;
+      r.af=3;
+      if(alt===0.90){ r.dg=10; r.pd=20; } else if(alt===1.08){ r.dg=12; r.pd=24; } else { r.dg=6; r.pd=12; }
+      r.co=3; if(alt===1.08||alt===1.80){ r.co2=3; r.pc=48; } else { r.pc=24; }
+      if(alt===1.08||alt===1.80) r.p20=3; else if(alt===0.90||alt===0.54) r.pt=3;
+      r.cav = (alt===1.08||alt===0.90||alt===0.54||alt===1.80) ? 3 : 0;
+    }
+  }
+  else if(tipo==='2-modulos-alongador'){
+    if(alt===0.54){ r={ih:3,il1:0,il2:0,af:0,al:3,dg:6,pd:12,co:3,co2:0,pc:24,pt:0,p20:3,cav:3}; }
+    else if(alt===1.98){ r={ih:3,il1:0,il2:3,af:0,al:3,dg:20,pd:40,co:3,co2:3,pc:48,pt:0,p20:3,cav:3}; }
+    else { r={ih:3,il1:3,il2:0,af:0,al:3,dg:(alt===1.80?18:10),pd:(alt===1.80?36:20),co:3,co2:0,pc:24,pt:3,p20:0,cav:3}; }
+  }
+  return r;
+}
+function calcAluminio(v){
+  var L=num(v.largura), C=num(v.comprimento), alt=num(v.altura)||0.20, m=[], avisos=[];
+  function mult(x){ return Math.abs(x % 1.25) < 0.0001 || Math.abs(1.25 - (x % 1.25)) < 0.0001; }
+  if(L<=0 || C<=0) return { area:0, materiais:[], info:'' };
+  if(!mult(L) || !mult(C)) return { area:0, materiais:[], info:'⚠ Largura e comprimento têm que ser múltiplos de 1,25 (ex.: 2,50 · 5,00 · 6,25 · 10,00)' };
+  var fl=function(x){ return Math.floor(x + 1e-9); };
+  var area=parseFloat((L*C).toFixed(2));
+  var grades=(fl(L/1.25)+1)*fl(C/2.5) + fl(L/2.5)*(1-fl(C/2.5)+fl(C/1.25));
+  var trancas=2*fl(L/2.5)*fl(C/2.5) + (fl(L/1.25)-2*fl(L/2.5))*(fl(C/1.25)+1) + (fl(C/1.25)-2*fl(C/2.5))*(fl(L/1.25)+1);
+  var taipais=fl(L/1.25)*fl(C/1.25);
+  var pes=(fl(L/1.25)-fl(L/2.5)+1)*(fl(C/1.25)-fl(C/2.5)+1);
+  var escoras = v.escoras==='nao' ? 0 : 12 + Math.floor(Math.max(0, area-100)/100)*10;
+  var nDeg = alt>=1.62 ? 8 : alt>=0.90 ? 4 : 2;
+  var e={ih:0,il1:0,il2:0,af:0,al:0,dg:0,pd:0,co:0,co2:0,pc:0,pt:0,p20:0,cav:0};
+  var esc=v.escada||'nenhuma';
+  if(esc!=='nenhuma'){
+    var tipoEsc=esc.split('-')[1], ok=ESC_OK[String(alt)]||[];
+    if(ok.indexOf(tipoEsc)<0) avisos.push('⚠ Escada '+(tipoEsc==='af'?'com afastador':'com alongador')+' não existe para '+fmt(alt)+' m — use a escada manual');
+    else {
+      var nm = esc.charAt(0)==='1' ? '1-modulo' : '2-modulos';
+      var t = (alt===0.36) ? nm : nm+(tipoEsc==='af'?'-afastador':'-alongador');
+      var r = escadaAluminio(t, alt);
+      for(var k in r) e[k]+=r[k];
+    }
+  }
+  if(v.escManual && v.escManual.ativo){ ['ih','il1','il2','af','al','dg','pd','co','co2','pc','pt','p20','cav'].forEach(function(k){ e[k]+=int(v.escManual[k]); }); }
+  var cavML = escoras*2 + e.cav;
+  var gc={g250:0,g125:0,ac:0,am:0}; if(v.guardaCorpo && v.guardaCorpo.ativo){ gc.g250=int(v.guardaCorpo.g250); gc.g125=int(v.guardaCorpo.g125); gc.ac=int(v.guardaCorpo.ac); gc.am=int(v.guardaCorpo.am); }
+  var g='Piso Alumínio';
+  M(m,g,'Grades',Math.ceil(grades)); M(m,g,'Trancas',Math.ceil(trancas)); M(m,g,'Taipais de Piso',Math.ceil(taipais));
+  M(m,g,'Pés ('+peAluminio(alt)+')',Math.ceil(pes)); M(m,g,'Cavilha de Rodar',Math.ceil(pes));
+  if(escoras>0) M(m,g,'Escoras',escoras);
+  if(cavML>0){ M(m,g,'Cavilha Meia Lua',cavML); M(m,'Embalagem','Caixa para Cavilhas',Math.ceil(cavML/60),'un',E(['CAVILHA MEIA LUA'],60)); }
+  var nomes={ih:'Ilhargas de '+nDeg+' Degraus',il1:'Ilhargas de 1 Degrau',il2:'Ilhargas de 2 Degraus',af:'Afastadores',al:'Alongadores',dg:'Degraus',pd:'Parafusos de Degrau',
+    co:'Corrimãos de '+nDeg+' Degraus',co2:'Corrimãos de 2 Degraus',pc:'Parafusos de Corrimão',pt:'Pés Terminal',p20:'Pés de 0,20m'};
+  Object.keys(nomes).forEach(function(k){ if(e[k]>0) M(m,g,nomes[k],e[k]); });
+  if(gc.g250>0) M(m,g,'Guarda Corpo 2,50m',gc.g250); if(gc.g125>0) M(m,g,'Guarda Corpo 1,25m',gc.g125);
+  if(gc.ac>0) M(m,g,'Aplique de Canto',gc.ac); if(gc.am>0) M(m,g,'Aplique de Meio',gc.am);
+  if(v.lycra){ var ly=Math.round(((L*2)+(C*2))*1.1*100)/100; if(ly>0) M(m,g,'Lycra',ly,'m'); }
+  return { area:area, materiais:m, info: fmt(area)+' m² · '+fmt(taipais)+' taipais · '+peAluminio(alt)+(avisos.length?' · '+avisos.join(' · '):'') };
+}
+
+/* ---------- EQUIPAMENTOS / FERRAMENTAS (não vão para o checklist: o conferente lança no carregamento) ---------- */
+var LISTA_EQUIP = ['Carrinho 2 Rodas','Carrinho 4 Rodas','Escada Articulada de Alumínio','Escada Cogumelo','Escada de Ferro','Furadeira','Gerador','Marreta','Martelete','Moitão','Moitão do Geo','Paleteira','Parafusadeira'];
+
+/* ---------- PERFIS: campos de cada produto ---------- */
+var ALT_PRAT = [{v:'0.1',t:'0,10m (Pé de 10cm)'},{v:'0.3',t:'0,30m a 0,50m (Pé de 0,30m)'},{v:'0.6',t:'0,60m a 0,90m (Pé de 0,60m)'},
+  {v:'1.0',t:'1,00m a 1,40m (Pé de 1,00m)'},{v:'1.5',t:'1,50m a 2,20m (Pé de 1,50m)'}];
+function camposForracao(){ return [
+  {tipo:'dim', id:'X', label:'Medida X (largura)', help:'metros'},
+  {tipo:'dim', id:'Y', label:'Medida Y (comprimento)', help:'metros'},
+  {tipo:'opcional', id:'marreta', label:'Marreta de borracha', campos:[{id:'qtd', label:'Quantidade'}]}]; }
+function camposTenda(def){
+  var al = def.along==='simples' ? [{id:'qtd', label:'Quantidade'}]
+    : [{id:'qtd', label:'Quantidade'},{id:'tam', label:'Tamanho', tipo:'select', opcoes:[{v:'0.50',t:'0,50 MTS'},{v:'1.00',t:'1,00 MTS'}]}];
+  return [
+    {tipo:'num', id:'qtd', label:'Quantidade de tendas', valor:1},
+    {tipo:'select', id:'geminadas', label:'Geminadas', opcoes:[{v:'não',t:'NÃO'},{v:'sim',t:'SIM'}]},
+    {tipo:'select', id:'lona', label:'Lona', opcoes:[{v:'branca',t:'Lona Branca'},{v:'cristal',t:'Lona Cristal'}]},
+    {tipo:'select', id:'estaqueamento', label:'Estaqueamento', opcoes:[{v:'estaca',t:'Estaca'},{v:'peso',t:'Peso de Concreto'},{v:'galao',t:'Galão de Água 50LTS'},{v:'contentor',t:'Contentor de Água 1000LTS'}]},
+    {tipo:'condicional', id:'qtdContentor', label:'Qtd de contentores', dependeDe:'estaqueamento', valorDep:'contentor'},
+    {tipo:'opcional', id:'calha', label:'Calha', campos:[{id:'qtd', label:'Qtd de calhas'}]},
+    {tipo:'opcional', id:'fechamento', label:'Fechamento lateral', campos:[{id:'qtd', label:'Qtd de fechamentos'}]},
+    {tipo:'opcional', id:'alongador', label:'Alongador', campos:al}];
+}
+var PERFIS = {
+  piso_elevado:{ campos:[
+      {tipo:'dim', id:'C', label:'Comprimento (C)', help:'metros'},
+      {tipo:'dim', id:'L', label:'Largura (L)', help:'metros'},
+      {tipo:'opcional', id:'rampa', label:'Rampa', campos:[{id:'qtd', label:'Qtd de rampas'},{id:'largura', label:'Largura (m)'}]},
+      {tipo:'opcional', id:'desnivel', label:'Desnível', campos:[{id:'comprimento', label:'Comprimento (m)'},{id:'largura', label:'Largura (m)'},
+        {id:'altura', label:'Altura do desnível', tipo:'select', opcoes:[{v:'ate30',t:'Até 30 cm — alongador 20 a 27 cm'},{v:'acima30',t:'Acima de 30 cm — alongador 30 a 34 cm'}]}]},
+      {tipo:'opcional', id:'guardaCorpo', label:'Guarda-corpo', campos:[{id:'metros', label:'Metros lineares (1 un/m)'}]}],
+    emb:{travessasPorPalete250:250, travessasPorPalete100:100, suportesPorCaixa:24, placasPorPalete:70, travasPorCaixa:100, alongadoresPorCaixa:50},
+    calcular:function(v,e){ return calcPisoElevado(v,e); } },
+  piso_deck:{ campos:[
+      {tipo:'dim', id:'C', label:'Comprimento (C)', help:'metros'},
+      {tipo:'dim', id:'L', label:'Largura (L)', help:'metros'},
+      {tipo:'opcional', id:'rampa', label:'Rampa', campos:[{id:'qtd', label:'Qtd de rampas'},{id:'largura', label:'Largura (m)'}]},
+      {tipo:'opcional', id:'desnivel', label:'Desnível', campos:[{id:'comprimento', label:'Comprimento (m)'},{id:'largura', label:'Largura (m)'}]},
+      {tipo:'opcional', id:'guardaCorpo', label:'Guarda-corpo', campos:[{id:'metros', label:'Metros lineares'}]}],
+    calcular:function(v){ return calcDeck(v); } },
+  praticavel:{ campos:[
+      {tipo:'dim', id:'X', label:'Medida X (largura)', help:'metros'},
+      {tipo:'dim', id:'Y', label:'Medida Y (comprimento)', help:'metros'},
+      {tipo:'select', id:'altura', label:'Altura do piso', opcoes:ALT_PRAT},
+      {tipo:'select', id:'config', label:'Montagem das placas', opcoes:[{v:'auto',t:'Automático (a que cobre mais)'},{v:'A',t:'A — 2,20 no X × 1,60 no Y'},{v:'B',t:'B — 1,60 no X × 2,20 no Y'}]}],
+    calcular:function(v){ return calcPraticavel(v,'normal'); } },
+  praticavel_cesar:{ campos:[
+      {tipo:'dim', id:'X', label:'Medida X (largura)', help:'metros'},
+      {tipo:'dim', id:'Y', label:'Medida Y (comprimento)', help:'metros'},
+      {tipo:'select', id:'altura', label:'Altura do piso', opcoes:[{v:'0.4',t:'0,40m a 0,60m (Pé de 0,40m)'},{v:'1.5',t:'1,50m (Pé de 1,50m)'}]},
+      {tipo:'select', id:'config', label:'Montagem das placas', opcoes:[{v:'auto',t:'Automático (a que cobre mais)'},{v:'A',t:'A — 2,20 no X × 1,60 no Y'},{v:'B',t:'B — 1,60 no X × 2,20 no Y'}]}],
+    calcular:function(v){ return calcPraticavel(v,'cesar'); } },
+  telescopico:{ campos:[
+      {tipo:'dim', id:'largura', label:'Largura', help:'metros'},
+      {tipo:'dim', id:'comprimento', label:'Comprimento', help:'metros'},
+      {tipo:'select', id:'altura', label:'Altura', opcoes:[{v:'0.30',t:'0,30m — pé de 0,30m'},{v:'0.40',t:'0,40m — pé de 0,40m'},{v:'0.60',t:'0,60m — pé de 0,60m'},{v:'0.90-1.60',t:'0,90m a 1,60m — pé de 0,90m c/ regulagem'}]},
+      {tipo:'check', id:'travaW', label:'Trava W'},
+      {tipo:'check', id:'lycra', label:'Lycra'},
+      {tipo:'opcional', id:'guardaCorpo', label:'Guarda-corpo', campos:[{id:'gc1', label:'Guarda corpo 1M'},{id:'gc2', label:'Guarda corpo 2M'}]}],
+    calcular:function(v){ return calcTelescopico(v); } },
+  pantografico:{ campos:[
+      {tipo:'num', id:'qtd', label:'Quantidade de pisos'},
+      {tipo:'opcional', id:'trava', label:'Trava de placa', campos:[{id:'qtd', label:'Qtd de travas'}]},
+      {tipo:'opcional', id:'rodinhas', label:'Rodinhas', campos:[{id:'freio', label:'Com freio'},{id:'comum', label:'Comum'}]}],
+    calcular:function(v){ return calcPantografico(v); } },
+  easyfloor:{ campos:camposForracao(), emb:{rolo:17.5}, calcular:function(v,e){ return calcForracao(v,e,'Piso Easyfloor Prata',17.5,'Tubo de Easyflor'); } },
+  ekoeasy:{ campos:camposForracao(), emb:{rolo:18.5}, calcular:function(v,e){ return calcForracao(v,e,'Piso Ekoeasy Prata',18.5,'Tubo de Easyflor'); } },
+  criadeck:{ campos:camposForracao(), emb:{rolo:17.5}, calcular:function(v,e){ return calcForracao(v,e,'Piso Criadeck Preto',17.5,'Tubo de Criadeck'); } },
+  carpete:{ campos:[
+      {tipo:'dim', id:'X', label:'Medida X (largura)', help:'metros'},
+      {tipo:'dim', id:'Y', label:'Medida Y (comprimento)', help:'metros'},
+      {tipo:'opcional', id:'fita', label:'Fita dupla face', campos:[{id:'qtd', label:'Rolos de fita'}]}],
+    calcular:function(v){ return calcCarpete(v); } },
+  aluminio:{ campos:[
+      {tipo:'dim', id:'largura', label:'Largura', help:'múltiplo de 1,25'},
+      {tipo:'dim', id:'comprimento', label:'Comprimento', help:'múltiplo de 1,25'},
+      {tipo:'select', id:'altura', label:'Altura do piso', opcoes:['0.20','0.36','0.54','0.72','0.90','1.08','1.62','1.80','1.98'].map(function(a){ return {v:a, t:a.replace('.',',')+' m'}; })},
+      {tipo:'select', id:'escoras', label:'Escoras', opcoes:[{v:'sim',t:'Com escoras'},{v:'nao',t:'Sem escoras'}]},
+      {tipo:'select', id:'escada', label:'Escada', opcoes:[{v:'nenhuma',t:'Sem escada'},{v:'1-af',t:'1 módulo com afastador'},{v:'2-af',t:'2 módulos com afastador'},{v:'1-al',t:'1 módulo com alongador'},{v:'2-al',t:'2 módulos com alongador'}]},
+      {tipo:'check', id:'lycra', label:'Lycra'},
+      {tipo:'opcional', id:'guardaCorpo', label:'Guarda-corpo', campos:[{id:'g250', label:'Guarda corpo 2,50m'},{id:'g125', label:'Guarda corpo 1,25m'},{id:'ac', label:'Aplique de canto'},{id:'am', label:'Aplique de meio'}]},
+      {tipo:'opcional', id:'escManual', label:'Escada manual (3 módulos ou mais)', campos:[
+        {id:'ih', label:'Ilhargas (do tamanho da altura)'},{id:'il1', label:'Ilhargas de 1 degrau'},{id:'il2', label:'Ilhargas de 2 degraus'},
+        {id:'af', label:'Afastadores'},{id:'al', label:'Alongadores'},{id:'dg', label:'Degraus'},{id:'pd', label:'Parafusos de degrau'},
+        {id:'co', label:'Corrimãos (do tamanho da altura)'},{id:'co2', label:'Corrimãos de 2 degraus'},{id:'pc', label:'Parafusos de corrimão'},
+        {id:'pt', label:'Pés terminal'},{id:'p20', label:'Pés de 0,20m'},{id:'cav', label:'Cavilhas meia lua (escada)'}]}],
+    calcular:function(v){ return calcAluminio(v); } },
+  equip:{ campos:[{tipo:'lista', itens:LISTA_EQUIP}], calcular:function(v){ return calcLista(v,'Ferramentas'); } },
+  q30:{ campos:[{tipo:'lista', itens:LISTA_Q30}], calcular:function(v){ return calcLista(v,'Treliça Q30'); } },
+  q50:{ campos:[{tipo:'lista', itens:LISTA_Q50}], calcular:function(v){ return calcLista(v,'Treliça Q50'); } },
+  diversos:{ campos:[{tipo:'lista', itens:LISTA_DIV, cabo:true}], calcular:function(v){ return calcLista(v,'Diversos'); } },
+  avulso:{ campos:[
+      {tipo:'texto', id:'nome', label:'Nome do item'},
+      {tipo:'num', id:'qtd', label:'Quantidade'},
+      {tipo:'select', id:'unidade', label:'Unidade', opcoes:[{v:'un',t:'UN'},{v:'m',t:'M'},{v:'m²',t:'M²'},{v:'rolo',t:'ROLO'},{v:'par',t:'PAR'},{v:'cx',t:'CAIXA'}]}],
+    calcular:function(v){ return calcAvulso(v); } }
+};
+(function(){ var k; for(k in GALPAO_NOME){ if(GALPAO_NOME.hasOwnProperty(k)) (function(tipo){
+  var alts = tipo.charAt(0)==='r' ? [{v:'4',t:'4,00 m'}] : [{v:'6',t:'6,00 m (com alongador)'},{v:'4',t:'4,00 m'}];
+  PERFIS['galpao_'+tipo] = { campos:[
+      {tipo:'num', id:'comprimento', label:'Comprimento (m) — múltiplo de 5', valor:30},
+      {tipo:'select', id:'altura', label:'Altura', opcoes:alts},
+      {tipo:'num', id:'bandeira', label:'Bandeiras'},
+      {tipo:'num', id:'lateral', label:'Fechamento lateral'},
+      {tipo:'num', id:'canto', label:'Fechamento de canto'},
+      {tipo:'num', id:'saida', label:'Saída de emergência'}],
+    calcular:function(v){ return calcGalpao(v, tipo); } };
+})(k); } })();
+(function(){ var k; for(k in TENDA_DEFS){ if(TENDA_DEFS.hasOwnProperty(k)) (function(def){
+  PERFIS['tenda_'+k] = { campos:camposTenda(def), calcular:function(v){ return calcTenda(v, def); } };
+})(TENDA_DEFS[k]); } })();
+
+var CATALOGO = [
+  {id:'piso-elevado', grupo:'Pisos', nome:'Piso Elevado 0,10 c/ Regulagem', perfil:'piso_elevado'},
+  {id:'piso-deck', grupo:'Pisos', nome:'Piso Deck 0,10 c/ Regulagem', perfil:'piso_deck'},
+  {id:'praticavel', grupo:'Pisos', nome:'Piso Praticável 2,20 × 1,60', perfil:'praticavel'},
+  {id:'praticavel-cesar', grupo:'Pisos', nome:'Piso Praticável 2,20 × 1,60 (Cesar)', perfil:'praticavel_cesar'},
+  {id:'telescopico', grupo:'Pisos', nome:'Piso Telescópico Alumínio 2 × 1', perfil:'telescopico'},
+  {id:'pantografico', grupo:'Pisos', nome:'Piso Pantográfico com Rodinha', perfil:'pantografico'},
+  {id:'aluminio', grupo:'Pisos', nome:'Piso Importado de Alumínio 1,25 × 1,25', perfil:'aluminio'},
+  {id:'easyfloor', grupo:'Forração', nome:'Piso Easyfloor Prata (17,5 m²/rolo)', perfil:'easyfloor'},
+  {id:'ekoeasy', grupo:'Forração', nome:'Piso Ekoeasy Prata (18,5 m²/rolo)', perfil:'ekoeasy'},
+  {id:'criadeck', grupo:'Forração', nome:'Piso Criadeck Preto (17,5 m²/rolo)', perfil:'criadeck'},
+  {id:'carpete', grupo:'Forração', nome:'Carpete (área + 25%)', perfil:'carpete'},
+  {id:'tenda-33', grupo:'Tendas', nome:'Tenda Piramidal 3 × 3', perfil:'tenda_t33'},
+  {id:'tenda-44', grupo:'Tendas', nome:'Tenda Piramidal 4 × 4', perfil:'tenda_t44'},
+  {id:'tenda-55', grupo:'Tendas', nome:'Tenda Piramidal 5 × 5', perfil:'tenda_t55'},
+  {id:'tenda-66', grupo:'Tendas', nome:'Tenda Piramidal 6 × 6', perfil:'tenda_t66'},
+  {id:'tenda-88', grupo:'Tendas', nome:'Tenda Piramidal 8 × 8', perfil:'tenda_t88'},
+  {id:'tenda-1010', grupo:'Tendas', nome:'Tenda Piramidal 10 × 10', perfil:'tenda_t1010'},
+  {id:'tenda-1212', grupo:'Tendas', nome:'Tenda Piramidal 12 × 12', perfil:'tenda_t1212'},
+  {id:'tenda-1510', grupo:'Tendas', nome:'Tenda Piramidal 15 × 10', perfil:'tenda_t1510'},
+  {id:'galpao-c15', grupo:'Galpão TFS', nome:'Galpão TFS 15 m (aba curva)', perfil:'galpao_c15'},
+  {id:'galpao-c20', grupo:'Galpão TFS', nome:'Galpão TFS 20 m (aba curva)', perfil:'galpao_c20'},
+  {id:'galpao-c30', grupo:'Galpão TFS', nome:'Galpão TFS 30 m (aba curva)', perfil:'galpao_c30'},
+  {id:'galpao-r30', grupo:'Galpão TFS', nome:'Galpão TFS 30 m (aba reta)', perfil:'galpao_r30'},
+  {id:'galpao-r40', grupo:'Galpão TFS', nome:'Galpão TFS 40 m (aba reta)', perfil:'galpao_r40'},
+  {id:'truss-q30', grupo:'Treliça Box Truss', nome:'Treliça Q30 (lista de peças)', perfil:'q30'},
+  {id:'truss-q50', grupo:'Treliça Box Truss', nome:'Treliça Q50 (lista de peças)', perfil:'q50'},
+  {id:'truss-div', grupo:'Treliça Box Truss', nome:'Diversos (talha, cinta, cabo de aço…)', perfil:'diversos'},
+  {id:'equip', grupo:'Outros', nome:'Equipamentos / Ferramentas (não vai p/ checklist)', perfil:'equip'},
+  {id:'avulso', grupo:'Outros', nome:'Item avulso (digitar nome e quantidade)', perfil:'avulso'}
+];
+function produtoCat(id){ for(var i=0;i<CATALOGO.length;i++) if(CATALOGO[i].id===id) return CATALOGO[i]; return null; }
+function perfilDe(p){ var c=produtoCat(p.prodId); return c ? PERFIS[c.perfil] : null; }
+
+/* ================================================================
+   ESTADO
+   ================================================================ */
+var CHAVE = 'plenart_quant_material_v1', CHAVE_NOMES = 'plenart_quant_nomes_v1';
+var st = null, abaLista = 'total', ultimoCalc = null;
+var nomesCk = {};   /* renomeação para o checklist: NOME ORIGINAL -> nome novo (fica lembrado) */
+try{ nomesCk = JSON.parse(localStorage.getItem(CHAVE_NOMES) || '{}') || {}; }catch(e){ nomesCk = {}; }
+
+function idNovo(){ try{ return crypto.randomUUID(); }catch(e){} return 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2,10); }
+function novoEstado(){ return { id:idNovo(), evento:'', data:'', resp:'', seq:1, ambientes:[], excluidos:[], envios:[], salvoEm:null }; }
+function novoAmbiente(nome){ return { id: st.seq++, nome: nome || ('AMBIENTE ' + (st.ambientes.length + 1)), produtos:[] }; }
+function valsIniciais(perfil){
+  var v={};
+  perfil.campos.forEach(function(c){
+    if(c.tipo==='opcional'){ v[c.id]={ativo:false}; c.campos.forEach(function(s){ v[c.id][s.id] = s.tipo==='select' ? s.opcoes[0].v : ''; }); }
+    else if(c.tipo==='check') v[c.id]=false;
+    else if(c.tipo==='select') v[c.id]=c.opcoes[0].v;
+    else if(c.tipo==='lista'){ v.q={}; if(c.cabo) v.cabo={metros:''}; }
+    else v[c.id] = c.valor!==undefined ? c.valor : '';
+  });
+  return v;
+}
+function salvarLocal(){ try{ localStorage.setItem(CHAVE, JSON.stringify(st)); }catch(e){} }
+function carregarLocal(){ try{ var s=JSON.parse(localStorage.getItem(CHAVE)||'null'); if(s && s.ambientes) return s; }catch(e){} return null; }
+
+/* ================================================================
+   UTIL
+   ================================================================ */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s===undefined||s===null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function fmt(n){ n=Number(n)||0; if(Math.abs(n-Math.round(n))<0.001) return Math.round(n).toLocaleString('pt-BR'); return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function up(s){ return String(s||'').trim().replace(/\s+/g,' ').toUpperCase(); }
+function nomeCk(nome){ var k=up(nome); return nomesCk[k] ? up(nomesCk[k]) : k; }
+var tTimer=null;
+function toast(msg, tipo){ var t=$('toast'); t.textContent=msg; t.className='toast on'+(tipo?' '+tipo:''); clearTimeout(tTimer); tTimer=setTimeout(function(){ t.className='toast'; }, 3400); }
+
+/* ================================================================
+   CÁLCULO GERAL
+   ================================================================ */
+function areaProd(p){
+  var v=p.vals;
+  if('C' in v && 'L' in v) return num(v.C)*num(v.L);
+  if('X' in v && 'Y' in v) return num(v.X)*num(v.Y);
+  if('largura' in v && 'comprimento' in v) return num(v.largura)*num(v.comprimento);
+  return null;
+}
+function valido(p){
+  var a=areaProd(p);
+  if(a!==null) return a>0;
+  if(p.prodId==='avulso') return String(p.vals.nome||'').trim() && num(p.vals.qtd)>0;
+  if(p.vals.q) { for(var k in p.vals.q) if(num(p.vals.q[k])>0) return true; return false; }
+  if('qtd' in p.vals) return int(p.vals.qtd)>0;
+  return true;
+}
+function consolidar(listas){
+  var soma={}, ordem=[];
+  listas.forEach(function(l){
+    l.materiais.forEach(function(m){
+      var key=m.grupo+'||'+up(m.nome)+'||'+m.unidade;
+      if(!soma[key]){ soma[key]={grupo:m.grupo, nome:m.nome, unidade:m.unidade, qtd:0, origem:{}}; if(m.emb) soma[key].emb=m.emb; ordem.push(key); }
+      soma[key].qtd += m.qtd;
+      soma[key].origem[l.nomeProduto]=(soma[key].origem[l.nomeProduto]||0)+m.qtd;
+    });
+  });
+  /* embalagem (palete/caixa/cinta) é recalculada sobre o total somado — 100 + 21 placas = 2 paletes, não 3 */
+  var tot={}; ordem.forEach(function(k){ var x=soma[k]; tot[up(x.nome)]=(tot[up(x.nome)]||0)+x.qtd; });
+  function somaBase(b){ return b.reduce(function(t,n){ return t+(tot[up(n)]||0); },0); }
+  ordem.forEach(function(k){ var x=soma[k], e=x.emb; if(!e) return;
+    var b=somaBase(e.base), q;
+    if(e.tipo==='pal'){ var pt=paletesTravessa(b, e.c250, e.c100); q = e.qual===250 ? pt.p250 : pt.p100; }
+    else if(e.tipo==='igual') q=b;
+    else if(e.tipo==='um') q = b>0 ? 1 : 0;
+    else q=Math.ceil(b/e.cap);
+    tot[up(x.nome)] += q - x.qtd; x.qtd=q;
+  });
+  /* palete de 100 que "sumiu" porque virou de 250 no total (e vice-versa) também tem que entrar */
+  ordem.forEach(function(k){ var x=soma[k]; if(x.emb && x.emb.tipo==='pal'){
+    var outro = x.emb.qual===250 ? N_ELE.pal100 : N_ELE.pal250, tem=false;
+    ordem.forEach(function(k2){ if(up(soma[k2].nome)===outro) tem=true; });
+    if(!tem){ var pt=paletesTravessa(somaBase(x.emb.base), x.emb.c250, x.emb.c100), q2 = x.emb.qual===250 ? pt.p100 : pt.p250;
+      if(q2>0){ var nk='Embalagem||'+outro+'||un'; soma[nk]={grupo:'Embalagem', nome:outro, unidade:'un', qtd:q2, origem:{'(total)':q2}, emb:{tipo:'pal',base:x.emb.base,c250:x.emb.c250,c100:x.emb.c100,qual:x.emb.qual===250?100:250}}; ordem.push(nk); tot[outro]=q2; } }
+  } });
+  var og={'Piso':1,'Piso Alumínio':2,'Forração':3,'Tenda':4,'Estaqueamento':5,'Galpão TFS':6,'Treliça Q30':7,'Treliça Q50':8,'Diversos':9,'Avulso':10,'Opcionais':11,'Embalagem':12,'Ferramentas':13};
+  var out = ordem.map(function(k){ return soma[k]; }).filter(function(m){ return m.qtd>0; });
+  out.forEach(function(m,i){ m._i=i; });
+  out.sort(function(a,b){ return ((og[a.grupo]||20)-(og[b.grupo]||20)) || (a._i-b._i); });
+  return out;
+}
+function calcularTudo(){
+  var porAmb=[], gerais=[], areaTot=0, infos={};
+  st.ambientes.forEach(function(a){
+    var listas=[], area=0;
+    a.produtos.forEach(function(p){
+      var perf=perfilDe(p); if(!perf) return;
+      var r; try{ r=perf.calcular(p.vals, p.emb||{}); }catch(e){ console.error(e); return; }
+      infos[p.pid]=r.info||'';
+      if(!valido(p)) return;
+      var nomeP=produtoCat(p.prodId).nome;
+      listas.push({ materiais:r.materiais, nomeProduto:nomeP });
+      gerais.push({ materiais:r.materiais, nomeProduto:nomeP });
+      area = Math.max(area, r.area||0);   /* piso + forração no mesmo ambiente: não soma 2x */
+    });
+    if(listas.length){ porAmb.push({ id:a.id, nome:a.nome, area:area, itens:consolidar(listas) }); areaTot += area; }
+  });
+  return { porAmb:porAmb, total:consolidar(gerais), area:areaTot, infos:infos };
+}
+function fora(m){ return st.excluidos.indexOf(up(m.nome)) >= 0; }
+
+/* ================================================================
+   TELA — AMBIENTES
+   ================================================================ */
+function optsProdutos(){
+  var h='<option value="">— Selecione um produto —</option>', g='';
+  CATALOGO.forEach(function(c){
+    if(c.grupo!==g){ if(g) h+='</optgroup>'; g=c.grupo; h+='<optgroup label="'+esc(g)+'">'; }
+    h+='<option value="'+c.id+'">'+esc(c.nome)+'</option>';
+  });
+  return h+'</optgroup>';
+}
+function campoHTML(p, c){
+  var v=p.vals, d=' data-pid="'+p.pid+'" data-c="'+c.id+'"';
+  if(c.tipo==='dim' || c.tipo==='num' || c.tipo==='texto'){
+    var val = v[c.id]===undefined ? '' : v[c.id];
+    return '<div class="fg"><label>'+esc(c.label)+(c.help?'<i>'+esc(c.help)+'</i>':'')+'</label>'+
+      '<input'+d+' '+(c.tipo==='texto'?'type="text" style="text-transform:uppercase"':'type="number" inputmode="decimal" step="any" min="0"')+' value="'+esc(val)+'" placeholder="'+(c.tipo==='texto'?'Ex.: GERADOR 150 KVA':'0')+'"></div>';
+  }
+  if(c.tipo==='select'){
+    return '<div class="fg"><label>'+esc(c.label)+'</label><select'+d+'>'+
+      c.opcoes.map(function(o){ return '<option value="'+esc(o.v)+'"'+(v[c.id]===o.v?' selected':'')+'>'+esc(o.t)+'</option>'; }).join('')+'</select></div>';
+  }
+  if(c.tipo==='condicional'){
+    return '<div class="fg" data-cond="'+c.id+'" data-dep="'+c.dependeDe+'" data-val="'+esc(c.valorDep)+'" style="display:'+(v[c.dependeDe]===c.valorDep?'flex':'none')+'">'+
+      '<label>'+esc(c.label)+'</label><input'+d+' type="number" inputmode="decimal" step="any" min="0" value="'+esc(v[c.id]||'')+'" placeholder="0"></div>';
+  }
+  return '';
+}
+function opcHTML(p, c){
+  var v=p.vals;
+  if(c.tipo==='check'){
+    return '<label class="opc'+(v[c.id]?' on':'')+'"><input type="checkbox"'+' data-pid="'+p.pid+'" data-c="'+c.id+'" data-t="check"'+(v[c.id]?' checked':'')+'> '+esc(c.label)+'</label>';
+  }
+  return '<label class="opc'+(v[c.id].ativo?' on':'')+'"><input type="checkbox" data-pid="'+p.pid+'" data-c="'+c.id+'" data-t="opc"'+(v[c.id].ativo?' checked':'')+'> + '+esc(c.label)+'</label>';
+}
+function subHTML(p, c){
+  var v=p.vals[c.id];
+  return '<div class="sub" data-sub="'+p.pid+'-'+c.id+'"'+(v.ativo?'':' hidden')+'><h5>'+esc(c.label)+'</h5><div class="g2">'+
+    c.campos.map(function(s){
+      var d=' data-pid="'+p.pid+'" data-c="'+c.id+'" data-s="'+s.id+'"';
+      if(s.tipo==='select') return '<div class="fg"><label>'+esc(s.label)+'</label><select'+d+'>'+
+        s.opcoes.map(function(o){ return '<option value="'+esc(o.v)+'"'+(v[s.id]===o.v?' selected':'')+'>'+esc(o.t)+'</option>'; }).join('')+'</select></div>';
+      return '<div class="fg"><label>'+esc(s.label)+'</label><input'+d+' type="number" inputmode="decimal" step="any" min="0" value="'+esc(v[s.id]||'')+'" placeholder="0"></div>';
+    }).join('')+'</div></div>';
+}
+function listaHTML(p, c){
+  var q=p.vals.q||{};
+  return '<input class="filtro" data-filtro="'+p.pid+'" placeholder="🔎 Filtrar peças…">'+
+    '<div class="lista-grid" id="lg-'+p.pid+'">'+c.itens.map(function(it){
+      var tem=num(q[it])>0;
+      return '<label class="li'+(tem?' tem':'')+'" data-nome="'+esc(up(it))+'"><span>'+esc(it)+'</span>'+
+        '<input type="number" inputmode="numeric" min="0" step="any" data-pid="'+p.pid+'" data-item="'+esc(it)+'" value="'+esc(q[it]||'')+'" placeholder="0"></label>';
+    }).join('')+'</div>'+
+    (c.cabo ? '<div class="sub"><h5>Cabo de aço — metros de cada</h5><div class="fg" style="max-width:200px"><input type="number" inputmode="decimal" step="any" min="0" data-pid="'+p.pid+'" data-cabo="1" value="'+esc((p.vals.cabo||{}).metros||'')+'" placeholder="0"></div></div>' : '');
+}
+function produtoHTML(p){
+  var cat=produtoCat(p.prodId), perf=perfilDe(p); if(!cat||!perf) return '';
+  var cs=perf.campos;
+  var dims=cs.filter(function(c){ return c.tipo==='dim'; });
+  var simp=cs.filter(function(c){ return c.tipo==='num'||c.tipo==='select'||c.tipo==='condicional'||c.tipo==='texto'; });
+  var opcs=cs.filter(function(c){ return c.tipo==='opcional'||c.tipo==='check'; });
+  var lista=cs.filter(function(c){ return c.tipo==='lista'; })[0];
+  var corpo='';
+  if(dims.length) corpo+='<div class="g2">'+dims.map(function(c){ return campoHTML(p,c); }).join('')+'</div>';
+  if(simp.length) corpo+='<div class="g2" style="margin-top:'+(dims.length?'12px':'0')+'">'+simp.map(function(c){ return campoHTML(p,c); }).join('')+'</div>';
+  if(opcs.length){
+    corpo+='<div class="opcs">'+opcs.map(function(c){ return opcHTML(p,c); }).join('')+'</div>';
+    corpo+=opcs.filter(function(c){ return c.tipo==='opcional'; }).map(function(c){ return subHTML(p,c); }).join('');
+  }
+  if(lista) corpo+=listaHTML(p, lista);
+  corpo+='<div class="pinfo" id="pi-'+p.pid+'"></div>';
+  return '<div class="prod" data-pid="'+p.pid+'">'+
+    '<div class="prod-h" data-acao="tog-prod" data-pid="'+p.pid+'">'+
+      '<span class="pn">'+esc(cat.nome)+'<small id="ps-'+p.pid+'"></small></span>'+
+      '<button class="ib" type="button" title="Duplicar" data-acao="dup-prod" data-pid="'+p.pid+'">⧉</button>'+
+      '<button class="ib rem" type="button" title="Remover" data-acao="rem-prod" data-pid="'+p.pid+'">🗑️</button>'+
+      '<span style="font-size:.8rem;color:var(--cinza);width:14px">'+(p.fechado?'▸':'▾')+'</span>'+
+    '</div>'+
+    '<div class="prod-b"'+(p.fechado?' hidden':'')+'>'+corpo+'</div></div>';
+}
+function desenharAmbientes(){
+  $('bdAmb').textContent = st.ambientes.length + ' ambiente' + (st.ambientes.length===1?'':'s');
+  $('listaAmb').innerHTML = st.ambientes.map(function(a, i){
+    return '<div class="amb" data-amb="'+a.id+'">'+
+      '<div class="amb-h"><span class="n">'+(i+1)+'</span>'+
+        '<input data-acao="nome-amb" data-amb="'+a.id+'" value="'+esc(a.nome)+'" placeholder="NOME DO AMBIENTE">'+
+        '<span class="m2" id="am-'+a.id+'"></span>'+
+        '<button class="ib" type="button" title="Duplicar ambiente" data-acao="dup-amb" data-amb="'+a.id+'">⧉</button>'+
+        (st.ambientes.length>1?'<button class="ib rem" type="button" title="Remover ambiente" data-acao="rem-amb" data-amb="'+a.id+'">🗑️</button>':'')+
+      '</div>'+
+      '<div class="amb-b">'+
+        '<div class="addrow"><select id="sel-'+a.id+'">'+optsProdutos()+'</select>'+
+          '<button class="btn b-azul" type="button" data-acao="add-prod" data-amb="'+a.id+'">➕ ADICIONAR</button></div>'+
+        (a.produtos.length ? a.produtos.map(produtoHTML).join('') :
+          '<div class="bloco-vazio">⬆️ Escolha um produto acima e toque em <b>ADICIONAR</b>.</div>')+
+      '</div></div>';
+  }).join('');
+  recalcular();
+}
+function achaProd(pid){
+  for(var i=0;i<st.ambientes.length;i++) for(var j=0;j<st.ambientes[i].produtos.length;j++)
+    if(st.ambientes[i].produtos[j].pid==pid) return { a:st.ambientes[i], p:st.ambientes[i].produtos[j], j:j };
+  return null;
+}
+function achaAmb(id){ for(var i=0;i<st.ambientes.length;i++) if(st.ambientes[i].id==id) return { a:st.ambientes[i], i:i }; return null; }
+function copia(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* eventos da lista de ambientes (delegados) */
+$('listaAmb').addEventListener('input', function(e){
+  var t=e.target;
+  if(t.dataset.acao==='nome-amb'){ var A=achaAmb(t.dataset.amb); if(A){ A.a.nome=t.value.toUpperCase(); } mudou(); return; }
+  if(t.dataset.filtro){
+    var q=up(t.value);
+    Array.prototype.forEach.call(document.querySelectorAll('#lg-'+t.dataset.filtro+' .li'), function(li){ li.hidden = q && li.dataset.nome.indexOf(q)<0; });
+    return;
+  }
+  campoMudou(t);
+});
+$('listaAmb').addEventListener('change', function(e){ campoMudou(e.target); });
+function campoMudou(t){
+  var pid=t.dataset.pid; if(!pid) return;
+  var P=achaProd(pid); if(!P) return;
+  var v=P.p.vals;
+  if(t.dataset.item!==undefined){ v.q=v.q||{}; v.q[t.dataset.item]=t.value; var li=t.closest('.li'); if(li) li.classList.toggle('tem', num(t.value)>0); }
+  else if(t.dataset.cabo){ v.cabo=v.cabo||{}; v.cabo.metros=t.value; }
+  else if(t.dataset.t==='check'){ v[t.dataset.c]=t.checked; t.parentNode.classList.toggle('on', t.checked); }
+  else if(t.dataset.t==='opc'){
+    v[t.dataset.c].ativo=t.checked; t.parentNode.classList.toggle('on', t.checked);
+    var sub=document.querySelector('[data-sub="'+pid+'-'+t.dataset.c+'"]'); if(sub) sub.hidden=!t.checked;
+  }
+  else if(t.dataset.s){ v[t.dataset.c][t.dataset.s]=t.value; }
+  else if(t.dataset.c){
+    v[t.dataset.c] = (t.type==='text') ? t.value.toUpperCase() : t.value;
+    Array.prototype.forEach.call(document.querySelectorAll('.prod[data-pid="'+pid+'"] [data-cond]'), function(w){
+      w.style.display = v[w.dataset.dep]===w.dataset.val ? 'flex' : 'none';
+    });
+  }
+  mudou();
+}
+$('listaAmb').addEventListener('click', function(e){
+  var b=e.target.closest('[data-acao]'); if(!b || b.tagName==='INPUT') return;
+  var ac=b.dataset.acao, A, P, n;
+  if(ac==='add-prod'){
+    A=achaAmb(b.dataset.amb); var sel=$('sel-'+b.dataset.amb);
+    if(!sel.value){ toast('Escolha um produto na lista.','erro'); return; }
+    var cat=produtoCat(sel.value), perf=PERFIS[cat.perfil];
+    A.a.produtos.push({ pid: st.seq++, prodId: cat.id, vals: valsIniciais(perf), emb: copia(perf.emb||{}) });
+    desenharAmbientes(); mudou();
+    var novo=document.querySelector('.prod[data-pid="'+(st.seq-1)+'"] input, .prod[data-pid="'+(st.seq-1)+'"] select');
+    if(novo) novo.focus();
+    return;
+  }
+  if(ac==='rem-prod'){ e.stopPropagation(); P=achaProd(b.dataset.pid); if(P){ P.a.produtos.splice(P.j,1); desenharAmbientes(); mudou(); } return; }
+  if(ac==='dup-prod'){ e.stopPropagation(); P=achaProd(b.dataset.pid); if(P){ n=copia(P.p); n.pid=st.seq++; P.a.produtos.splice(P.j+1,0,n); desenharAmbientes(); mudou(); toast('Produto duplicado.'); } return; }
+  if(ac==='tog-prod'){ P=achaProd(b.dataset.pid); if(P){ P.p.fechado=!P.p.fechado; desenharAmbientes(); salvarLocal(); } return; }
+  if(ac==='rem-amb'){
+    A=achaAmb(b.dataset.amb); if(!A) return;
+    if(A.a.produtos.length && !confirm('Remover o ambiente "'+A.a.nome+'" com '+A.a.produtos.length+' produto(s)?')) return;
+    st.ambientes.splice(A.i,1); desenharAmbientes(); mudou(); return;
+  }
+  if(ac==='dup-amb'){
+    A=achaAmb(b.dataset.amb); if(!A) return;
+    n=copia(A.a); n.id=st.seq++; n.nome=A.a.nome+' (CÓPIA)'; n.produtos.forEach(function(p){ p.pid=st.seq++; });
+    st.ambientes.splice(A.i+1,0,n); desenharAmbientes(); mudou(); toast('Ambiente duplicado — mude o nome.');
+  }
+});
+$('bAddAmb').addEventListener('click', function(){ st.ambientes.push(novoAmbiente()); desenharAmbientes(); mudou();
+  var ins=document.querySelectorAll('.amb-h input'); if(ins.length){ ins[ins.length-1].focus(); ins[ins.length-1].select(); } });
+
+['mEvento','mData','mResp','mLocal','mOs'].forEach(function(id){
+  $(id).addEventListener('input', function(){
+    st.evento=up($('mEvento').value); st.data=$('mData').value; st.resp=$('mResp').value.trim();
+    st.local=up($('mLocal').value); st.os=$('mOs').value.trim();
+    mudou();
+  });
+});
+
+/* ================================================================
+   PAINEL — LISTA DE MATERIAL
+   ================================================================ */
+var ICO={'Piso Alumínio':'⬜','Galpão TFS':'🏭','Ferramentas':'🧰','Piso':'🟫','Forração':'🧻','Tenda':'⛺','Estaqueamento':'📍','Treliça Q30':'🔺','Treliça Q50':'🔺','Diversos':'🧰','Avulso':'📦','Opcionais':'➕','Embalagem':'📦'};
+function linhasTabela(itens, comOrigem){
+  var h='', g='';
+  itens.forEach(function(m){
+    if(m.grupo!==g){ g=m.grupo; h+='<tr class="gr"><td colspan="3">'+(ICO[g]||'•')+' '+esc(g)+'</td></tr>'; }
+    var orig=Object.keys(m.origem||{}), ot='';
+    if(comOrigem){ ot = orig.length===1 ? orig[0] : orig.map(function(o){ return o+' ('+fmt(m.origem[o])+')'; }).join(' · '); }
+    var ck=nomeCk(m.nome), ren = ck!==up(m.nome);
+    h+='<tr class="'+(fora(m)?'fora':'')+'"><td>'+esc(ren?ck:m.nome)+
+      (ren?'<span class="ren">✏️ no checklist · original: '+esc(m.nome)+'</span>':'')+
+      (ot?'<span class="org">'+esc(ot)+'</span>':'')+'</td>'+
+      '<td class="q">'+fmt(m.qtd)+' <small>'+esc(m.unidade)+'</small></td>'+
+      '<td style="width:60px;text-align:right;white-space:nowrap">'+
+        '<button class="mini" type="button" title="Mudar o nome no checklist" data-ren="'+esc(m.nome)+'">✏️</button>'+
+        '<button class="mini" type="button" title="'+(fora(m)?'Voltar para a lista':'Tirar da lista')+'" data-fora="'+esc(up(m.nome))+'">'+(fora(m)?'↺':'🚫')+'</button></td></tr>';
+  });
+  return h;
+}
+function fmt3(n){ return (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:3}); }
+function cargaDe(lista){
+  var r={peso:0,vol:0,n:0};
+  lista.forEach(function(m){ var f=FICHA[up(m.nome)]; if(f){ r.peso+=f.p*m.qtd; r.vol+=f.v*m.qtd; r.n++; } });
+  return r;
+}
+function recalcular(){
+  var c=calcularTudo(); ultimoCalc=c;
+  /* info de cada produto e badge de cada ambiente */
+  st.ambientes.forEach(function(a){
+    var tot=0, tem=false;
+    a.produtos.forEach(function(p){
+      var el=$('pi-'+p.pid); if(el) el.textContent = c.infos[p.pid] || '';
+      var ps=$('ps-'+p.pid); if(ps) ps.textContent = p.fechado ? (c.infos[p.pid]||'') : '';
+      var m2=areaProd(p); if(m2!==null){ tot=Math.max(tot,m2); tem=true; }
+    });
+    var pa=c.porAmb.filter(function(x){ return x.id===a.id; })[0]; if(pa && pa.area>tot){ tot=pa.area; tem=true; }
+    var b=$('am-'+a.id); if(b) b.textContent = tem ? fmt(tot)+' m²' : a.produtos.length+' produto'+(a.produtos.length===1?'':'s');
+  });
+  var corpo=$('plCorpo');
+  if(!c.total.length){
+    corpo.innerHTML='<div class="vazio">📋<b>Aguardando dados</b>Adicione produtos aos ambientes e preencha as medidas para ver a lista de material.</div>';
+    $('plSub').textContent='Soma de todos os ambientes';
+    return;
+  }
+  var ativos=c.total.filter(function(m){ return !fora(m); });
+  var cg=cargaDe(ativos);
+  var nFora=c.total.length-ativos.length;
+  var h='<div class="totais"><div><b>'+(c.area>0?fmt(c.area)+' m²':c.porAmb.length)+'</b><span>'+(c.area>0?'Área total':'Ambientes')+'</span></div>'+
+    '<div><b>'+ativos.length+'</b><span>Itens</span></div>'+
+    '<div><b>'+fmt(ativos.reduce(function(t,m){ return t+(m.unidade==='un'?m.qtd:0); },0))+'</b><span>Peças (un)</span></div></div>';
+  if(cg.n) h+='<div class="carga">⚖️ Carga estimada: <b>'+fmt(cg.peso)+' kg</b> · <b>'+fmt3(cg.vol)+' m³</b><span>ficha técnica do cadastro · '+cg.n+' de '+ativos.length+' itens têm peso/volume</span></div>';
+  h+='<div class="abas"><button type="button" data-aba="total" class="'+(abaLista==='total'?'on':'')+'">Consolidado</button>'+
+     '<button type="button" data-aba="amb" class="'+(abaLista==='amb'?'on':'')+'">Por ambiente ('+c.porAmb.length+')</button></div>';
+  if(nFora) h+='<div class="fora-aviso"><span>🚫 '+nFora+' item(ns) tirado(s) da lista — não vão para o checklist.</span><button class="mini" style="opacity:1" type="button" data-volta="1">↺ voltar todos</button></div>';
+  h+='<div class="aviso-env">'+(st.envios.length ? '✓ Enviada para: '+st.envios.map(function(x){ return esc(x.eventoNome)+' ('+new Date(x.em).toLocaleDateString('pt-BR')+')'; }).join(' · ') : '')+'</div>';
+  h+='<div class="pl-lista"><table class="mat">';
+  if(abaLista==='total') h+=linhasTabela(c.total, true);
+  else c.porAmb.forEach(function(a){ h+='<tr class="amb"><td colspan="3">'+esc(a.nome)+(a.area>0?' · '+fmt(a.area)+' m²':'')+'</td></tr>'+linhasTabela(a.itens, true); });
+  h+='</table></div>';
+  h+='<div class="pl-acoes">'+
+    '<button class="btn b-lar" type="button" id="bEnviar">📤 ENVIAR PARA O CHECKLIST DO EVENTO</button>'+
+    '<div class="linha"><button class="btn b-azul" type="button" data-imp="total">🖨️ IMPRIMIR / PDF</button>'+
+    '<button class="btn b-branco" type="button" data-imp="amb">🖨️ POR AMBIENTE</button></div></div>';
+  corpo.innerHTML=h;
+  $('plSub').textContent = abaLista==='total' ? 'Soma de todos os ambientes' : 'Separado por ambiente';
+}
+$('plCorpo').addEventListener('click', function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.aba){ abaLista=b.dataset.aba; recalcular(); return; }
+  if(b.dataset.fora){ var k=b.dataset.fora, i=st.excluidos.indexOf(k); if(i>=0) st.excluidos.splice(i,1); else st.excluidos.push(k); mudou(); return; }
+  if(b.dataset.volta){ st.excluidos=[]; mudou(); return; }
+  if(b.dataset.ren){
+    var orig=up(b.dataset.ren), atual=nomesCk[orig]||orig;
+    var novo=prompt('Nome deste item no CHECKLIST do evento (igual ao do estoque).\nO sistema lembra esse nome nas próximas vezes.\n\nOriginal: '+orig, atual);
+    if(novo===null) return;
+    novo=up(novo);
+    if(!novo || novo===orig) delete nomesCk[orig]; else nomesCk[orig]=novo;
+    try{ localStorage.setItem(CHAVE_NOMES, JSON.stringify(nomesCk)); }catch(x){}
+    recalcular(); toast(novo && novo!==orig ? 'Vai para o checklist como: '+novo : 'Voltou para o nome original.','ok');
+    return;
+  }
+  if(b.dataset.imp){ imprimir(b.dataset.imp); return; }
+  if(b.id==='bEnviar'){ abrirEnvio(); }
+});
+
+var tSalva=null;
+function mudou(){ recalcular(); salvarLocal(); }
+
+/* ================================================================
+   IMPRESSÃO / PDF
+   ================================================================ */
+function imprimir(modo){
+  var c=ultimoCalc||calcularTudo();
+  var itens=c.total.filter(function(m){ return !fora(m); });
+  if(!itens.length) return toast('Nada para imprimir.','erro');
+  var w=window.open('','_blank');
+  if(!w) return toast('O navegador bloqueou a janela. Libere os pop-ups deste site.','erro');
+  function tab(lista){
+    var h='<table><thead><tr><th>Material</th><th class="n">Qtd</th><th class="n">Un</th><th class="cf">Conferência</th></tr></thead><tbody>', g='';
+    lista.forEach(function(m){
+      if(fora(m)) return;
+      if(m.grupo!==g){ g=m.grupo; h+='<tr class="g"><td colspan="4">'+esc(g)+'</td></tr>'; }
+      h+='<tr><td>'+esc(nomeCk(m.nome))+'</td><td class="n"><b>'+fmt(m.qtd)+'</b></td><td class="n">'+esc(m.unidade)+'</td><td class="cf"></td></tr>';
+    });
+    return h+'</tbody></table>';
+  }
+  var corpo='';
+  if(modo==='amb'){
+    c.porAmb.forEach(function(a, i){
+      corpo+='<div class="amb'+(i?' quebra':'')+'"><h2>'+esc(a.nome)+(a.area>0?' <small>· '+fmt(a.area)+' m²</small>':'')+'</h2><div class="fil"></div>'+tab(a.itens)+'</div>';
+    });
+  } else {
+    corpo+='<h2>Checklist consolidado <small>· '+c.porAmb.length+' ambiente(s)'+(c.area>0?' · '+fmt(c.area)+' m²':'')+'</small></h2><div class="fil"></div>'+tab(c.total);
+    if(c.porAmb.length>1){
+      corpo+='<h2 style="margin-top:18px">Ambientes</h2><div class="fil"></div><ul class="ambs">'+c.porAmb.map(function(a){
+        return '<li><b>'+esc(a.nome)+'</b>'+(a.area>0?' — '+fmt(a.area)+' m²':'')+'</li>'; }).join('')+'</ul>';
+    }
+  }
+  var dt = st.data ? st.data.split('-').reverse().join('/') : '';
+  var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Checklist de material — '+esc(st.evento||'')+'</title><style>'+
+    '@page{size:A4;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    'body{margin:0;font:11px/1.45 "Segoe UI",Arial,sans-serif;color:#17202B}'+
+    '.topo{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #F57C00;padding-bottom:9px;margin-bottom:14px}'+
+    '.marca{font-size:19px;font-weight:900;color:#0B4F9E}.marca small{display:block;font-size:9px;color:#8695A6;letter-spacing:2.5px;font-weight:600}'+
+    '.info{text-align:right}.info b{display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase}.info span{display:block;font-size:10px;color:#5A6B7D}'+
+    'h2{font-size:13px;color:#0B4F9E;text-transform:uppercase;margin:0 0 2px}h2 small{color:#5A6B7D;font-weight:600;text-transform:none}'+
+    '.fil{height:2px;width:52px;background:#F57C00;margin:0 0 8px}'+
+    'table{width:100%;border-collapse:collapse;font-size:11px}th{background:#E8F0FA;color:#0B4F9E;text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;border-bottom:2px solid #0B4F9E}'+
+    'td{padding:5px 8px;border-bottom:1px solid #E4EAF2}.n{text-align:right;white-space:nowrap}.cf{width:90px;border-left:1px solid #E4EAF2}'+
+    'tr.g td{background:#F4F6FA;font-weight:800;color:#0B4F9E;font-size:9.5px;text-transform:uppercase}'+
+    '.quebra{break-before:page}.ambs{margin:0;padding-left:18px}'+
+    '.ass{display:flex;gap:30px;margin-top:34px}.ass div{flex:1;border-top:1px solid #999;padding-top:4px;text-align:center;font-size:9.5px;color:#5A6B7D}'+
+    '.rod{margin-top:16px;padding-top:6px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6}'+
+    '</style></head><body>'+
+    '<div class="topo"><div class="marca">GRUPO TENDAS PLENART<small>QUANTIFICAÇÃO DE MATERIAL</small></div>'+
+    '<div class="info"><b>'+esc(st.evento||'Checklist de material')+'</b>'+
+      '<span>'+(dt?'Data do evento: '+dt+' · ':'')+(st.resp?'Responsável: '+esc(st.resp):'')+'</span>'+
+      ((st.local||st.os)?'<span>'+(st.local?'Local: '+esc(st.local):'')+(st.local&&st.os?' · ':'')+(st.os?'O.S. '+esc(st.os):'')+'</span>':'')+
+      '<span>Gerado em '+new Date().toLocaleString('pt-BR').slice(0,16)+'</span></div></div>'+
+    corpo+
+    (function(){ var cg=cargaDe(itens); return cg.n ? '<p style="margin:10px 0 0;font-size:10.5px"><b>Carga estimada</b> (ficha técnica, '+cg.n+' itens): '+fmt(cg.peso)+' kg · '+fmt3(cg.vol)+' m³</p>' : ''; })()+
+    '<div class="ass"><div>Separado por</div><div>Conferido por</div><div>Motorista</div></div>'+
+    '<div class="rod"><span>Grupo Tendas Plenart · Quantificação de material</span><span>'+esc(st.evento||'')+'</span></div>'+
+    '<script>window.onload=function(){setTimeout(function(){window.print()},350)}<\/script></body></html>';
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+/* ================================================================
+   NUVEM (mesmo Supabase da Central)
+   ================================================================ */
+var SUPABASE_URL  = "https://cllylcuhpmwnyebmlelf.supabase.co";
+var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E";
+function fetchLimpo(recurso, opcoes){
+  opcoes = opcoes || {};
+  try{
+    if(opcoes.headers && typeof Headers !== "undefined" && opcoes.headers instanceof Headers){
+      var simples={}; opcoes.headers.forEach(function(v,k){ simples[k]=v; });
+      var c={}; Object.keys(opcoes).forEach(function(k){ c[k]=opcoes[k]; }); c.headers=simples; opcoes=c;
+    }
+  }catch(e){}
+  return fetch(recurso, opcoes);
+}
+var nuvem=null;
+try{ if(window.supabase && window.supabase.createClient) nuvem = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global:{ fetch: fetchLimpo } }); }catch(e){}
+function semTabela(e){ return /does not exist|schema cache|Could not find the table|quant_material/i.test(String((e&&e.message)||'')); }
+
+/* ---------- modal genérico ---------- */
+function abrirModal(tit, corpo, pe){ $('mTit').textContent=tit; $('mCorpo').innerHTML=corpo; $('mPe').innerHTML=pe||''; $('modal').classList.remove('hidden'); }
+function fecharModal(){ $('modal').classList.add('hidden'); }
+$('mX').addEventListener('click', fecharModal);
+$('modal').addEventListener('click', function(e){ if(e.target===this) fecharModal(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') fecharModal(); });
+
+/* ---------- salvar / abrir ---------- */
+function registroNuvem(){
+  return { id:st.id, nome: st.evento || ('QUANTIFICAÇÃO ' + new Date().toLocaleDateString('pt-BR')), evento:st.evento||null,
+    data: st.data || null, dados: st, atualizado_em: new Date().toISOString(), atualizado_por: st.resp || null };
+}
+function salvarNuvem(silencioso){
+  st.salvoEm=new Date().toISOString(); salvarLocal();
+  if(!nuvem){ if(!silencioso) toast('Salvo neste aparelho (sem internet com a nuvem).','ok'); return Promise.resolve(false); }
+  return nuvem.from('quant_material').upsert(registroNuvem()).then(function(r){
+    if(r.error) throw r.error;
+    if(!silencioso) toast('💾 Salvo na nuvem — abre em qualquer computador.','ok');
+    return true;
+  }).catch(function(e){
+    console.error(e);
+    if(!silencioso) toast(semTabela(e) ? 'Salvo só neste aparelho: falta rodar o quantitativo.sql no Supabase.' : 'Salvo neste aparelho. A nuvem não respondeu.', 'erro');
+    return false;
+  });
+}
+$('bSalvar').addEventListener('click', function(){
+  if(!st.evento){ $('mEvento').focus(); return toast('Digite o nome do evento antes de salvar.','erro'); }
+  salvarNuvem(false);
+});
+$('bNova').addEventListener('click', function(){
+  if(ultimoCalc && ultimoCalc.total.length && !confirm('Começar uma quantificação nova? A atual fica guardada se você já salvou.')) return;
+  st=novoEstado(); st.ambientes.push(novoAmbiente()); preencherMeta(); desenharAmbientes(); salvarLocal();
+});
+$('bAbrir').addEventListener('click', function(){
+  abrirModal('📂 Quantificações salvas', '<div class="msg info">Buscando…</div>', '<button class="btn b-branco" type="button" id="mFechar">Fechar</button>');
+  $('mFechar').onclick=fecharModal;
+  if(!nuvem){ $('mCorpo').innerHTML='<div class="msg erro">Sem conexão com a nuvem.</div>'; return; }
+  nuvem.from('quant_material').select('id,nome,evento,data,atualizado_em,atualizado_por').order('atualizado_em',{ascending:false}).limit(80)
+    .then(function(r){
+      if(r.error) throw r.error;
+      var l=r.data||[];
+      if(!l.length){ $('mCorpo').innerHTML='<div class="msg info">Nenhuma quantificação salva ainda. Monte uma e toque em 💾 SALVAR.</div>'; return; }
+      $('mCorpo').innerHTML='<input class="filtro" id="svBusca" placeholder="🔎 Buscar pelo nome do evento…">'+
+        '<div id="svLista">'+l.map(function(x){
+          return '<div class="sv" data-nome="'+esc(up(x.nome))+'"><div class="t" data-abre="'+esc(x.id)+'"><b>'+esc(x.nome)+'</b>'+
+            '<span>'+(x.data?'Evento '+String(x.data).split('-').reverse().join('/')+' · ':'')+'salva em '+new Date(x.atualizado_em).toLocaleString('pt-BR').slice(0,16)+(x.atualizado_por?' por '+esc(x.atualizado_por):'')+'</span></div>'+
+            '<button class="ib rem" type="button" title="Apagar" data-apaga="'+esc(x.id)+'">🗑️</button></div>';
+        }).join('')+'</div>';
+      $('svBusca').addEventListener('input', function(){ var q=up(this.value);
+        Array.prototype.forEach.call(document.querySelectorAll('#svLista .sv'), function(d){ d.hidden = q && d.dataset.nome.indexOf(q)<0; }); });
+    })
+    .catch(function(e){ console.error(e); $('mCorpo').innerHTML='<div class="msg erro">'+(semTabela(e)?'Falta rodar o <b>quantitativo.sql</b> no Supabase.':'Não consegui falar com a nuvem. Tente de novo.')+'</div>'; });
+});
+$('mCorpo').addEventListener('click', function(e){
+  var t=e.target.closest('[data-abre],[data-apaga],[data-ev],[data-novo]'); if(!t) return;
+  if(t.dataset.abre!==undefined){
+    nuvem.from('quant_material').select('dados').eq('id', t.dataset.abre).then(function(r){
+      if(r.error) throw r.error;
+      var d=(r.data||[])[0]; if(!d||!d.dados) throw new Error('vazio');
+      st=d.dados; st.excluidos=st.excluidos||[]; st.envios=st.envios||[];
+      preencherMeta(); desenharAmbientes(); salvarLocal(); fecharModal(); toast('Aberta: '+(st.evento||'quantificação'),'ok');
+    }).catch(function(x){ console.error(x); toast('Não consegui abrir. Tente de novo.','erro'); });
+  }
+  else if(t.dataset.apaga!==undefined){
+    if(!confirm('Apagar esta quantificação salva?')) return;
+    nuvem.from('quant_material').delete().eq('id', t.dataset.apaga).then(function(r){
+      if(r.error) throw r.error; t.closest('.sv').remove(); toast('Apagada.');
+    }).catch(function(){ toast('Não consegui apagar.','erro'); });
+  }
+  else if(t.dataset.novo!==undefined){ criarEventoEEnviar(t); }
+  else if(t.dataset.ev!==undefined){ confirmarEnvio(t, t.dataset.ev, t.dataset.nome); }
+});
+
+/* ================================================================
+   ENVIAR PARA A CENTRAL (checklist do evento + guia por ambiente)
+   ================================================================ */
+function listaEnvio(){
+  var c=ultimoCalc||calcularTudo(), soma={}, ordem=[];
+  c.total.forEach(function(m){
+    if(fora(m) || m.grupo==='Ferramentas') return;
+    var n=nomeCk(m.nome);
+    if(!soma[n]){ soma[n]={ nome:n, qtd:0, unidade:m.unidade==='un'?'UN':up(m.unidade) }; ordem.push(n); }
+    soma[n].qtd = Math.round((soma[n].qtd + m.qtd)*100)/100;
+  });
+  return ordem.map(function(n){ return soma[n]; });
+}
+function areasEnvio(){
+  var c=ultimoCalc||calcularTudo();
+  return c.porAmb.map(function(a){
+    var its=[], tot=0;
+    a.itens.forEach(function(m){ if(fora(m) || m.grupo==='Ferramentas') return;
+      its.push({ n: nomeCk(m.nome) + (m.unidade!=='un' ? ' ('+up(m.unidade)+')' : ''), q: Math.round(m.qtd*100)/100 }); tot+=m.unidade==='un'?m.qtd:0; });
+    return { nome: up(a.nome), itens: its, total: Math.round(tot*100)/100, origem:'material' };
+  }).filter(function(a){ return a.itens.length; });
+}
+function abrirEnvio(){
+  var lista=listaEnvio();
+  if(!lista.length) return toast('Nada para enviar.','erro');
+  if(!nuvem) return toast('Sem conexão com a Central.','erro');
+  abrirModal('📤 Enviar para o checklist do evento', '<div class="msg info">Buscando os eventos da Central…</div>', '<button class="btn b-branco" type="button" id="mFechar">Cancelar</button>');
+  $('mFechar').onclick=fecharModal;
+  nuvem.from('eventos').select('id,nome,cliente,data,status').order('created_at',{ascending:false}).limit(80).then(function(r){
+    if(r.error) throw r.error;
+    var evs=(r.data||[]).filter(function(e){ return e.status!=='Finalizado' && e.status!=='Com divergência'; });
+    var nFer=(ultimoCalc||calcularTudo()).total.filter(function(m){ return m.grupo==='Ferramentas' && !fora(m); }).length;
+    var h='<div class="msg info">'+lista.length+' itens · '+areasEnvio().length+' ambiente(s). No evento escolhido, item com o mesmo nome <b>SOMA</b> no que já está lá; item novo entra no checklist.'+
+      (nFer?'<br>🧰 '+nFer+' ferramenta(s) NÃO vão para o checklist — o conferente lança as ferramentas no carregamento.':'')+'</div>';
+    if(st.evento){
+      var jaExiste=evs.filter(function(e){ return up(e.nome)===st.evento; })[0];
+      if(!jaExiste) h+='<button class="esc novo" type="button" data-novo="1"><b>➕ CRIAR O EVENTO "'+esc(st.evento)+'" E ENVIAR</b><span>'+(st.data?'Data '+st.data.split('-').reverse().join('/'):'sem data — dá para acertar depois na Central')+'</span></button>';
+    }
+    h+='<p style="font-family:Montserrat;font-weight:800;font-size:.7rem;color:var(--cinza);margin:12px 0 6px;letter-spacing:.4px">OU ESCOLHA UM EVENTO DA CENTRAL:</p>';
+    h+='<input class="filtro" id="evBusca" placeholder="🔎 Buscar evento…">';
+    if(!evs.length) h+='<div class="msg info">Nenhum evento aberto na Central.</div>';
+    h+='<div id="evLista">'+evs.map(function(e){
+      var ja=st.envios.filter(function(x){ return x.eventoId===e.id; })[0];
+      var det=[e.cliente, e.data?String(e.data).slice(0,10).split('-').reverse().join('/'):'', e.status].filter(Boolean).join(' · ');
+      var sug = st.evento && up(e.nome)===st.evento;
+      return '<button class="esc'+(ja?' ja':'')+(sug?' novo':'')+'" type="button" data-ev="'+esc(e.id)+'" data-nome="'+esc(e.nome)+'" data-busca="'+esc(up(e.nome+' '+(e.cliente||'')))+'">'+
+        '<b>'+esc(e.nome)+'</b><span>'+esc(det)+(ja?' · ⚠ JÁ ENVIADA em '+new Date(ja.em).toLocaleString('pt-BR').slice(0,16):'')+'</span></button>';
+    }).join('')+'</div>';
+    $('mCorpo').innerHTML=h;
+    var eb=$('evBusca'); if(eb) eb.addEventListener('input', function(){ var q=up(this.value);
+      Array.prototype.forEach.call(document.querySelectorAll('#evLista .esc'), function(b){ b.hidden = q && b.dataset.busca.indexOf(q)<0; }); });
+  }).catch(function(e){ console.error(e); $('mCorpo').innerHTML='<div class="msg erro">Não consegui falar com a Central. Verifique a internet e tente de novo.</div>'; });
+}
+function confirmarEnvio(btn, eventoId, nome){
+  var ja=st.envios.filter(function(x){ return x.eventoId===eventoId; })[0];
+  if(ja && btn.dataset.confirma!=='1'){
+    btn.dataset.confirma='1';
+    btn.querySelector('span').textContent='⚠ Esta quantificação JÁ FOI ENVIADA para este evento. Tocar de novo SOMA TUDO DE NOVO no checklist.';
+    return;
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#mCorpo button'), function(b){ b.disabled=true; });
+  enviarPara(eventoId, nome);
+}
+function criarEventoEEnviar(btn){
+  btn.disabled=true;
+  nuvem.from('eventos').insert({ nome: st.evento, cliente:'', local:'', data: st.data || new Date().toISOString().slice(0,10),
+    conferente_id:null, status:'Aguardando conferência' }).select().then(function(r){
+    if(r.error || !(r.data||[])[0]) throw (r.error || new Error('sem retorno'));
+    enviarPara(r.data[0].id, r.data[0].nome);
+  }).catch(function(e){ console.error(e); btn.disabled=false; toast('Não consegui criar o evento. Tente de novo.','erro'); });
+}
+function chaveNome(n){ return up(n); }
+function gravaAreas(eventoId){
+  var novas=areasEnvio();
+  return nuvem.from('q30_areas').select('id,dados').eq('evento_id', eventoId).then(function(r){
+    if(r.error) throw r.error;
+    var linha=(r.data||[])[0];
+    if(linha){
+      /* mesmo ambiente enviado de novo: troca (não duplica o guia) */
+      var nomes=novas.map(function(a){ return a.nome; });
+      var resto=(linha.dados||[]).filter(function(a){ return !(a.origem==='material' && nomes.indexOf(a.nome)>=0); });
+      return nuvem.from('q30_areas').update({ dados: resto.concat(novas), atualizado_em:new Date().toISOString() }).eq('id', linha.id)
+        .then(function(r2){ if(r2.error) throw r2.error; });
+    }
+    return nuvem.from('q30_areas').insert({ evento_id:eventoId, dados:novas }).then(function(r2){ if(r2.error) throw r2.error; });
+  });
+}
+function enviarPara(eventoId, nomeEv){
+  var lista=listaEnvio();
+  $('mCorpo').insertAdjacentHTML('afterbegin','<div class="msg info" id="envStatus">Enviando o checklist…</div>');
+  var guiaOk=true;
+  gravaAreas(eventoId).catch(function(e){ console.error(e); guiaOk=false; })
+  .then(function(){ return nuvem.from('produtos').select('id,nome,quantidade_prevista').eq('evento_id', eventoId); })
+  .then(function(r){
+    if(r.error) throw r.error;
+    var por={}; (r.data||[]).forEach(function(p){ por[chaveNome(p.nome)]=p; });
+    var novos=[], passos=[];
+    lista.forEach(function(it){
+      var j=por[chaveNome(it.nome)];
+      if(j) passos.push(nuvem.from('produtos').update({ quantidade_prevista:(Number(j.quantidade_prevista)||0)+it.qtd }).eq('id', j.id)
+        .then(function(r2){ if(r2.error) throw r2.error; }));
+      else novos.push({ evento_id:eventoId, nome:it.nome, quantidade_prevista:it.qtd, unidade:it.unidade, terceirizado:false });
+    });
+    if(novos.length) passos.push(nuvem.from('produtos').insert(novos).then(function(r2){ if(r2.error) throw r2.error; }));
+    return Promise.all(passos);
+  })
+  .then(function(){
+    st.envios.push({ eventoId:eventoId, eventoNome:nomeEv, em:new Date().toISOString(), itens:lista.length });
+    if(!st.evento) st.evento=up(nomeEv);
+    preencherMeta(); salvarLocal(); salvarNuvem(true); recalcular();
+    $('mCorpo').innerHTML='<div class="msg ok">✓ Enviado para "'+esc(nomeEv)+'": '+lista.length+' itens no checklist.'+
+      (guiaOk?'<br>O separado por ambiente já aparece na página do produtor como guia de montagem.':'')+'</div>'+
+      (guiaOk?'':'<div class="msg erro">O guia por ambiente não foi gravado (falta a tabela q30_areas). O checklist foi enviado normalmente.</div>');
+    $('mPe').innerHTML='<button class="btn b-verde" type="button" id="mFechar">OK</button>'; $('mFechar').onclick=fecharModal;
+    toast('Enviado para '+nomeEv,'ok');
+  })
+  .catch(function(e){
+    console.error(e);
+    var s=$('envStatus'); if(s){ s.className='msg erro'; s.textContent='Não consegui enviar. Verifique a internet e tente de novo.'; }
+    Array.prototype.forEach.call(document.querySelectorAll('#mCorpo button'), function(b){ b.disabled=false; });
+  });
+}
+
+/* ================================================================
+   PARTIDA
+   ================================================================ */
+function preencherMeta(){ $('mEvento').value=st.evento||''; $('mData').value=st.data||''; $('mResp').value=st.resp||''; $('mLocal').value=st.local||''; $('mOs').value=st.os||''; }
+st = carregarLocal() || novoEstado();
+st.excluidos=st.excluidos||[]; st.envios=st.envios||[];
+if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
+preencherMeta();
+desenharAmbientes();
+window.__quant = { st:function(){ return st; }, calc:calcularTudo, perfis:PERFIS, catalogo:CATALOGO, listaEnvio:listaEnvio, areasEnvio:areasEnvio,
+  motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
+})();
+</script>
+</body>
+</html>

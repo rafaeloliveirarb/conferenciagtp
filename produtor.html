@@ -129,7 +129,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 23/09 F</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 30/09 A</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -599,12 +599,12 @@ function telaSobra() {
 function cartaoAreasQ30() {
   if (!areasQ30.length) return '';
   var h = '<div class="cartao"><div class="cartao__topo" id="q30-topo" style="cursor:pointer">' +
-    '<h3>🔺 Treliça por área — guia de montagem</h3>' +
+    '<h3>' + (areasQ30.some(function (a) { return a.origem === 'material'; }) ? '📐 Material por ambiente' : '🔺 Treliça por área') + ' — guia de montagem</h3>' +
     '<span class="peq" style="color:var(--azul);font-weight:800">' + areasQ30.length + ' área' + (areasQ30.length > 1 ? 's' : '') +
       ' ' + (areasAbertas ? '▲' : '▼') + '</span></div>';
   if (areasAbertas) {
     h += '<div class="cartao__corpo">' +
-      '<p class="peq mut" style="margin:0 0 10px">Onde cada peça de treliça vai. É só um guia — a conferência continua sendo pelo caminhão.</p>' +
+      '<p class="peq mut" style="margin:0 0 10px">Onde cada peça vai. É só um guia — a conferência continua sendo pelo caminhão.</p>' +
       areasQ30.map(function (a) {
         return '<div class="q30bloco"><header>' + esc(a.nome) + '</header>' +
           (a.itens || []).map(function (it) {

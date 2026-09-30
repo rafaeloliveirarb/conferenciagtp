@@ -3669,6 +3669,7 @@ function TelaPainel() {
         '<button class="btn btn--azul" id="btn-patio">🏗️ DEMANDA DO PÁTIO</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-q30">🔺 QUANTIFICAÇÃO Q30</button>' +
+        '<button class="btn btn--branco" id="btn-quant">📐 QUANTIFICAÇÃO DE MATERIAL</button>' +
         '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
         '<button class="btn btn--branco" id="btn-backup">💾 BACKUP</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
@@ -4006,6 +4007,7 @@ function TelaPainel() {
     U.$('#btn-patio').addEventListener('click', function () { App.abrir(TelaPatio); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-q30').addEventListener('click', function () { window.open('quantificacao.html', '_blank'); });
+    U.$('#btn-quant').addEventListener('click', function () { window.open('quantitativo.html', '_blank'); });
     U.$('#btn-tv').addEventListener('click', function () { App.abrirTV(); });
     U.$('#btn-backup').addEventListener('click', abrirBackup);
 
