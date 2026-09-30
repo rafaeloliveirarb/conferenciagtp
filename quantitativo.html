@@ -161,6 +161,12 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
 .btop.q30{background:var(--laranja,#f47920);color:#fff}
 .q30ev{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 13px;border:1.5px solid var(--borda);border-radius:8px;background:#fff;margin-bottom:8px;cursor:pointer;font:inherit}
 .q30ev:hover{border-color:var(--laranja,#f47920)}.q30ev b{flex:1}.q30ev span{font-size:.78rem;color:var(--cinza)}
+.memq30{display:flex;gap:8px;margin:12px 0 8px;flex-wrap:wrap}.memq30 select{flex:1;min-width:0;padding:9px 10px;border:1.5px solid var(--borda);border-radius:7px;background:#fafcff;font-size:.9rem}
+.memq30 .btn{padding:8px 12px;font-size:.78rem}
+table.pecas{width:100%;border-collapse:collapse}table.pecas th{font-size:.66rem;text-transform:uppercase;color:var(--cinza);text-align:left;padding:4px 6px}
+table.pecas td{padding:3px 4px}table.pecas td.pn{width:26px;color:var(--cinza);font-size:.8rem;text-align:center}table.pecas td.pq{width:90px}table.pecas td.px{width:40px}
+table.pecas input{width:100%;padding:8px 9px;border:1.5px solid var(--borda);border-radius:6px;font-size:.92rem;background:#fafcff}
+table.pecas input:focus{outline:none;border-color:var(--laranja,#f47920)}
 .rodape{text-align:center;color:var(--cinza);font-size:.76rem;margin:18px 0 6px}
 </style>
 </head>
@@ -170,7 +176,6 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
     <h1>GRUPO TENDAS <b>PLENART</b></h1>
     <span class="tag">📐 QUANTIFICAÇÃO DE MATERIAL</span>
     <div class="dir">
-      <button class="btop q30" id="bQ30" type="button">🔺 TRELIÇA Q30</button>
       <button class="btop" id="bNova" type="button">🗒️ NOVA</button>
       <button class="btop" id="bAbrir" type="button">📂 ABRIR SALVAS</button>
       <button class="btop" id="bSalvar" type="button">💾 SALVAR</button>
@@ -213,7 +218,7 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
       </div>
     </div>
   </div>
-  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 C</div>
+  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 D</div>
 </div>
 
 <div class="modal hidden" id="modal"><div class="box">
@@ -222,6 +227,7 @@ table.mat tr.fora td{opacity:.45;text-decoration:line-through}
   <div class="mf" id="mPe"></div>
 </div></div>
 <div class="toast" id="toast"></div>
+<datalist id="q30sug"></datalist>
 
 <script>
 (function(){
@@ -533,6 +539,16 @@ function calcLista(v, grupo){
   return { area:0, materiais:m, info: tot ? fmt(tot)+' peça(s)' : '' };
 }
 
+/* ---------- TRELIÇA Q30 LIVRE (o antigo quantificador Q30, agora aqui dentro) ---------- */
+var PADRAO_Q30 = ["5CM","10CM","20CM","40CM","50CM","70CM","80CM","83CM","1M","1,5M","2M","3M","4M","5M","GRAU","GRAU DE MEIO","CUBO","CUMEEIRA RETA","CUMEEIRA ANGULADA","SLEEVE","SAPATA","TALHA","CINTA 9M","CINTA 12M","PAU DE CARGA"];
+function calcQ30Livre(v){
+  var m=[], rep=int(v.rep)||1, porEst=0;
+  (v.pecas||[]).forEach(function(i){ var n=up(i.n), q=num(i.q); if(n && q>0){ M(m,'Treliça Q30',n,q*rep); porEst+=q; } });
+  /* compatível com quantificações antigas (lista fixa) */
+  if(v.q){ for(var k in v.q){ if(v.q.hasOwnProperty(k) && num(v.q[k])>0){ M(m,'Treliça Q30',k,num(v.q[k])*rep); porEst+=num(v.q[k]); } } }
+  return { area:0, materiais:m, info: porEst ? fmt(porEst)+' peças por estrutura'+(rep>1?' × '+rep+' estruturas iguais = '+fmt(porEst*rep)+' peças':'') : '' };
+}
+
 /* ---------- ITEM AVULSO ---------- */
 function calcAvulso(v){
   var nome=String(v.nome||'').trim(), q=num(v.qtd), m=[];
@@ -799,7 +815,7 @@ var PERFIS = {
       return { area:0, materiais:m, info:'🔺 Do quantificador Q30 · '+(v.evento||'')+' · '+(v.area||'')+(rep>1?' ×'+rep:'')+' · '+fmt(tot)+' peças' };
     } },
   equip:{ campos:[{tipo:'lista', itens:LISTA_EQUIP}], calcular:function(v){ return calcLista(v,'Ferramentas'); } },
-  q30:{ campos:[{tipo:'lista', itens:LISTA_Q30}], calcular:function(v){ return calcLista(v,'Treliça Q30'); } },
+  q30:{ campos:[{tipo:'num', id:'rep', label:'Estruturas iguais (×)', valor:1},{tipo:'pecas'}], calcular:function(v){ return calcQ30Livre(v); } },
   q50:{ campos:[{tipo:'lista', itens:LISTA_Q50}], calcular:function(v){ return calcLista(v,'Treliça Q50'); } },
   diversos:{ campos:[{tipo:'lista', itens:LISTA_DIV, cabo:true}], calcular:function(v){ return calcLista(v,'Diversos'); } },
   avulso:{ campos:[
@@ -848,7 +864,7 @@ var CATALOGO = [
   {id:'galpao-c30', grupo:'Galpão TFS', nome:'Galpão TFS 30 m (aba curva)', perfil:'galpao_c30'},
   {id:'galpao-r30', grupo:'Galpão TFS', nome:'Galpão TFS 30 m (aba reta)', perfil:'galpao_r30'},
   {id:'galpao-r40', grupo:'Galpão TFS', nome:'Galpão TFS 40 m (aba reta)', perfil:'galpao_r40'},
-  {id:'truss-q30', grupo:'Treliça Box Truss', nome:'Treliça Q30 (lista de peças)', perfil:'q30'},
+  {id:'truss-q30', grupo:'Treliça Box Truss', nome:'🔺 Treliça Q30 (digitar as peças)', perfil:'q30'},
   {id:'truss-q50', grupo:'Treliça Box Truss', nome:'Treliça Q50 (lista de peças)', perfil:'q50'},
   {id:'truss-div', grupo:'Treliça Box Truss', nome:'Diversos (talha, cinta, cabo de aço…)', perfil:'diversos'},
   {id:'equip', grupo:'Outros', nome:'Equipamentos / Ferramentas (não vai p/ checklist)', perfil:'equip'},
@@ -876,6 +892,7 @@ function valsIniciais(perfil){
     else if(c.tipo==='check') v[c.id]=false;
     else if(c.tipo==='select') v[c.id]=c.opcoes[0].v;
     else if(c.tipo==='lista'){ v.q={}; if(c.cabo) v.cabo={metros:''}; }
+    else if(c.tipo==='pecas'){ v.pecas=[{n:'',q:''}]; }
     else v[c.id] = c.valor!==undefined ? c.valor : '';
   });
   return v;
@@ -907,6 +924,7 @@ function areaProd(p){
 function valido(p){
   var a=areaProd(p);
   if(a!==null) return a>0;
+  if(p.vals.pecas) return p.vals.pecas.some(function(i){ return String(i.n||'').trim() && num(i.q)>0; }) || (p.vals.q && Object.keys(p.vals.q).some(function(k){ return num(p.vals.q[k])>0; }));
   if(p.prodId==='q30import') return (p.vals.itens||[]).some(function(i){ return num(i.q)>0; });
   if(p.prodId==='avulso') return String(p.vals.nome||'').trim() && num(p.vals.qtd)>0;
   if(p.vals.q) { for(var k in p.vals.q) if(num(p.vals.q[k])>0) return true; return false; }
@@ -1023,6 +1041,30 @@ function listaHTML(p, c){
     }).join('')+'</div>'+
     (c.cabo ? '<div class="sub"><h5>Cabo de aço — metros de cada</h5><div class="fg" style="max-width:200px"><input type="number" inputmode="decimal" step="any" min="0" data-pid="'+p.pid+'" data-cabo="1" value="'+esc((p.vals.cabo||{}).metros||'')+'" placeholder="0"></div></div>' : '');
 }
+var memQ30 = [];   /* memórias de estrutura (compartilhadas na nuvem, tabela q30_memorias) */
+function linhaPeca(p, i, it){
+  var d=' data-pid="'+p.pid+'" data-peca="'+i+'"';
+  return '<tr><td class="pn">'+(i+1)+'</td>'+
+    '<td><input'+d+' data-k="n" list="q30sug" value="'+esc(it.n||'')+'" placeholder="'+(i===p.vals.pecas.length-1?'DIGITE A PEÇA…':'')+'" style="text-transform:uppercase"></td>'+
+    '<td class="pq"><input'+d+' data-k="q" type="number" inputmode="numeric" min="0" step="1" value="'+esc(it.q||'')+'" placeholder="0"></td>'+
+    '<td class="px"><button class="ib rem" type="button" title="Tirar a peça" data-acao="rem-peca" data-pid="'+p.pid+'" data-i="'+i+'">✕</button></td></tr>';
+}
+function pecasHTML(p){
+  var v=p.vals; if(!v.pecas || !v.pecas.length) v.pecas=[{n:'',q:''}];
+  var last=v.pecas[v.pecas.length-1]; if(String(last.n||'').trim()) v.pecas.push({n:'',q:''});
+  return '<div class="memq30"><select data-mem="'+p.pid+'" data-pid="'+p.pid+'"><option value="">📚 Usar uma memória de estrutura…</option>'+
+      memQ30.map(function(m,i){ return '<option value="'+i+'">'+esc(m.nome)+' ('+(m.itens||[]).reduce(function(t,x){ return t+(num(x.q)||0); },0)+' peças)</option>'; }).join('')+'</select>'+
+      '<button class="btn b-branco" type="button" data-acao="salva-mem" data-pid="'+p.pid+'">💾 Salvar como memória</button></div>'+
+    '<table class="pecas"><thead><tr><th>#</th><th>Peça</th><th>Qtd</th><th></th></tr></thead><tbody id="pc-'+p.pid+'">'+
+      v.pecas.map(function(it,i){ return linhaPeca(p,i,it); }).join('')+'</tbody></table>';
+}
+function sugestoesQ30(){
+  var dl=$('q30sug'); if(!dl) return; var vistos=PADRAO_Q30.slice();
+  function pega(n){ n=up(n); if(n && vistos.indexOf(n)<0) vistos.push(n); }
+  memQ30.forEach(function(m){ (m.itens||[]).forEach(function(i){ pega(i.n); }); });
+  st.ambientes.forEach(function(a){ a.produtos.forEach(function(p){ (p.vals.pecas||[]).forEach(function(i){ pega(i.n); }); }); });
+  dl.innerHTML=vistos.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('');
+}
 function produtoHTML(p){
   var cat=produtoCat(p.prodId), perf=perfilDe(p); if(!cat||!perf) return '';
   var cs=perf.campos;
@@ -1038,6 +1080,7 @@ function produtoHTML(p){
     corpo+=opcs.filter(function(c){ return c.tipo==='opcional'; }).map(function(c){ return subHTML(p,c); }).join('');
   }
   if(lista) corpo+=listaHTML(p, lista);
+  if(cs.some(function(c){ return c.tipo==='pecas'; })) corpo+=pecasHTML(p);
   corpo+='<div class="pinfo" id="pi-'+p.pid+'"></div>';
   return '<div class="prod" data-pid="'+p.pid+'">'+
     '<div class="prod-h" data-acao="tog-prod" data-pid="'+p.pid+'">'+
@@ -1049,6 +1092,7 @@ function produtoHTML(p){
     '<div class="prod-b"'+(p.fechado?' hidden':'')+'>'+corpo+'</div></div>';
 }
 function desenharAmbientes(){
+  setTimeout(sugestoesQ30,0);
   $('bdAmb').textContent = st.ambientes.length + ' ambiente' + (st.ambientes.length===1?'':'s');
   $('listaAmb').innerHTML = st.ambientes.map(function(a, i){
     return '<div class="amb" data-amb="'+a.id+'">'+
@@ -1091,6 +1135,24 @@ function campoMudou(t){
   var pid=t.dataset.pid; if(!pid) return;
   var P=achaProd(pid); if(!P) return;
   var v=P.p.vals;
+  if(t.dataset.peca!==undefined){
+    var i=+t.dataset.peca; v.pecas=v.pecas||[]; if(!v.pecas[i]) v.pecas[i]={n:'',q:''};
+    v.pecas[i][t.dataset.k] = t.dataset.k==='n' ? t.value.toUpperCase() : t.value;
+    if(i===v.pecas.length-1 && String(v.pecas[i].n||'').trim()){
+      v.pecas.push({n:'',q:''});
+      var tb=$('pc-'+pid); if(tb){ tb.insertAdjacentHTML('beforeend', linhaPeca(P.p, v.pecas.length-1, {n:'',q:''})); t.placeholder=''; }
+    }
+    mudou(); return;
+  }
+  if(t.dataset.mem!==undefined){
+    if(t.value==='') return;
+    var mm=memQ30[+t.value]; t.value=''; if(!mm) return;
+    var tem=(v.pecas||[]).some(function(x){ return String(x.n||'').trim() && num(x.q)>0; });
+    if(tem && !confirm('Trocar as peças deste item pela memória "'+mm.nome+'"?')) return;
+    v.pecas=(mm.itens||[]).map(function(x){ return {n:up(x.n), q:x.q}; });
+    if(!v.pecas.length || String(v.pecas[v.pecas.length-1].n).trim()) v.pecas.push({n:'',q:''});
+    desenharAmbientes(); mudou(); toast('📚 Memória "'+mm.nome+'" aplicada.','ok'); return;
+  }
   if(t.dataset.item!==undefined){ v.q=v.q||{}; v.q[t.dataset.item]=t.value; var li=t.closest('.li'); if(li) li.classList.toggle('tem', num(t.value)>0); }
   else if(t.dataset.cabo){ v.cabo=v.cabo||{}; v.cabo.metros=t.value; }
   else if(t.dataset.t==='check'){ v[t.dataset.c]=t.checked; t.parentNode.classList.toggle('on', t.checked); }
@@ -1118,6 +1180,21 @@ $('listaAmb').addEventListener('click', function(e){
     desenharAmbientes(); mudou();
     var novo=document.querySelector('.prod[data-pid="'+(st.seq-1)+'"] input, .prod[data-pid="'+(st.seq-1)+'"] select');
     if(novo) novo.focus();
+    return;
+  }
+  if(ac==='rem-peca'){ P=achaProd(b.dataset.pid); if(P){ P.p.vals.pecas.splice(+b.dataset.i,1); desenharAmbientes(); mudou(); } return; }
+  if(ac==='salva-mem'){
+    P=achaProd(b.dataset.pid); if(!P) return;
+    var its=(P.p.vals.pecas||[]).filter(function(x){ return String(x.n||'').trim() && num(x.q)>0; }).map(function(x){ return {n:up(x.n), q:num(x.q)}; });
+    if(!its.length) return toast('Digite as peças antes de salvar a memória.','erro');
+    var nm=prompt('Nome da memória (ex.: TORRE DE COMUNICAÇÃO, GRID 10x8):', P.a.nome||''); if(nm===null) return; nm=up(nm)||'MEMÓRIA';
+    var ja=memQ30.filter(function(m){ return up(m.nome)===nm; })[0];
+    var reg={ id: ja ? ja.id : idNovo(), nome:nm, itens:its };
+    if(ja){ ja.itens=its; } else memQ30.push(reg);
+    memQ30.sort(function(x,y){ return String(x.nome).localeCompare(String(y.nome)); });
+    desenharAmbientes();
+    if(nuvem) nuvem.from('q30_memorias').upsert(reg).then(function(r){ toast(r.error ? 'Memória salva só neste aparelho.' : '📚 Memória "'+nm+'" salva — aparece em todos os computadores.', r.error?'erro':'ok'); });
+    else toast('Memória salva neste aparelho.','ok');
     return;
   }
   if(ac==='rem-prod'){ e.stopPropagation(); P=achaProd(b.dataset.pid); if(P){ P.a.produtos.splice(P.j,1); desenharAmbientes(); mudou(); } return; }
@@ -1338,46 +1415,6 @@ function salvarNuvem(silencioso){
     return false;
   });
 }
-/* ---------- TRELIÇA Q30 junto da quantificação ---------- */
-var q30Cache = [];
-$('bQ30').addEventListener('click', function(){
-  abrirModal('🔺 Treliça Q30', '<a class="btn b-lar" href="quantificacao.html" target="_blank" style="display:flex;justify-content:center;text-decoration:none;margin-bottom:14px">🔺 ABRIR O QUANTIFICADOR Q30 (montar as áreas)</a>'+
-    '<p style="font-family:Montserrat;font-weight:800;font-size:.72rem;color:var(--cinza);margin:0 0 8px;letter-spacing:.4px">PUXAR UM EVENTO DO Q30 PARA ESTA QUANTIFICAÇÃO (cada área vira um ambiente):</p>'+
-    '<div id="q30Lista"><div class="msg info">Buscando os eventos do Q30…</div></div>',
-    '<button class="btn b-branco" type="button" id="mFechar">Fechar</button>');
-  $('mFechar').onclick=fecharModal;
-  if(!nuvem){ $('q30Lista').innerHTML='<div class="msg erro">Sem conexão com a nuvem.</div>'; return; }
-  nuvem.from('q30_eventos').select('id,nome,dados,atualizado_em,apagado').order('atualizado_em',{ascending:false}).limit(100).then(function(r){
-    if(r.error) throw r.error;
-    q30Cache = (r.data||[]).filter(function(x){ return !x.apagado && x.dados && (x.dados.areas||[]).length; });
-    if(!q30Cache.length){ $('q30Lista').innerHTML='<div class="msg info">Nenhum evento no Q30 ainda. Abra o quantificador, monte as áreas e volte aqui.</div>'; return; }
-    $('q30Lista').innerHTML = q30Cache.map(function(x,i){
-      var ar=x.dados.areas||[], pc=ar.reduce(function(t,a){ return t+(a.itens||[]).reduce(function(s2,it){ return s2+(num(it.q)||0); },0)*(a.rep||1); },0);
-      return '<button class="q30ev" type="button" data-q30="'+i+'"><b>'+esc(x.nome)+'</b><span>'+ar.length+' área(s) · '+fmt(pc)+' peças'+(x.dados.os?' · O.S. '+esc(x.dados.os):'')+'</span></button>';
-    }).join('');
-  }).catch(function(e){ console.error(e); $('q30Lista').innerHTML='<div class="msg erro">'+(/q30_eventos|does not exist|schema cache/i.test(String(e&&e.message))?'Falta rodar o <b>q30-eventos.sql</b> no Supabase.':'Não consegui buscar o Q30. Tente de novo.')+'</div>'; });
-});
-function puxarQ30(x){
-  var d=x.dados||{};
-  /* se já puxou este evento antes, troca (não duplica) */
-  st.ambientes.forEach(function(a){ a.produtos = a.produtos.filter(function(p){ return !(p.prodId==='q30import' && p.vals.q30id===x.id); }); });
-  st.ambientes = st.ambientes.filter(function(a){ return a.produtos.length || !a._q30; });
-  (d.areas||[]).forEach(function(a){
-    var nome=up(a.nome)||'ÁREA', rep=int(a.rep)||1;
-    var amb=st.ambientes.filter(function(z){ return z.nome===nome && z._q30===x.id; })[0];
-    if(!amb){
-      var vazio=st.ambientes.filter(function(z){ return !z.produtos.length; })[0];
-      if(vazio){ amb=vazio; amb.nome=nome; } else { amb=novoAmbiente(nome); st.ambientes.push(amb); }
-      amb._q30=x.id;
-    }
-    amb.produtos.push({ pid:st.seq++, prodId:'q30import', vals:{ q30id:x.id, evento:up(x.nome), area:nome, rep:rep, itens:(a.itens||[]).map(function(i){ return {n:i.n,q:i.q}; }) }, emb:{} });
-  });
-  if(!st.evento && x.nome){ st.evento=up(x.nome); if(d.os && !st.os) st.os=d.os; preencherMeta(); }
-  desenharAmbientes(); mudou(); fecharModal();
-  toast('🔺 '+(d.areas||[]).length+' área(s) do Q30 entraram como ambientes.','ok');
-}
-$('mCorpo').addEventListener('click', function(e){ var b=e.target.closest('[data-q30]'); if(b) puxarQ30(q30Cache[+b.dataset.q30]); });
-
 $('bSalvar').addEventListener('click', function(){
   if(!st.evento){ $('mEvento').focus(); return toast('Digite o nome do evento antes de salvar.','erro'); }
   salvarNuvem(false);
@@ -1558,8 +1595,11 @@ st.excluidos=st.excluidos||[]; st.envios=st.envios||[];
 if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
 preencherMeta();
 desenharAmbientes();
+if(nuvem) nuvem.from('q30_memorias').select('id,nome,itens').order('nome').then(function(r){
+  if(r.error || !r.data) return; memQ30=r.data; desenharAmbientes();
+}).catch(function(){});
 window.__quant = { st:function(){ return st; }, calc:calcularTudo, perfis:PERFIS, catalogo:CATALOGO, listaEnvio:listaEnvio, areasEnvio:areasEnvio,
-  puxarQ30:function(x){ puxarQ30(x); }, motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
+  motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
 })();
 </script>
 </body>
