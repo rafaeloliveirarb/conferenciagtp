@@ -2439,6 +2439,41 @@ function seletorUnidade(valor, indice, classe) {
    Nos cartões usa as conferências; na tela do evento entra também o %. */
 /* Agrupa os eventos finalizados por MÊS (mais recente primeiro).
    Usa a data do evento; sem ela, a data de encerramento. */
+/* 🗂️ HISTÓRICO: por padrão só o MÊS ATUAL (pela data do evento ou o fim da desmontagem).
+   Com busca ou período escolhido, mostra tudo que casar. */
+function mesDoEvento(ev) {
+  var d = String((ev && ev.data) || '').slice(0, 10);
+  var f = String((typeof fimDesmontagem === 'function' && fimDesmontagem(ev)) || '').slice(0, 10);
+  return (f > d ? f : d).slice(0, 7);
+}
+function mesAtualISO() {
+  var h = new Date();
+  return h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
+}
+function histDoMes(lista) {
+  var m = mesAtualISO();
+  return lista.filter(function (ev) { return mesDoEvento(ev) === m; });
+}
+/* devolve o HTML do histórico já cortado no mês + o botão de ver os anteriores */
+function histPorMes(lista, montarCartao, filtrando) {
+  if (filtrando) return porMes(lista, montarCartao);
+  var doMes = histDoMes(lista), antigos = lista.length - doMes.length;
+  if (window._histTodos) {
+    return '<button class="btn btn--branco btn--bloco js-hist-todos" style="margin-bottom:12px">⬆ MOSTRAR SÓ ESTE MÊS</button>' +
+      porMes(lista, montarCartao);
+  }
+  return (doMes.length ? porMes(doMes, montarCartao)
+      : '<div class="vazio"><p class="vazio__ico">🗂️</p><h3>Nenhum evento encerrado neste mês ainda.</h3></div>') +
+    (antigos ? '<button class="btn btn--branco btn--bloco js-hist-todos" style="margin-top:12px">🗂️ VER MESES ANTERIORES (' + antigos + ')</button>' : '');
+}
+document.addEventListener('click', function (e) {
+  var b = e.target && e.target.closest && e.target.closest('.js-hist-todos');
+  if (!b) return;
+  window._histTodos = !window._histTodos;
+  var aba = document.querySelector('.aba.is-ativa[data-aba="terminados"]');
+  if (aba) aba.click();
+});
+
 function porMes(eventos, montarCartao) {
   var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -3974,7 +4009,7 @@ function TelaPainel() {
     '<div class="abas">' +
       '<button class="aba is-ativa" data-aba="ativos">🚚 Carregamentos pendentes<span class="n">' + aguardando.length + '</span></button>' +
       '<button class="aba" data-aba="andamento">📍 Produtos em eventos<span class="n">' + andamento.length + '</span></button>' +
-      '<button class="aba" data-aba="terminados">🗂️ Histórico<span class="n">' + terminados.length + '</span></button>' +
+      '<button class="aba" data-aba="terminados">🗂️ Histórico<span class="n">' + histDoMes(terminados).length + '</span></button>' +
     '</div>' +
     '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 10px">' +
       '<input class="entrada" id="busca-eventos" placeholder="🔎 Buscar por evento, cliente, conferente, caminhão..." ' +
@@ -4145,7 +4180,7 @@ function TelaPainel() {
             '<p>Toque em <b>+ CRIAR EVENTO</b>: depois você escolhe o caminhão e anexa o checklist de cada carregamento.</p></div>';
       } else {
         caixa.innerHTML = aba === 'terminados'
-          ? porMes(lista, cartaoEvento)
+          ? histPorMes(lista, cartaoEvento, !!(buscaTexto || de || ate))
           : lista.map(cartaoEvento).join('');
         /* 🚦 eventos que ainda vão sair: o material fecha? (reserva do galpão) */
         if (aba !== 'terminados' && aba !== 'andamento') {
@@ -6441,7 +6476,7 @@ function TelaMeusEventos() {
       '<div class="abas">' +
         '<button class="aba is-ativa" data-aba="saida">🚚 Carregamentos pendentes<span class="n">' + emSaida.length + '</span></button>' +
         '<button class="aba" data-aba="retorno">📍 Produtos em eventos<span class="n">' + emRetorno.length + '</span></button>' +
-        '<button class="aba" data-aba="terminados">🗂️ Histórico<span class="n">' + terminados.length + '</span></button>' +
+        '<button class="aba" data-aba="terminados">🗂️ Histórico<span class="n">' + histDoMes(terminados).length + '</span></button>' +
       '</div>' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 10px">' +
         '<input class="entrada" id="busca-eventos" placeholder="🔎 Buscar por evento, cliente, caminhão..." ' +
@@ -6488,7 +6523,7 @@ function TelaMeusEventos() {
           return true;
         });
         hh = fins.length
-          ? porMes(fins, cartaoFinalizado)
+          ? histPorMes(fins, cartaoFinalizado, !!(buscaTexto || de || ate))
           : (buscaTexto || de || ate)
             ? '<div class="vazio"><p class="vazio__ico">🔎</p><h3>Nada encontrado</h3>' +
               '<p>Nenhum evento encerrado combina com a busca/período.</p></div>'
