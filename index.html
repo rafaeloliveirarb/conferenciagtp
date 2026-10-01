@@ -4648,6 +4648,7 @@ function TelaEstoque() {
                     : '') +
                 '</span></span>' +
               '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
+                '<button class="btn btn--branco btn--peq js-es-nome" data-id="' + i.id + '">✏️ Nome</button>' +
                 '<button class="btn btn--branco btn--peq js-es-ficha" data-id="' + i.id + '">⚙️ Ficha</button>' +
                 '<button class="btn btn--branco btn--peq js-es-mov" data-id="' + i.id + '">Movimentos</button>' +
                 '<button class="btn btn--branco btn--peq js-es-ajuste" data-id="' + i.id + '">Ajustar</button>' +
@@ -4970,6 +4971,57 @@ function TelaEstoque() {
               bt.disabled = false; bt.textContent = 'EXCLUIR';
               App.falhou(e);
             });
+          });
+        });
+      });
+
+      /* ✏️ renomear o material (o saldo e os movimentos ficam, porque são ligados pelo id) */
+      U.$$('.js-es-nome', tela).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var item = cadastro.filter(function (i) { return i.id === b.dataset.id; })[0];
+          if (!item) return;
+          var chVelha = Estoque.chave(item.nome);
+          var m = U.modal({
+            titulo: '✏️ Alterar nome do material',
+            html: '<label class="campo"><span class="campo__rot">Nome</span>' +
+                '<input class="entrada" id="rn-nome" value="' + U.esc(item.nome) + '" style="text-transform:uppercase"></label>' +
+              '<label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">' +
+                '<input type="checkbox" id="rn-checklists" checked style="width:20px;height:20px;flex:none;margin-top:2px">' +
+                '<span class="peq">Trocar o nome também nos <b>checklists dos eventos que ainda não terminaram</b> ' +
+                '(para continuarem ligados a este material). Eventos encerrados ficam com o nome antigo.</span></label>' +
+              '<p class="peq mut" style="margin-top:10px">O saldo, os movimentos, a família e a ficha continuam iguais.</p>',
+            pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR NOME</button>',
+            travado: true
+          });
+          var inp = m.querySelector('#rn-nome');
+          setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { } }, 50);
+          m.querySelector('[data-x]').addEventListener('click', m.fechar);
+          m.querySelector('[data-ok]').addEventListener('click', function () {
+            var novo = Estoque.chave(inp.value);
+            if (novo.length < 2) return U.aviso('Escreva o nome do material.', 'erro');
+            if (novo === item.nome) return m.fechar();
+            var outro = cadastro.filter(function (i) { return i.id !== item.id && Estoque.chave(i.nome) === novo; })[0];
+            if (outro) return U.aviso('Já existe um material com o nome "' + outro.nome + '".', 'erro', 6000);
+            var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+            var mexerChecklists = m.querySelector('#rn-checklists').checked;
+            Banco.atualizarEstoque(item.id, { nome: novo }).then(function () {
+              if (!mexerChecklists || novo === chVelha) return 0;
+              var abertos = {};
+              (App.eventos || []).forEach(function (ev) { if (ev.status !== 'Finalizado' && ev.status !== 'Com divergência') abertos[ev.id] = true; });
+              var ids = Object.keys(abertos);
+              if (!ids.length) return 0;
+              return Banco.cliente.from('produtos').select('id,nome,evento_id').in('evento_id', ids).then(function (r) {
+                if (r.error) throw r.error;
+                var alvo = (r.data || []).filter(function (p) { return Estoque.chave(p.nome) === chVelha; });
+                return Promise.all(alvo.map(function (p) { return Banco.atualizarProduto(p.id, { nome: novo }); }))
+                  .then(function () { return alvo.length; });
+              });
+            }).then(function (n) {
+              m.fechar();
+              if (typeof Material !== 'undefined') Material._cache = null;
+              U.aviso('✏️ ' + item.nome + ' → ' + novo + (n ? ' (trocado em ' + n + ' checklist' + (n > 1 ? 's' : '') + ')' : '') + '.', 'ok', 6000);
+              App.recarregar();
+            }).catch(function (e) { bt.disabled = false; bt.textContent = 'SALVAR NOME'; App.falhou(e); });
           });
         });
       });
