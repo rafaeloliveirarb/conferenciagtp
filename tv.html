@@ -171,8 +171,8 @@
   }
   var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
 
-  /* tempos do rodízio: 10 s cada tela, depois as 4 juntas por 1 min */
-  var TEMPO_SOLO = (window.TV_TEMPOS && window.TV_TEMPOS.solo) || 10000;
+  /* tempos do rodízio: 3 s cada tela, depois as 4 juntas por 1 min */
+  var TEMPO_SOLO = (window.TV_TEMPOS && window.TV_TEMPOS.solo) || 3000;
   var TEMPO_GRADE = (window.TV_TEMPOS && window.TV_TEMPOS.grade) || 60000;
   var DIAS_FRENTE = 4;   /* hoje + 4 dias */
 
