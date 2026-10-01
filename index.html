@@ -12430,6 +12430,41 @@ var Patio = {
     return String(ev.data || '').slice(0, 10);
   },
 
+  /* ---------- funções da equipe ---------- */
+  FUNCOES: ['ENCARREGADO', 'CONFERENTE', 'EMPILHADOR', 'AJUDANTE'],
+  ICO_FUNCAO: { ENCARREGADO: '👷', CONFERENTE: '📋', EMPILHADOR: '🏗️', AJUDANTE: '💪' },
+  FUNCAO_PADRAO: {
+    'BEATRIZ ROSA': 'ENCARREGADO', 'GUILHERME MENDES': 'ENCARREGADO', 'JONAS CLEMENTINO': 'ENCARREGADO',
+    'MAYCON SOARES': 'ENCARREGADO', 'PATRICIA COELHO': 'ENCARREGADO', 'CLEIVISSON BATISTA': 'ENCARREGADO',
+    'THIAGO TARDIM': 'CONFERENTE', 'CLAUDINEY COELHO': 'CONFERENTE',
+    'ZAQUEU RIBEIRO': 'EMPILHADOR', 'GUILHERME CARVALHO': 'EMPILHADOR'
+  },
+  /* fora da equipe do pátio (não aparecem nas listas) */
+  FORA: ['RODRIGO TARDIM', 'RODRIGO TARDIN', 'MICHAEL JOHN', 'MICHAEL JOHN AMARO'],
+  _semAcento: function (t) { return String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); },
+  funcaoDe: function (c) {
+    var f = Patio._semAcento(c && c.funcao);
+    if (Patio.FUNCOES.indexOf(f) >= 0) return f;
+    var n = Patio._semAcento(c && c.nome);
+    if (Patio.FUNCAO_PADRAO[n]) return Patio.FUNCAO_PADRAO[n];
+    /* nome com sobrenome a mais (ex.: MAYCON SOARES DA SILVA): casa pelo começo */
+    var k = Object.keys(Patio.FUNCAO_PADRAO).filter(function (x) { return n.indexOf(x + ' ') === 0; })[0];
+    return k ? Patio.FUNCAO_PADRAO[k] : 'AJUDANTE';
+  },
+  foraDaEquipe: function (c) {
+    var n = Patio._semAcento(c && c.nome);
+    return Patio.FORA.some(function (x) { return n === x || n.indexOf(x + ' ') === 0; });
+  },
+  /* lista separada por função, com um título para cada grupo */
+  porFuncao: function (lista, linha) {
+    return Patio.FUNCOES.map(function (f) {
+      var g = lista.filter(function (c) { return Patio.funcaoDe(c) === f; });
+      if (!g.length) return '';
+      return '<p style="margin:12px 0 2px;padding:5px 10px;border-radius:8px;background:var(--azul);color:#fff;font-weight:900;font-size:13px;letter-spacing:.4px">' +
+        Patio.ICO_FUNCAO[f] + ' ' + f + ' <span style="opacity:.75;font-weight:700">(' + g.length + ')</span></p>' + g.map(linha).join('');
+    }).join('');
+  },
+
   /* ---------- banco ---------- */
   lista: function (q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); },
   colaboradores: function () {
@@ -12448,7 +12483,23 @@ var Patio = {
     }
     return passo(0);
   },
-  demandas: function () { return Patio.lista(Banco.cliente.from('patio_demanda').select('*')); },
+  demandas: function () {
+    return Patio.lista(Banco.cliente.from('patio_demanda').select('*')).then(function (l) { return l.map(Patio.abrirPacote); });
+  },
+  /* sem as colunas novas no banco, o manual vai guardado dentro do "obs" */
+  PACOTE: '§MANUAL§',
+  abrirPacote: function (d) {
+    if (d && typeof d.obs === 'string' && d.obs.indexOf(Patio.PACOTE) === 0) {
+      try {
+        var x = JSON.parse(d.obs.slice(Patio.PACOTE.length));
+        d.titulo = d.titulo || x.titulo || ''; d.local = d.local || x.local || null;
+        d.caminhao = d.caminhao || x.caminhao || null;
+        d.feito = d.feito === true || d.feito === false ? (d.feito || !!x.feito) : !!x.feito;
+        d.obs = x.obs || null;
+      } catch (e) { }
+    }
+    return d;
+  },
   /* 📝 tarefas: as do período + as ANTIGAS que ainda não foram feitas */
   tarefas: function (de, ate) {
     return Promise.all([
@@ -12549,7 +12600,19 @@ var Patio = {
   gravarDemanda: function (d) {
     d.atualizado_em = new Date().toISOString();
     d.atualizado_por = Sessao.atual ? Sessao.atual.nome : null;
-    return Banco.cliente.from('patio_demanda').upsert(d).then(function (r) { if (r.error) throw r.error; });
+    return Banco.cliente.from('patio_demanda').upsert(d).then(function (r) {
+      if (!r.error) return;
+      var msg = String(r.error.message || '') + ' ' + String(r.error.details || '');
+      var faltaColuna = /titulo|local|caminhao|feito|column|schema cache/i.test(msg);
+      if (!faltaColuna) throw r.error;
+      /* banco sem o patio-manual.sql: grava assim mesmo, com os campos dentro do obs */
+      var base = {};
+      ['chave', 'evento_id', 'tipo', 'data', 'colaboradores', 'atualizado_em', 'atualizado_por'].forEach(function (k) { if (d[k] !== undefined) base[k] = d[k]; });
+      base.obs = d.evento_id === 'MANUAL'
+        ? Patio.PACOTE + JSON.stringify({ titulo: d.titulo || '', local: d.local || null, caminhao: d.caminhao || null, feito: !!d.feito, obs: d.obs || null })
+        : (d.obs || null);
+      return Banco.cliente.from('patio_demanda').upsert(base).then(function (r2) { if (r2.error) throw r2.error; });
+    });
   },
 
   /* ---------- importar a PLANILHA_CONTROLE_PÁTIO.xlsx ---------- */
@@ -12766,7 +12829,10 @@ function TelaPatio() {
       tarefasOk = r[6] !== null; tarefas = r[6] || [];
       horasOk = r[7] !== null; horas = r[7] || [];
       modelos = (r[8] || []).filter(function (m) { return m.repete && (m.repete.dias || []).length; });
-      ativos = colabs.filter(function (c) { return c.ativo !== false; });
+      ativos = colabs.filter(function (c) { return c.ativo !== false && !Patio.foraDaEquipe(c); })
+        .sort(function (a, b) {
+          return Patio.FUNCOES.indexOf(Patio.funcaoDe(a)) - Patio.FUNCOES.indexOf(Patio.funcaoDe(b)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
+        });
       desenhar();
     }).catch(function (e) {
       console.error(e);
@@ -12917,7 +12983,7 @@ function TelaPatio() {
         var stDia = {};
         pd.forEach(function (x) { stDia[x.colaborador_id] = x.status; });
         var carga = cargaSemana(dia);
-        caixa.innerHTML = ativos.map(function (c) {
+        caixa.innerHTML = Patio.porFuncao(ativos, function (c) {
           var st = stDia[c.id] || '';
           var bloq = st && !Patio.livre(st);
           return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
@@ -12925,7 +12991,7 @@ function TelaPatio() {
             '<input type="checkbox" class="js-tf-c" value="' + c.id + '" style="width:20px;height:20px"' +
               (sel[c.id] && !bloq ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
             '<b class="peq" style="flex:1">' + U.esc(c.nome) + '</b>' + chipCarga(carga, c.id) + chipStatus(st) + '</label>';
-        }).join('') || '<p class="peq mut">Nenhum colaborador ativo.</p>';
+        }) || '<p class="peq mut">Nenhum colaborador ativo.</p>';
         U.$$('.js-tf-c', caixa).forEach(function (cb) { cb.addEventListener('change', function () { sel[cb.value] = cb.checked; }); });
       }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
     }
@@ -13221,7 +13287,7 @@ function TelaPatio() {
     h += '<h2 class="secao__tit" style="margin-top:22px">👥 Presença do dia <span class="n">' + ativos.length + '</span></h2>' +
       '<div class="cartao"><div class="cartao__corpo">' +
       (semMarc ? '<button class="btn btn--verde btn--bloco btn--peq" id="pt-todos" style="margin-bottom:10px">✔ MARCAR OS ' + semMarc + ' SEM MARCAÇÃO COMO TRABALHOU</button>' : '') +
-      (ativos.length ? ativos.map(function (c) {
+      (ativos.length ? Patio.porFuncao(ativos, function (c) {
         var st = statusDe(dia, c.id);
         return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--linha)">' +
           '<span style="flex:1;min-width:170px"><b class="peq">' + U.esc(c.nome) + '</b>' +
@@ -13231,7 +13297,7 @@ function TelaPatio() {
             '<option value="">— sem marcação —</option>' +
             Patio.STATUS.map(function (s) { return '<option value="' + s.k + '"' + (s.k === st ? ' selected' : '') + '>' + s.k + '</option>'; }).join('') +
           '</select></div>';
-      }).join('') : '<p class="peq mut">Nenhum colaborador cadastrado. Vá em 👥 Colaboradores e importe a planilha.</p>') +
+      }) : '<p class="peq mut">Nenhum colaborador cadastrado. Vá em 👥 Colaboradores e importe a planilha.</p>') +
       '</div></div>';
     return h;
   }
@@ -13449,7 +13515,10 @@ function TelaPatio() {
       '<div class="cartao"><div class="cartao__corpo">' +
       (colabs.length ? colabs.map(function (c) {
         return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha)">' +
-          '<span style="flex:1;font-weight:700' + (c.ativo === false ? ';color:var(--txt-3);text-decoration:line-through' : '') + '">' + U.esc(c.nome) + '</span>' +
+          '<span style="flex:1;font-weight:700' + (c.ativo === false || Patio.foraDaEquipe(c) ? ';color:var(--txt-3);text-decoration:line-through' : '') + '">' + U.esc(c.nome) +
+            (Patio.foraDaEquipe(c) ? ' <span class="peq mut" style="text-decoration:none">(fora da equipe)</span>' : '') + '</span>' +
+          (c.ativo !== false && !Patio.foraDaEquipe(c) ? '<select class="entrada js-pc-funcao" data-id="' + c.id + '" style="width:150px;min-height:36px;padding:4px 8px;font-weight:700">' +
+            Patio.FUNCOES.map(function (f) { return '<option value="' + f + '"' + (Patio.funcaoDe(c) === f ? ' selected' : '') + '>' + Patio.ICO_FUNCAO[f] + ' ' + f + '</option>'; }).join('') + '</select>' : '') +
           (c.ativo !== false ? '<button class="btn btn--branco btn--peq js-pc-regra" data-id="' + c.id + '">📅 ' +
             (c.regra_folga && c.regra_folga.tipo ? '<b style="color:var(--azul)">' + U.esc(Patio.rotRegra(c.regra_folga).toUpperCase()) + '</b>' : 'FOLGA AUTOMÁTICA') + '</button>' : '') +
           '<button class="btn btn--branco btn--peq js-pc-ativo" data-id="' + c.id + '" data-ativo="' + (c.ativo === false ? '0' : '1') + '">' +
@@ -13501,7 +13570,7 @@ function TelaPatio() {
           (d.colaboradores || []).forEach(function (id) { (outros[id] = outros[id] || []).push(ev2.nome); });
         });
         var carga = cargaSemana(dia);
-        caixa.innerHTML = ativos.map(function (c) {
+        caixa.innerHTML = Patio.porFuncao(ativos, function (c) {
           var st = stDia[c.id] || '';
           var bloq = st && !Patio.livre(st);
           return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
@@ -13511,7 +13580,7 @@ function TelaPatio() {
             '<span style="flex:1"><b class="peq">' + U.esc(c.nome) + '</b>' +
               (outros[c.id] ? '<span class="peq" style="display:block;color:var(--laranja)">já em: ' + outros[c.id].map(U.esc).join(', ') + '</span>' : '') +
             '</span>' + chipCarga(carga, c.id) + chipStatus(st) + '</label>';
-        }).join('') || '<p class="peq mut">Nenhum colaborador ativo. Cadastre em 👥 Colaboradores.</p>';
+        }) || '<p class="peq mut">Nenhum colaborador ativo. Cadastre em 👥 Colaboradores.</p>';
         U.$$('.js-eq', caixa).forEach(function (cb) {
           cb.addEventListener('change', function () { sel[cb.value] = cb.checked; });
         });
@@ -13564,11 +13633,11 @@ function TelaPatio() {
           '<input class="entrada" id="hx-motivo" list="hx-mot" placeholder="Ex.: carregamento OKTOBERFEST atrasou"></label>' +
         '<datalist id="hx-mot">' + motivos.map(function (x) { return '<option value="' + U.esc(x) + '">'; }).join('') + '</datalist>' +
         '<p class="peq mut" style="margin:12px 0 4px">Quem fez a hora extra:</p>' +
-        '<div>' + ativos.map(function (c) {
+        '<div>' + Patio.porFuncao(ativos, function (c) {
           return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
             '<input type="checkbox" class="js-hx-c" value="' + c.id + '" style="width:20px;height:20px"> <b class="peq" style="flex:1">' + U.esc(c.nome) + '</b>' +
             (pre[c.id] ? '<span class="peq mut">escalado hoje</span>' : '') + '</label>';
-        }).join('') + '</div>',
+        }) + '</div>',
       pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>LANÇAR</button>',
       travado: true
     });
@@ -13946,7 +14015,7 @@ function TelaPatio() {
   function falhaManual(e) {
     var msg = String((e && (e.message || e.details)) || '');
     if (/titulo|local|caminhao|feito|column|coluna/i.test(msg)) {
-      U.aviso('Falta rodar o patio-manual.sql no Supabase (cria os campos do carregamento manual).', 'erro', 9000);
+      U.aviso('Não consegui salvar: ' + msg, 'erro', 9000);
     } else App.falhou(e);
   }
   function editarManual(d, tipoNovo) {
@@ -14000,7 +14069,7 @@ function TelaPatio() {
           var i = ja[id].indexOf(eu); if (i >= 0) ja[id].splice(i, 1);
           if (!ja[id].length) delete ja[id];
         });
-        caixa.innerHTML = ativos.map(function (c) {
+        caixa.innerHTML = Patio.porFuncao(ativos, function (c) {
           var st = stDia[c.id] || '';
           var bloq = st && !Patio.livre(st);
           return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);' +
@@ -14010,7 +14079,7 @@ function TelaPatio() {
             '<span style="flex:1"><b class="peq">' + U.esc(c.nome) + '</b>' +
               (ja[c.id] ? '<span class="peq" style="display:block;color:var(--laranja)">já em: ' + ja[c.id].map(U.esc).join(', ') + '</span>' : '') +
             '</span>' + chipCarga(carga, c.id) + chipStatus(st) + '</label>';
-        }).join('') || '<p class="peq mut">Nenhum colaborador ativo.</p>';
+        }) || '<p class="peq mut">Nenhum colaborador ativo.</p>';
         U.$$('.js-mn-c', caixa).forEach(function (cb) { cb.addEventListener('change', function () { sel[cb.value] = cb.checked; }); });
       }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
     }
@@ -14409,6 +14478,21 @@ function TelaPatio() {
         b.addEventListener('click', function () {
           var c = colabs.filter(function (x) { return x.id === b.dataset.id; })[0];
           if (c) editarRegra(c);
+        });
+      });
+      U.$$('.js-pc-funcao', tela).forEach(function (sl) {
+        sl.addEventListener('change', function () {
+          var c = colabs.filter(function (x) { return x.id === sl.dataset.id; })[0];
+          sl.disabled = true;
+          Banco.cliente.from('patio_colaboradores').update({ funcao: sl.value }).eq('id', sl.dataset.id).then(function (r) {
+            sl.disabled = false;
+            if (r.error) return U.aviso(r.error.message, 'erro', 7000);
+            if (c) c.funcao = sl.value;
+            ativos.sort(function (a, b) {
+              return Patio.FUNCOES.indexOf(Patio.funcaoDe(a)) - Patio.FUNCOES.indexOf(Patio.funcaoDe(b)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
+            });
+            U.aviso((c ? c.nome : 'Colaborador') + ' agora é ' + sl.value + '.', 'ok', 3000);
+          });
         });
       });
       U.$$('.js-pc-ativo', tela).forEach(function (b) {
