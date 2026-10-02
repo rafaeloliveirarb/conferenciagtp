@@ -171,8 +171,21 @@
   }
   var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
 
-  /* tempos do rodízio: 3 s cada tela, depois as 4 juntas por 1 min */
-  var TEMPO_SOLO = (window.TV_TEMPOS && window.TV_TEMPOS.solo) || 3000;
+  /* manual gravado sem o patio-manual.sql: os campos vêm dentro do "obs" */
+  function abrirPacote(d) {
+    var P = "\u00A7MANUAL\u00A7";
+    if (d && typeof d.obs === "string" && d.obs.indexOf(P) === 0) {
+      try {
+        var x = JSON.parse(d.obs.slice(P.length));
+        d.titulo = d.titulo || x.titulo || ""; d.local = d.local || x.local || null;
+        d.caminhao = d.caminhao || x.caminhao || null;
+        d.feito = !!(d.feito || x.feito); d.obs = x.obs || null;
+      } catch (e) { }
+    }
+    return d;
+  }
+  /* tempos do rodízio: 5 s cada tela, depois as 4 juntas por 1 min */
+  var TEMPO_SOLO = (window.TV_TEMPOS && window.TV_TEMPOS.solo) || 5000;
   var TEMPO_GRADE = (window.TV_TEMPOS && window.TV_TEMPOS.grade) || 60000;
   var DIAS_FRENTE = 4;   /* hoje + 4 dias */
 
@@ -230,7 +243,7 @@
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
       lista(cli.from("patio_presenca").select("data,colaborador_id,status,obs")
         .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
-      lista(cli.from("patio_demanda").select("*")).catch(function () { return []; }),
+      lista(cli.from("patio_demanda").select("*")).then(function (l) { return l.map(abrirPacote); }).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
         .gte("data", hojeISO(-30)).lte("data", hojeISO(7))).catch(function () { return []; }),
       presencaMes().catch(function () { return []; })
