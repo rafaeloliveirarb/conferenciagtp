@@ -265,6 +265,7 @@
     var hoje = hojeISO(0);
     var nomeColab = {};
     D.colabs.forEach(function (c) { nomeColab[c.id] = c.nome; });
+    function nomeDe(id) { return nomeColab[id] || (String(id).indexOf("ext:") === 0 ? String(id).slice(4) + " 🌐" : null); }
     var evPorId = {};
     D.eventos.forEach(function (e) { evPorId[e.id] = e; });
     function aberto(e) { return e.status !== "Finalizado" && e.status !== "Com divergência"; }
@@ -296,7 +297,7 @@
       return D.dems.filter(function (x) { return x.evento_id === "MANUAL" && x.tipo === tipo && String(x.data || "").slice(0, 10) === dia; });
     }
     function cardManual(x, tipo, n) {
-      var eq = (x.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+      var eq = (x.colaboradores || []).map(nomeDe).filter(Boolean);
       if (!x.feito && !eq.length && n <= 1) avisos.push((n === 0 ? "HOJE" : "AMANHÃ") + ": " + tipo + " " + (x.titulo || "manual") + " SEM EQUIPE");
       return '<div class="card' + (x.feito ? " feita" : !eq.length ? " ruim" : "") + '">' +
         '<b class="tit">' + (x.feito ? "✓ " : "") + esc(x.titulo || "(sem nome)") + "</b>" +
@@ -414,7 +415,7 @@
     var tAtras = D.tarefas.filter(function (t) { return !t.feita && String(t.data).slice(0, 10) < hoje; })
       .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
     function cardTarefa(t, atrasada) {
-      var quem = (t.colaboradores || []).map(function (id) { return nomeColab[id]; }).filter(Boolean);
+      var quem = (t.colaboradores || []).map(nomeDe).filter(Boolean);
       return '<div class="card' + (t.feita ? " feita" : (t.urgente || atrasada) ? " ruim" : "") + '">' +
         '<b class="tit">' + (t.feita ? "✓ " : t.urgente ? "🔴 " : "") + esc(t.titulo) + "</b>" +
         (atrasada ? '<span class="chip ruim">ATRASADA · era para ' + fmtData(t.data) + "</span>" : "") +

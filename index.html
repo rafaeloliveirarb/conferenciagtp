@@ -12526,6 +12526,17 @@ var Patio = {
     'THIAGO TARDIM': 'CONFERENTE', 'CLAUDINEY COELHO': 'CONFERENTE',
     'ZAQUEU RIBEIRO': 'EMPILHADOR', 'GUILHERME CARVALHO': 'EMPILHADOR'
   },
+  /* 🌐 equipes externas (montadores de fora) — só para TAREFAS */
+  EXTERNA: [
+    { lider: 'JARDEL', equipe: ['ROBSON', 'JOÃO PEDRO', 'YAGO', 'WAGNER'] },
+    { lider: 'JAILSON', equipe: ['RAFAEL', 'RAMON', 'WEVERTON', 'JOÃO VICTOR'] },
+    { lider: 'LEO FREITAS', equipe: ['LORRAN', 'EVALDO', 'ALEXANDRE', 'CARLOS'] },
+    { lider: 'GEOVANESSON', equipe: ['ESTEVÃO', 'EMANUEL', 'JOSIEL', 'JOCIVALDO'] }
+  ],
+  extId: function (nome) { return 'ext:' + nome; },
+  ehExt: function (id) { return String(id || '').indexOf('ext:') === 0; },
+  nomeExt: function (id) { return String(id).slice(4); },
+
   /* fora da equipe do pátio (não aparecem nas listas) */
   FORA: ['RODRIGO TARDIM', 'RODRIGO TARDIN', 'MICHAEL JOHN', 'MICHAEL JOHN AMARO'],
   _semAcento: function (t) { return String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); },
@@ -12937,6 +12948,7 @@ function TelaPatio() {
     return p ? p.status : '';
   }
   function nomeColab(id) {
+    if (Patio.ehExt(id)) return Patio.nomeExt(id);
     var c = colabs.filter(function (x) { return x.id === id; })[0];
     return c ? c.nome : '?';
   }
@@ -13079,7 +13091,32 @@ function TelaPatio() {
               (sel[c.id] && !bloq ? ' checked' : '') + (bloq ? ' disabled' : '') + '>' +
             '<b class="peq" style="flex:1">' + U.esc(c.nome) + '</b>' + chipCarga(carga, c.id) + chipStatus(st) + '</label>';
         }) || '<p class="peq mut">Nenhum colaborador ativo.</p>';
+        /* 🌐 equipes externas: sem escala/folga — é só marcar */
+        caixa.innerHTML += '<p style="margin:16px 0 2px;padding:5px 10px;border-radius:8px;background:#5B3A99;color:#fff;font-weight:900;font-size:13px;letter-spacing:.4px">🌐 EQUIPE EXTERNA</p>' +
+          Patio.EXTERNA.map(function (tm, ti) {
+            var todos = [tm.lider].concat(tm.equipe);
+            return '<div style="border:1px solid var(--linha);border-radius:10px;padding:4px 12px;margin-top:8px">' +
+              '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
+                '<input type="checkbox" class="js-tf-time" data-time="' + ti + '" style="width:20px;height:20px"' +
+                  (todos.every(function (n) { return sel[Patio.extId(n)]; }) ? ' checked' : '') + '>' +
+                '<b class="peq" style="flex:1;color:#5B3A99">EQUIPE ' + U.esc(tm.lider) + ' <span class="mut" style="font-weight:600">(marcar todos os ' + todos.length + ')</span></b></label>' +
+              todos.map(function (n, k) {
+                return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;' + (k < todos.length - 1 ? 'border-bottom:1px solid var(--linha);' : '') + 'cursor:pointer">' +
+                  '<input type="checkbox" class="js-tf-c js-tf-ext" data-time="' + ti + '" value="' + U.esc(Patio.extId(n)) + '" style="width:20px;height:20px"' + (sel[Patio.extId(n)] ? ' checked' : '') + '>' +
+                  '<b class="peq" style="flex:1">' + U.esc(n) + '</b>' +
+                  (k === 0 ? '<span class="terc-tag" style="background:#EFE7FB;border-color:#5B3A99;color:#5B3A99;font-weight:800">LÍDER</span>' : '') +
+                '</label>';
+              }).join('') +
+            '</div>';
+          }).join('');
         U.$$('.js-tf-c', caixa).forEach(function (cb) { cb.addEventListener('change', function () { sel[cb.value] = cb.checked; }); });
+        U.$$('.js-tf-time', caixa).forEach(function (cb) {
+          cb.addEventListener('change', function () {
+            U.$$('.js-tf-ext[data-time="' + cb.dataset.time + '"]', caixa).forEach(function (x) {
+              x.checked = cb.checked; sel[x.value] = cb.checked;
+            });
+          });
+        });
       }).catch(function (e) { caixa.innerHTML = '<p class="peq" style="color:var(--vermelho)">' + U.esc(e.message || 'Erro') + '</p>'; });
     }
     montar();
