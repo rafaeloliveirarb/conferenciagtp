@@ -438,30 +438,8 @@
     $("c-tarefa").innerHTML = hTar || '<div class="vazio">Nenhuma tarefa passada para a equipe.</div>';
     $("n-tarefa").textContent = totHoje ? feitasHoje + "/" + totHoje + " hoje" : (tAtras.length ? tAtras.length + " atrasada(s)" : "0");
 
-    /* ---- gente em dois lugares no mesmo dia ---- */
-    for (var q = 0; q <= DIAS_FRENTE; q++) {
-      var dq = hojeISO(q), onde = {};
-      D.dems.forEach(function (dm2) {
-        var e2 = evPorId[dm2.evento_id];
-        if (!e2 || !aberto(e2)) return;
-        if (dataDem(e2, dm2.tipo) !== dq) return;
-        (dm2.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(e2.nome); });
-      });
-      D.dems.forEach(function (x) {
-        if (x.evento_id !== "MANUAL" || x.feito || String(x.data || "").slice(0, 10) !== dq) return;
-        (x.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(x.titulo); });
-      });
-      D.tarefas.forEach(function (t) {
-        if (t.feita || String(t.data).slice(0, 10) !== dq) return;
-        (t.colaboradores || []).forEach(function (id) { (onde[id] = onde[id] || []).push(t.titulo); });
-      });
-      Object.keys(onde).forEach(function (id) {
-        if (onde[id].length > 1 && nomeColab[id]) {
-          avisos.push("⚠ " + rotDia(dq, q) + ": " + nomeColab[id] + " em " + onde[id].length + " lugares");
-        }
-      });
-    }
-
+    /* (o aviso "fulano em 2 lugares" saiu: o pessoal descarrega um caminhão de cada vez,
+       então estar em várias cargas/descargas/tarefas no mesmo dia é normal) */
     /* ---- 📊 RESULTADO DA EQUIPE ---- */
     (function () {
       var c = { T: 0, AUS: 0 }, porColab = {};
