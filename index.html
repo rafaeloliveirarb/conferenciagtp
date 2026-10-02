@@ -12531,7 +12531,8 @@ var Patio = {
     { lider: 'JARDEL', equipe: ['ROBSON', 'JOÃO PEDRO', 'YAGO', 'WAGNER'] },
     { lider: 'JAILSON', equipe: ['RAFAEL', 'RAMON', 'WEVERTON', 'JOÃO VICTOR'] },
     { lider: 'LEO FREITAS', equipe: ['LORRAN', 'EVALDO', 'ALEXANDRE', 'CARLOS'] },
-    { lider: 'GEOVANESSON', equipe: ['ESTEVÃO', 'EMANUEL', 'JOSIEL', 'JOCIVALDO'] }
+    { lider: 'GEOVANESSON', equipe: ['ESTEVÃO', 'EMANUEL', 'JOSIEL', 'JOCIVALDO'] },
+    { lider: 'PEDRO HENRIQUE', equipe: [], volante: true }
   ],
   extId: function (nome) { return 'ext:' + nome; },
   ehExt: function (id) { return String(id || '').indexOf('ext:') === 0; },
@@ -13096,15 +13097,18 @@ function TelaPatio() {
           Patio.EXTERNA.map(function (tm, ti) {
             var todos = [tm.lider].concat(tm.equipe);
             return '<div style="border:1px solid var(--linha);border-radius:10px;padding:4px 12px;margin-top:8px">' +
-              '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
-                '<input type="checkbox" class="js-tf-time" data-time="' + ti + '" style="width:20px;height:20px"' +
-                  (todos.every(function (n) { return sel[Patio.extId(n)]; }) ? ' checked' : '') + '>' +
-                '<b class="peq" style="flex:1;color:#5B3A99">EQUIPE ' + U.esc(tm.lider) + ' <span class="mut" style="font-weight:600">(marcar todos os ' + todos.length + ')</span></b></label>' +
+              (todos.length > 1
+                ? '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--linha);cursor:pointer">' +
+                  '<input type="checkbox" class="js-tf-time" data-time="' + ti + '" style="width:20px;height:20px"' +
+                    (todos.every(function (n) { return sel[Patio.extId(n)]; }) ? ' checked' : '') + '>' +
+                  '<b class="peq" style="flex:1;color:#5B3A99">EQUIPE ' + U.esc(tm.lider) + ' <span class="mut" style="font-weight:600">(marcar todos os ' + todos.length + ')</span></b></label>'
+                : '') +
               todos.map(function (n, k) {
                 return '<label style="display:flex;gap:10px;align-items:center;padding:7px 0;' + (k < todos.length - 1 ? 'border-bottom:1px solid var(--linha);' : '') + 'cursor:pointer">' +
                   '<input type="checkbox" class="js-tf-c js-tf-ext" data-time="' + ti + '" value="' + U.esc(Patio.extId(n)) + '" style="width:20px;height:20px"' + (sel[Patio.extId(n)] ? ' checked' : '') + '>' +
                   '<b class="peq" style="flex:1">' + U.esc(n) + '</b>' +
-                  (k === 0 ? '<span class="terc-tag" style="background:#EFE7FB;border-color:#5B3A99;color:#5B3A99;font-weight:800">LÍDER</span>' : '') +
+                  (tm.volante ? '<span class="terc-tag" style="background:#FFF3E0;border-color:#F57C00;color:#D96A00;font-weight:800">🔄 VOLANTE</span>'
+                    : k === 0 ? '<span class="terc-tag" style="background:#EFE7FB;border-color:#5B3A99;color:#5B3A99;font-weight:800">LÍDER</span>' : '') +
                 '</label>';
               }).join('') +
             '</div>';
