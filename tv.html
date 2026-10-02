@@ -543,7 +543,50 @@
     function marca(c) { c.classList.toggle("on", Number(c.dataset.col) === etapa); }
     var bolas = $("bolas").children;
     for (var i = 0; i < bolas.length; i++) bolas[i].classList.toggle("on", i === etapa);
+    reiniciarRolagem();
   }
+
+  /* ---------------- 📜 rolagem automática ----------------
+     Quando uma coluna tem mais cartões do que cabe na tela, ela rola
+     sozinha até o fim (devagar), espera um pouco e volta ao topo.
+     A velocidade se ajusta para dar tempo de ver tudo antes da troca. */
+  function reiniciarRolagem() {
+    Array.prototype.forEach.call(document.querySelectorAll(".rolo"), function (el) {
+      el.scrollTop = 0; el.scrollLeft = 0; el._rolo = null;
+    });
+  }
+  (function rolagem() {
+    var antes = null;
+    function passo(agora) {
+      var dt = antes ? Math.min(100, agora - antes) : 0;
+      antes = agora;
+      Array.prototype.forEach.call(painel.querySelectorAll(".rolo"), function (el) {
+        var col = el.closest ? el.closest(".col") : el.parentNode;
+        var visivel = el.offsetParent !== null && (!painel.classList.contains("solo") || (col && col.classList.contains("on")));
+        if (!visivel) return;
+        var sobraV = el.scrollHeight - el.clientHeight;
+        var sobraH = el.scrollWidth - el.clientWidth;
+        var eixoV = sobraV > 4;
+        var sobra = eixoV ? sobraV : sobraH;
+        if (sobra <= 4) { el.scrollTop = 0; el.scrollLeft = 0; el._rolo = null; return; }
+        var dur = painel.classList.contains("solo") ? TEMPO_SOLO : TEMPO_GRADE;
+        var vel = Math.max(22, sobra / Math.max(2, dur / 1000 - 4.5));   /* px por segundo */
+        var r = el._rolo || (el._rolo = { fase: "espera", t: 0, pos: 0 });
+        r.t += dt;
+        if (r.fase === "espera") {
+          if (r.t > 2200) { r.fase = "desce"; r.t = 0; }
+        } else if (r.fase === "desce") {
+          r.pos += vel * dt / 1000;
+          if (r.pos >= sobra) { r.pos = sobra; r.fase = "fim"; r.t = 0; }
+          if (eixoV) el.scrollTop = r.pos; else el.scrollLeft = r.pos;
+        } else if (r.fase === "fim") {
+          if (r.t > 2200) { r.fase = "espera"; r.t = 0; r.pos = 0; el.scrollTop = 0; el.scrollLeft = 0; }
+        }
+      });
+      (window.requestAnimationFrame || function (f) { setTimeout(function () { f(Date.now()); }, 50); })(passo);
+    }
+    (window.requestAnimationFrame || function (f) { setTimeout(function () { f(Date.now()); }, 50); })(passo);
+  })();
   function proxima() {
     painel.classList.add("trocando");
     setTimeout(function () {
