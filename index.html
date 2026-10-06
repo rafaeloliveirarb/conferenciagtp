@@ -516,6 +516,7 @@ table.tab{width:100%;border-collapse:collapse}
 
   <button class="btn btn--gg btn--bloco" id="btn-coordenador">COORDENADOR</button>
   <button class="btn btn--gg btn--bloco btn--laranja" id="btn-conferente">CONFERENTE</button>
+  <button class="btn btn--gg btn--bloco btn--verde" id="btn-encarregado">ENCARREGADO</button>
 
   <p class="inicio__rodape" id="rodape-versao">Versão 1.0</p>
 </section>
@@ -1324,7 +1325,8 @@ const Sessao = {
   },
 
   ehCoordenador: function () { return !!this.atual && this.atual.tipo === 'coordenador'; },
-  ehConferente: function () { return !!this.atual && this.atual.tipo === 'conferente'; }
+  ehConferente: function () { return !!this.atual && this.atual.tipo === 'conferente'; },
+  ehEncarregado: function () { return !!this.atual && this.atual.tipo === 'encarregado'; }
 };
 /* ============================================================
    js/checklist.js — leitura do checklist enviado pelo usuário
@@ -4044,6 +4046,7 @@ function TelaPainel() {
         '<button class="btn btn--azul" id="btn-patio">🏗️ DEMANDA DO PÁTIO</button>' +
         '<button class="btn btn--branco" id="btn-produtores">🤝 CONFERÊNCIAS DOS PRODUTORES</button>' +
         '<button class="btn btn--branco" id="btn-quant">📐 QUANTIFICAÇÃO</button>' +
+        '<button class="btn btn--branco" id="btn-encarregados">👷 ENCARREGADOS</button>' +
         '<button class="btn btn--branco" id="btn-tv">📺 MODO TV</button>' +
         '<button class="btn btn--branco" id="btn-backup">💾 BACKUP</button>' +
         '<button class="btn btn--branco" id="btn-pendencias">⏳ PENDÊNCIAS DE RETORNO</button>' +
@@ -4399,6 +4402,7 @@ function TelaPainel() {
     U.$('#btn-patio').addEventListener('click', function () { App.abrir(TelaPatio); });
     U.$('#btn-produtores').addEventListener('click', function () { App.abrir(TelaProdutores); });
     U.$('#btn-quant').addEventListener('click', function () { window.open('quantitativo.html', '_blank'); });
+    U.$('#btn-encarregados').addEventListener('click', function () { App.abrir(TelaEncarregadosCoord); });
     U.$('#btn-tv').addEventListener('click', function () { App.abrirTV(); });
     U.$('#btn-backup').addEventListener('click', abrirBackup);
 
@@ -6110,6 +6114,422 @@ function TelaFerramentas() {
 /* ============================================================
    Escolha de área do conferente: EVENTOS ou MATERIAL TERCEIRIZADO
    ============================================================ */
+/* ============================================================
+   👷 ENCARREGADOS — painel próprio, senha criada no 1º acesso
+   e registro de quem carregou o quê em cada caminhão.
+   ============================================================ */
+var Enc = {
+  /* SHA-256 em JS puro (mesmo resultado em qualquer aparelho) */
+  sha256: function (ascii) {
+    function rr(v, a) { return (v >>> a) | (v << (32 - a)); }
+    var mp = Math.pow, max = mp(2, 32), i, j, res = '';
+    var words = [], bitLen = ascii.length * 8;
+    var hash = Enc._h || [], k = Enc._k || [], pc = 0;
+    if (!Enc._k) {
+      var isC = {};
+      for (var c = 2; pc < 64; c++) {
+        if (!isC[c]) {
+          for (i = 0; i < 313; i += c) isC[i] = c;
+          hash[pc] = (mp(c, .5) * max) | 0;
+          k[pc++] = (mp(c, 1 / 3) * max) | 0;
+        }
+      }
+      Enc._h = hash.slice(0, 8); Enc._k = k;
+    }
+    hash = Enc._h.slice(0, 8); k = Enc._k;
+    ascii += '\x80';
+    while (ascii.length % 64 - 56) ascii += '\x00';
+    for (i = 0; i < ascii.length; i++) {
+      j = ascii.charCodeAt(i);
+      if (j >> 8) return '';
+      words[i >> 2] |= j << ((3 - i) % 4) * 8;
+    }
+    words[words.length] = ((bitLen / max) | 0);
+    words[words.length] = (bitLen);
+    for (j = 0; j < words.length;) {
+      var w = words.slice(j, j += 16), old = hash;
+      hash = hash.slice(0, 8);
+      for (i = 0; i < 64; i++) {
+        var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+        var t1 = hash[7] + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] +
+          (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rr(w15, 7) ^ rr(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rr(w2, 17) ^ rr(w2, 19) ^ (w2 >>> 10))) | 0);
+        var t2 = (rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+        hash = [(t1 + t2) | 0].concat(hash);
+        hash[4] = (hash[4] + t1) | 0;
+      }
+      for (i = 0; i < 8; i++) hash[i] = (hash[i] + old[i]) | 0;
+    }
+    for (i = 0; i < 8; i++) for (j = 3; j + 1; j--) { var b = (hash[i] >> (j * 8)) & 255; res += ((b < 16) ? 0 : '') + b.toString(16); }
+    return res;
+  },
+  hashSenha: function (usuarioId, senha) {
+    /* utf-8 → bytes "ascii" para o sha */
+    var txt = unescape(encodeURIComponent('gtp-enc:' + usuarioId + ':' + String(senha)));
+    return Enc.sha256(txt);
+  },
+
+  lista: function () {
+    return (App.usuarios || []).filter(function (u) { return u.tipo === 'encarregado' && u.ativo !== false; })
+      .sort(function (a, b) { return String(a.nome).localeCompare(String(b.nome), 'pt-BR'); });
+  },
+
+  /* ---------- banco ---------- */
+  registros: function (cgIds) {
+    var q = Banco.cliente.from('carga_encarregado').select('*').order('em');
+    if (cgIds) {
+      if (!cgIds.length) return Promise.resolve([]);
+      q = q.in('carregamento_id', cgIds);
+    }
+    return q.then(function (r) { if (r.error) throw r.error; return r.data || []; });
+  },
+  registrar: function (linha) {
+    var u = Sessao.atual || {};
+    linha.usuario_id = u.id || null;
+    linha.usuario_nome = u.nome || null;
+    linha.em = new Date().toISOString();
+    return Banco.cliente.from('carga_encarregado').insert(linha).then(function (r) { if (r.error) throw r.error; return linha; });
+  },
+  faltaSQL: function (e) { return /carga_encarregado|senha_hash|does not exist|schema cache|Could not find/i.test(String((e && e.message) || e || '')); },
+
+  /* ---------- estado de um carregamento a partir do registro ----------
+     por produto: quanto já subiu, quem marcou por último e quando;
+     por pessoa: o que cada encarregado fez (só o que ele somou). */
+  estado: function (regs, cgId) {
+    var porProd = {}, porPessoa = {}, concluido = null, inicio = null, log = [];
+    regs.filter(function (r) { return r.carregamento_id === cgId; })
+      .sort(function (a, b) { return String(a.em).localeCompare(String(b.em)); })
+      .forEach(function (r) {
+        log.push(r);
+        var pes = r.usuario_nome || '?';
+        var P = porPessoa[pes] || (porPessoa[pes] = { nome: pes, itens: {}, qtd: 0, acoes: 0, primeiro: r.em, ultimo: r.em });
+        P.acoes++; P.ultimo = r.em;
+        if (r.acao === 'carregou' || r.acao === 'desfez') {
+          if (!inicio) inicio = r;
+          var st = porProd[r.produto_id] || (porProd[r.produto_id] = { qtd: 0, quem: null, em: null, hist: [] });
+          var novo = r.acao === 'desfez' ? 0 : U.num(r.qtd);
+          var delta = novo - st.qtd;
+          st.qtd = novo; st.quem = pes; st.em = r.em; st.hist.push(r);
+          if (delta > 0) { P.qtd += delta; P.itens[r.produto_id] = (P.itens[r.produto_id] || 0) + delta; }
+        } else if (r.acao === 'concluiu') { concluido = r; }
+        else if (r.acao === 'reabriu') { concluido = null; }
+      });
+    return { porProd: porProd, porPessoa: porPessoa, concluido: concluido, inicio: inicio, log: log };
+  }
+};
+
+/* ---------- 👷 painel do encarregado: caminhões com checklist para carregar ---------- */
+function TelaEncarregado() {
+  App.topo('👷 ENCARREGADO', Sessao.atual ? Sessao.atual.nome : '');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando os carregamentos...');
+  var cli = Banco.cliente;
+  function L(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+  Promise.all([
+    Banco.listarEventos(),
+    L(cli.from('carregamentos').select('*')),
+    L(cli.from('itens_carregamento').select('carregamento_id,produto_id,quantidade')).catch(function () { return []; }),
+    Banco.listarCaminhoes().catch(function () { return []; })
+  ]).then(function (r) {
+    App.eventos = r[0];
+    var evPorId = {}; r[0].forEach(function (e) { evPorId[e.id] = e; });
+    var planoPorCg = {};
+    r[2].forEach(function (p) { (planoPorCg[p.carregamento_id] = planoPorCg[p.carregamento_id] || []).push(p); });
+    var cgs = r[1].filter(function (cg) {
+      var ev = evPorId[cg.evento_id];
+      if (!ev || ev.status === 'Finalizado' || ev.status === 'Com divergência') return false;
+      if (cg.sentido === 'retorno') return false;
+      if (cg.status === 'Saída finalizada') return false;
+      return (planoPorCg[cg.id] || []).length > 0;
+    });
+    return Enc.registros(cgs.map(function (c) { return c.id; })).catch(function (e) {
+      if (Enc.faltaSQL(e)) return null; throw e;
+    }).then(function (regs) {
+      if (regs === null) {
+        tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>Falta rodar o <b>encarregados.sql</b> no Supabase. Peça para o coordenador.</div></div>';
+        return;
+      }
+      cgs.sort(function (a, b) {
+        var ea = evPorId[a.evento_id], eb = evPorId[b.evento_id];
+        return String(ea.data || '').localeCompare(String(eb.data || '')) || (a.numero - b.numero);
+      });
+      function camNome(cg) {
+        var c = r[3].filter(function (x) { return x.id === cg.caminhao_id; })[0];
+        return c ? [c.tipo, c.placa].filter(Boolean).join(' · ') : 'Caminhão não informado';
+      }
+      var h = '<div class="btn-linha" style="margin-bottom:14px"><button class="btn btn--branco btn--bloco" id="enc-atualizar">🔄 ATUALIZAR</button></div>';
+      if (!cgs.length) {
+        h += '<div class="vazio"><p class="vazio__ico">🚚</p><h3>Nenhum caminhão para carregar agora</h3>' +
+          '<p>Quando o coordenador colocar o checklist do caminhão, ele aparece aqui.</p></div>';
+      } else {
+        h += '<h2 class="secao__tit">🚚 Caminhões para carregar <span class="n">' + cgs.length + '</span></h2>';
+        cgs.forEach(function (cg) {
+          var ev = evPorId[cg.evento_id], plano = planoPorCg[cg.id];
+          var es = Enc.estado(regs, cg.id);
+          var total = plano.length, feitos = plano.filter(function (p) { var s = es.porProd[p.produto_id]; return s && s.qtd >= U.num(p.quantidade); }).length;
+          var pct = total ? Math.round(feitos / total * 100) : 0;
+          var quem = Object.keys(es.porPessoa);
+          h += '<button class="cartao js-enc-cg" data-cg="' + cg.id + '" style="display:block;width:100%;text-align:left;cursor:pointer;margin-bottom:12px;border-left:6px solid ' +
+              (es.concluido ? 'var(--verde)' : pct ? 'var(--laranja)' : 'var(--azul)') + '">' +
+            '<div class="cartao__corpo">' +
+              '<p style="margin:0;font-weight:900;font-size:17px;color:var(--azul)">' + U.esc(ev.nome) + '</p>' +
+              '<p class="peq mut" style="margin:3px 0">📅 ' + U.fmtData(ev.data) + ' · Carreg. ' + cg.numero + ' · 🚛 ' + U.esc(camNome(cg)) + '</p>' +
+              '<div style="height:10px;background:var(--linha);border-radius:6px;overflow:hidden;margin:8px 0 6px"><div style="height:100%;width:' + pct + '%;background:' + (es.concluido ? 'var(--verde)' : 'var(--laranja)') + '"></div></div>' +
+              '<p class="peq" style="margin:0;font-weight:800">' +
+                (es.concluido ? '✅ CONCLUÍDO por ' + U.esc(es.concluido.usuario_nome) + ' · ' + U.fmtDataHora(es.concluido.em)
+                  : pct ? '🟠 ' + feitos + '/' + total + ' itens carregados'
+                  : '⚪ Não começou · ' + total + ' itens') + '</p>' +
+              (quem.length ? '<p class="peq mut" style="margin:4px 0 0">👷 ' + quem.map(U.esc).join(' · ') + '</p>' : '') +
+            '</div></button>';
+        });
+      }
+      tela.innerHTML = h;
+      U.$('#enc-atualizar').addEventListener('click', function () { App.recarregar(); });
+      U.$$('.js-enc-cg', tela).forEach(function (b) {
+        b.addEventListener('click', function () { App.abrir(TelaCargaEncarregado, b.dataset.cg); });
+      });
+    });
+  }).catch(function (e) { App.falhou ? App.falhou(e) : (tela.innerHTML = '<p>' + U.esc(e.message) + '</p>'); });
+}
+
+/* ---------- 🚚 um caminhão: marcar o que subiu ---------- */
+function TelaCargaEncarregado(cgId) {
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Abrindo o caminhão...');
+  var cli = Banco.cliente;
+  function L(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+  var cg, ev, plano, produtos, regs, cam;
+  function buscar() {
+    return Promise.all([
+      L(cli.from('carregamentos').select('*').eq('id', cgId)),
+      L(cli.from('itens_carregamento').select('produto_id,quantidade,prioridade').eq('carregamento_id', cgId)),
+      Enc.registros([cgId])
+    ]).then(function (r) {
+      cg = r[0][0]; plano = r[1]; regs = r[2];
+      if (!cg) throw new Error('Carregamento não encontrado.');
+      return Promise.all([
+        L(cli.from('eventos').select('*').eq('id', cg.evento_id)),
+        L(cli.from('produtos').select('id,nome,unidade').eq('evento_id', cg.evento_id)),
+        Banco.listarCaminhoes().catch(function () { return []; })
+      ]);
+    }).then(function (r) {
+      ev = r[0][0] || { nome: '' }; produtos = r[1];
+      cam = r[2].filter(function (x) { return x.id === cg.caminhao_id; })[0];
+    });
+  }
+  function desenhar() {
+    App.topo('🚚 CARREG. ' + cg.numero, ev.nome);
+    var es = Enc.estado(regs, cgId);
+    var prodPorId = {}; produtos.forEach(function (p) { prodPorId[p.id] = p; });
+    var linhas = plano.map(function (p) {
+      var pr = prodPorId[p.produto_id] || { nome: '?', unidade: 'UN' };
+      var s = es.porProd[p.produto_id] || { qtd: 0 };
+      return { id: p.produto_id, nome: pr.nome, un: pr.unidade || 'UN', prev: U.num(p.quantidade), s: s, pri: !!p.prioridade };
+    }).sort(function (a, b) {
+      var fa = a.s.qtd >= a.prev ? 1 : 0, fb = b.s.qtd >= b.prev ? 1 : 0;
+      return (b.pri - a.pri) || (fa - fb) || a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+    var feitos = linhas.filter(function (l) { return l.s.qtd >= l.prev; }).length;
+    var pct = linhas.length ? Math.round(feitos / linhas.length * 100) : 0;
+    var travado = !!es.concluido;
+    var h = '<div class="cartao" style="margin-bottom:12px"><div class="cartao__corpo">' +
+      '<p style="margin:0;font-weight:900;font-size:17px;color:var(--azul)">' + U.esc(ev.nome) + '</p>' +
+      '<p class="peq mut" style="margin:3px 0">🚛 ' + U.esc(cam ? [cam.tipo, cam.placa].filter(Boolean).join(' · ') : 'Caminhão não informado') + '</p>' +
+      '<div style="height:12px;background:var(--linha);border-radius:6px;overflow:hidden;margin:8px 0 6px"><div style="height:100%;width:' + pct + '%;background:' + (travado ? 'var(--verde)' : 'var(--laranja)') + '"></div></div>' +
+      '<p style="margin:0;font-weight:900">' + feitos + ' de ' + linhas.length + ' itens carregados (' + pct + '%)</p>' +
+      (es.inicio ? '<p class="peq mut" style="margin:4px 0 0">▶ Começou: ' + U.esc(es.inicio.usuario_nome) + ' · ' + U.fmtDataHora(es.inicio.em) + '</p>' : '') +
+      (es.concluido ? '<p class="peq" style="margin:4px 0 0;color:var(--verde);font-weight:800">✅ Concluído: ' + U.esc(es.concluido.usuario_nome) + ' · ' + U.fmtDataHora(es.concluido.em) + '</p>' : '') +
+      '</div></div>';
+    if (cg.observacoes && String(cg.observacoes).trim()) {
+      h += '<div class="aviso aviso--amarelo"><span class="aviso__ico">📝</span><div><b>Recado do coordenador:</b><br>' + U.esc(cg.observacoes.trim()).replace(/\n/g, '<br>') + '</div></div>';
+    }
+    h += '<h2 class="secao__tit">📋 Checklist do caminhão <span class="n">' + linhas.length + '</span></h2>';
+    h += linhas.map(function (l) {
+      var ok = l.s.qtd >= l.prev, parc = l.s.qtd > 0 && !ok;
+      return '<div class="cartao" style="margin-bottom:8px;border-left:6px solid ' + (ok ? 'var(--verde)' : parc ? 'var(--laranja)' : 'var(--linha)') + (ok ? ';opacity:.8' : '') + '">' +
+        '<div class="cartao__corpo" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:180px">' +
+            '<b style="font-size:16px' + (ok ? ';text-decoration:line-through' : '') + '">' + (l.pri ? '⭐ ' : '') + U.esc(l.nome) + '</b>' +
+            '<span class="peq" style="display:block;margin-top:2px">' +
+              '<b style="color:' + (ok ? 'var(--verde)' : parc ? 'var(--laranja)' : 'var(--txt-2)') + '">' + U.fmt(l.s.qtd) + ' / ' + U.fmt(l.prev) + ' ' + U.esc(l.un) + '</b>' +
+              (l.s.quem ? ' <span class="mut">· 👷 ' + U.esc(l.s.quem) + ' ' + U.fmtDataHora(l.s.em).slice(-5) + '</span>' : '') + '</span>' +
+          '</div>' +
+          (travado ? '' :
+            (!ok ? '<button class="btn btn--verde btn--peq js-enc-tudo" data-p="' + l.id + '" data-q="' + l.prev + '" style="min-width:110px">✔ CARREGADO</button>' : '') +
+            '<button class="btn btn--branco btn--peq js-enc-parc" data-p="' + l.id + '" data-q="' + l.prev + '" data-n="' + U.esc(l.nome) + '" data-atual="' + l.s.qtd + '">PARCIAL</button>' +
+            (l.s.qtd > 0 ? '<button class="btn btn--branco btn--peq js-enc-desf" data-p="' + l.id + '" title="Desfazer">↺</button>' : '')) +
+        '</div></div>';
+    }).join('');
+    h += travado
+      ? '<button class="btn btn--branco btn--bloco" id="enc-reabrir" style="margin-top:14px">↺ REABRIR CARREGAMENTO</button>'
+      : '<button class="btn btn--verde btn--bloco btn--gg" id="enc-concluir" style="margin-top:14px">🏁 CARREGAMENTO CONCLUÍDO</button>';
+    /* quem fez o quê */
+    var pes = Object.keys(es.porPessoa).map(function (k) { return es.porPessoa[k]; });
+    if (pes.length) {
+      h += '<h2 class="secao__tit" style="margin-top:22px">👷 Quem carregou <span class="n">' + pes.length + '</span></h2>' +
+        '<div class="cartao"><div class="cartao__corpo">' + pes.map(function (p) {
+          var nItens = Object.keys(p.itens).length;
+          return '<div style="border-bottom:1px solid var(--linha);padding:7px 0"><b>' + U.esc(p.nome) + '</b> — ' +
+            nItens + ' ite' + (nItens === 1 ? 'm' : 'ns') + ' · ' + U.fmt(p.qtd) + ' unid.' +
+            '<span class="peq mut" style="display:block">' + U.fmtDataHora(p.primeiro) + ' até ' + U.fmtDataHora(p.ultimo).slice(-5) + '</span></div>';
+        }).join('') + '</div></div>';
+      h += '<details style="margin-top:12px"><summary class="peq" style="cursor:pointer;font-weight:800">🕓 Registro completo (' + es.log.length + ')</summary>' +
+        '<div class="cartao" style="margin-top:6px"><div class="cartao__corpo">' + es.log.slice().reverse().map(function (r) {
+          var pr = prodPorId[r.produto_id];
+          var txt = r.acao === 'carregou' ? '✔ ' + U.fmt(r.qtd) + ' — ' + U.esc(pr ? pr.nome : '?')
+            : r.acao === 'desfez' ? '↺ desfez — ' + U.esc(pr ? pr.nome : '?')
+            : r.acao === 'concluiu' ? '🏁 concluiu o carregamento' : '↺ reabriu o carregamento';
+          return '<div class="peq" style="border-bottom:1px solid var(--linha);padding:5px 0"><b>' + U.fmtDataHora(r.em) + '</b> · ' + U.esc(r.usuario_nome || '?') + ' · ' + txt + '</div>';
+        }).join('') + '</div></div></details>';
+    }
+    tela.innerHTML = h;
+
+    function gravar(linha, msg) {
+      linha.carregamento_id = cgId; linha.evento_id = cg.evento_id;
+      return Enc.registrar(linha).then(function (x) { regs.push(x); desenhar(); if (msg) U.aviso(msg, 'ok', 2500); })
+        .catch(function (e) { U.aviso(Enc.faltaSQL(e) ? 'Falta rodar o encarregados.sql no Supabase.' : (e.message || 'Erro ao gravar'), 'erro', 6000); });
+    }
+    U.$$('.js-enc-tudo', tela).forEach(function (b) {
+      b.addEventListener('click', function () { b.disabled = true; gravar({ acao: 'carregou', produto_id: b.dataset.p, qtd: U.num(b.dataset.q) }); });
+    });
+    U.$$('.js-enc-desf', tela).forEach(function (b) {
+      b.addEventListener('click', function () { b.disabled = true; gravar({ acao: 'desfez', produto_id: b.dataset.p, qtd: 0 }); });
+    });
+    U.$$('.js-enc-parc', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var m = U.modal({
+          titulo: 'Quantos subiram? — ' + b.dataset.n,
+          html: '<p class="peq mut">Previsto: <b>' + U.fmt(U.num(b.dataset.q)) + '</b>. Digite o TOTAL que já está no caminhão.</p>' +
+            '<input class="entrada" id="enc-q" type="number" inputmode="decimal" value="' + (U.num(b.dataset.atual) || '') + '" style="text-align:center;font-size:26px">',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>SALVAR</button>'
+        });
+        var inp = m.querySelector('#enc-q'); setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { } }, 50);
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        m.querySelector('[data-ok]').addEventListener('click', function () {
+          var q = U.num(inp.value);
+          if (!(q >= 0)) return U.aviso('Digite a quantidade.', 'erro');
+          m.fechar();
+          gravar(q > 0 ? { acao: 'carregou', produto_id: b.dataset.p, qtd: q } : { acao: 'desfez', produto_id: b.dataset.p, qtd: 0 });
+        });
+      });
+    });
+    var bc = U.$('#enc-concluir', tela);
+    if (bc) bc.addEventListener('click', function () {
+      var faltam = linhas.filter(function (l) { return l.s.qtd < l.prev; });
+      U.confirmar('🏁 Concluir o carregamento?',
+        faltam.length ? 'Ainda faltam ' + faltam.length + ' item(ns) marcados. Concluir assim mesmo? Fica registrado no seu nome.'
+          : 'Todos os itens foram carregados. Fica registrado no seu nome.', 'CONCLUIR', 'btn--verde').then(function (ok) {
+        if (ok) gravar({ acao: 'concluiu' }, '🏁 Carregamento concluído.');
+      });
+    });
+    var br = U.$('#enc-reabrir', tela);
+    if (br) br.addEventListener('click', function () {
+      U.confirmar('Reabrir o carregamento?', 'Volta a deixar marcar os itens. Fica registrado no seu nome.', 'REABRIR').then(function (ok) {
+        if (ok) gravar({ acao: 'reabriu' });
+      });
+    });
+  }
+  buscar().then(desenhar).catch(function (e) {
+    tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      (Enc.faltaSQL(e) ? 'Falta rodar o <b>encarregados.sql</b> no Supabase.' : U.esc(e.message || 'Erro')) + '</div></div>';
+  });
+  /* o outro encarregado marcou? atualiza sozinho a cada 15 s */
+  var vigia = setInterval(function () {
+    if (App._telaAtual !== TelaCargaEncarregado) return clearInterval(vigia);
+    if (document.querySelector('.modal')) return;
+    Enc.registros([cgId]).then(function (r) {
+      if (App._telaAtual !== TelaCargaEncarregado || !cg) return;
+      if (r.length !== regs.length) { regs = r; desenhar(); }
+    }).catch(function () { });
+  }, 15000);
+}
+
+/* ---------- 👷 visão do coordenador: o que cada encarregado fez ---------- */
+function TelaEncarregadosCoord() {
+  App.topo('👷 ENCARREGADOS', 'Quem carregou o quê');
+  var tela = U.$('#tela');
+  tela.innerHTML = U.carregando('Buscando o registro...');
+  var cli = Banco.cliente;
+  function L(q) { return q.then(function (r) { if (r.error) throw r.error; return r.data || []; }); }
+  var hoje = U.hojeISO();
+  var de = TelaEncarregadosCoord._de || (hoje.slice(0, 8) + '01'), ate = TelaEncarregadosCoord._ate || hoje;
+  Promise.all([
+    Banco.listarUsuarios(),
+    L(cli.from('carga_encarregado').select('*').gte('em', de + 'T00:00:00').lte('em', ate + 'T23:59:59').order('em')),
+    Banco.listarEventos(),
+    L(cli.from('carregamentos').select('id,numero,evento_id'))
+  ]).then(function (r) {
+    App.usuarios = r[0];
+    var regs = r[1], evPorId = {}, cgPorId = {};
+    r[2].forEach(function (e) { evPorId[e.id] = e; });
+    r[3].forEach(function (c) { cgPorId[c.id] = c; });
+    /* soma por pessoa, separando por caminhão (usa o estado completo de cada caminhão) */
+    var cgIds = []; regs.forEach(function (x) { if (cgIds.indexOf(x.carregamento_id) < 0) cgIds.push(x.carregamento_id); });
+    var porPessoa = {};
+    cgIds.forEach(function (id) {
+      var es = Enc.estado(regs, id);
+      Object.keys(es.porPessoa).forEach(function (n) {
+        var p = es.porPessoa[n];
+        var P = porPessoa[n] || (porPessoa[n] = { nome: n, cgs: [], itens: 0, qtd: 0, concluiu: 0 });
+        P.itens += Object.keys(p.itens).length; P.qtd += p.qtd;
+        P.cgs.push({ id: id, itens: Object.keys(p.itens).length, qtd: p.qtd });
+      });
+      if (es.concluido) {
+        var n2 = es.concluido.usuario_nome;
+        (porPessoa[n2] = porPessoa[n2] || { nome: n2, cgs: [], itens: 0, qtd: 0, concluiu: 0 }).concluiu++;
+      }
+    });
+    var h = '<div class="cartao" style="margin-bottom:12px"><div class="cartao__corpo" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
+      '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">De</span><input class="entrada" type="date" id="ec-de" value="' + de + '"></label>' +
+      '<label class="campo" style="flex:1;min-width:140px"><span class="campo__rot">Até</span><input class="entrada" type="date" id="ec-ate" value="' + ate + '"></label>' +
+      '<button class="btn" id="ec-ver">VER</button></div></div>';
+    h += '<h2 class="secao__tit">📊 Resumo do período</h2>';
+    var lista = Enc.lista();
+    var nomes = lista.map(function (u) { return u.nome; });
+    Object.keys(porPessoa).forEach(function (n) { if (nomes.indexOf(n) < 0) nomes.push(n); });
+    h += nomes.length ? nomes.map(function (n) {
+      var P = porPessoa[n] || { cgs: [], itens: 0, qtd: 0, concluiu: 0 };
+      var u = lista.filter(function (x) { return x.nome === n; })[0];
+      return '<div class="cartao" style="margin-bottom:10px"><div class="cartao__corpo">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1;font-size:16px">👷 ' + U.esc(n) + '</b>' +
+          (u ? (u.senha_hash ? '<span class="peq mut">🔒 senha criada</span>' : '<span class="peq" style="color:var(--laranja)">🔓 ainda não criou senha</span>') +
+            (u.senha_hash ? '<button class="btn btn--branco btn--peq js-ec-zerar" data-id="' + u.id + '" data-n="' + U.esc(n) + '">🔑 Zerar senha</button>' : '') : '') +
+        '</div>' +
+        '<p style="margin:6px 0 0"><b>' + P.cgs.length + '</b> caminhão(ões) · <b>' + P.itens + '</b> itens · <b>' + U.fmt(P.qtd) + '</b> unid. carregadas · <b>' + P.concluiu + '</b> concluído(s)</p>' +
+        (P.cgs.length ? '<div class="peq mut" style="margin-top:4px">' + P.cgs.map(function (c) {
+          var cg = cgPorId[c.id] || {}, ev = evPorId[cg.evento_id] || {};
+          return '• ' + U.esc(ev.nome || '?') + ' · Carreg. ' + (cg.numero || '?') + ' — ' + c.itens + ' itens · ' + U.fmt(c.qtd) + ' unid.';
+        }).join('<br>') + '</div>' : '') +
+      '</div></div>';
+    }).join('') : '<p class="mut">Nenhum encarregado cadastrado. Rode o encarregados.sql.</p>';
+    h += '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:800">🕓 Registro completo do período (' + regs.length + ')</summary>' +
+      '<div class="cartao" style="margin-top:6px"><div class="cartao__corpo">' + (regs.length ? regs.slice().reverse().map(function (x) {
+        var cg = cgPorId[x.carregamento_id] || {}, ev = evPorId[cg.evento_id] || {};
+        var txt = x.acao === 'carregou' ? '✔ ' + U.fmt(x.qtd) : x.acao === 'desfez' ? '↺ desfez' : x.acao === 'concluiu' ? '🏁 concluiu' : '↺ reabriu';
+        return '<div class="peq" style="border-bottom:1px solid var(--linha);padding:5px 0"><b>' + U.fmtDataHora(x.em) + '</b> · ' + U.esc(x.usuario_nome || '?') + ' · ' + txt +
+          ' <span class="mut">· ' + U.esc(ev.nome || '?') + ' C' + (cg.numero || '?') + '</span></div>';
+      }).join('') : '<p class="mut peq">Nada no período.</p>') + '</div></div></details>';
+    tela.innerHTML = h;
+    U.$('#ec-ver').addEventListener('click', function () {
+      TelaEncarregadosCoord._de = U.$('#ec-de').value || de; TelaEncarregadosCoord._ate = U.$('#ec-ate').value || ate;
+      App.recarregar();
+    });
+    U.$$('.js-ec-zerar', tela).forEach(function (b) {
+      b.addEventListener('click', function () {
+        U.confirmar('🔑 Zerar a senha de ' + b.dataset.n + '?', 'No próximo acesso ele cria uma senha nova.', 'ZERAR').then(function (ok) {
+          if (!ok) return;
+          cli.from('usuarios').update({ senha_hash: null }).eq('id', b.dataset.id).then(function (r) {
+            if (r.error) return U.aviso(r.error.message, 'erro', 6000);
+            U.aviso('Senha zerada. Ele cria outra no próximo acesso.', 'ok'); App.recarregar();
+          });
+        });
+      });
+    });
+  }).catch(function (e) {
+    tela.innerHTML = '<div class="aviso aviso--vermelho"><span class="aviso__ico">⚠</span><div>' +
+      (Enc.faltaSQL(e) ? 'Falta rodar o <b>encarregados.sql</b> no Supabase.' : U.esc(e.message || 'Erro')) + '</div></div>';
+  });
+}
+
 function TelaEscolhaArea() {
   App.topo('CENTRAL DE CONFERÊNCIA', Sessao.atual ? Sessao.atual.nome : '');
   var tela = U.$('#tela');
@@ -7329,6 +7749,7 @@ function TelaEvento(eventoId) {
                 }).filter(Boolean));
                 return r ? '<div class="peq" style="background:#EEF4FB;color:var(--azul);padding:6px 12px;border-top:1px solid var(--linha)">' + r + '</div>' : '';
               })() +
+              '<div class="peq js-enc-linha" data-cg="' + cg.id + '" data-n="' + planoCg.length + '" hidden style="background:#E8F5E9;color:#1B5E20;padding:6px 12px;border-top:1px solid var(--linha)"></div>' +
               '</div>'
             : '') +
           ((cg.observacoes || '').trim() || (ehCoord && !eventoFechado)
@@ -8478,6 +8899,26 @@ function TelaEvento(eventoId) {
 
     var btnDisp = U.$('#btn-disponibilidade', tela);
     if (btnDisp) btnDisp.addEventListener('click', function () { verificarDisponibilidade(p); });
+    /* 👷 o que os encarregados já carregaram em cada caminhão */
+    (function () {
+      var cx = U.$$('.js-enc-linha', tela);
+      if (!cx.length || typeof Enc === 'undefined') return;
+      Enc.registros(cx.map(function (x) { return x.dataset.cg; })).then(function (regs) {
+        cx.forEach(function (x) {
+          var es = Enc.estado(regs, x.dataset.cg);
+          var pes = Object.keys(es.porPessoa);
+          if (!es.log.length) return;
+          var planoN = Number(x.dataset.n) || 0;
+          var feitos = Object.keys(es.porProd).filter(function (k) { return es.porProd[k].qtd > 0; }).length;
+          x.innerHTML = '👷 <b>Encarregados:</b> ' + pes.map(function (n) {
+              var P = es.porPessoa[n]; return U.esc(n) + ' (' + Object.keys(P.itens).length + ' itens)';
+            }).join(' · ') +
+            ' · ' + feitos + '/' + planoN + ' itens marcados' +
+            (es.concluido ? ' · <b>✅ concluído por ' + U.esc(es.concluido.usuario_nome) + ' ' + U.fmtDataHora(es.concluido.em) + '</b>' : '');
+          x.hidden = false;
+        });
+      }).catch(function () { });
+    })();
     /* 🚦 preenche o semáforo do checklist */
     if (U.$('.js-sem', tela)) {
       Material.carregar().then(function (d) {
@@ -15712,6 +16153,7 @@ const Relatorio = {
 
   function irParaCasa() {
     if (Sessao.ehCoordenador()) App.raiz(TelaPainel);
+    else if (Sessao.ehEncarregado()) App.raiz(TelaEncarregado);
     else App.raiz(TelaEscolhaArea);   /* Eventos ou Material Terceirizado */
   }
 
@@ -15750,6 +16192,89 @@ const Relatorio = {
       m.querySelector('[data-ok]').addEventListener('click', tentar);
       campo.addEventListener('keydown', function (e) { if (e.key === 'Enter') tentar(); });
     });
+
+    /* 👷 ENCARREGADO: escolhe o nome; 1º acesso cria a senha, depois pede a senha */
+    U.$('#btn-encarregado').addEventListener('click', function () {
+      Banco.listarUsuarios().then(function (us) {
+        App.usuarios = us;
+        var lista = Enc.lista();
+        var m = U.modal({
+          titulo: 'Quem é o encarregado?',
+          html: lista.length
+            ? '<div class="escolha">' + lista.map(function (c) {
+                return '<button class="escolha__item js-enc-quem" data-id="' + c.id + '">' +
+                  '<span class="escolha__ini" style="background:var(--verde)">' + U.esc(U.iniciais(c.nome)) + '</span>' +
+                  '<span><span class="escolha__nome">' + U.esc(c.nome) + '</span>' +
+                  '<span class="escolha__papel">Encarregado' + (c.senha_hash ? '' : ' · primeiro acesso') + '</span></span></button>';
+              }).join('') + '</div>'
+            : '<p class="aviso aviso--vermelho">Nenhum encarregado cadastrado. O coordenador precisa rodar o <b>encarregados.sql</b> no Supabase.</p>',
+          pe: '<button class="btn btn--branco" data-x>Cancelar</button>'
+        });
+        m.querySelector('[data-x]').addEventListener('click', m.fechar);
+        U.$$('.js-enc-quem', m).forEach(function (b) {
+          b.addEventListener('click', function () {
+            var u = lista.filter(function (x) { return x.id === b.dataset.id; })[0];
+            m.fechar();
+            if (u.senha_hash) pedirSenhaEnc(u); else criarSenhaEnc(u);
+          });
+        });
+      }).catch(function (e) { U.aviso(Banco.explicar ? Banco.explicar(e) : e.message, 'erro', 7000); });
+    });
+    function campoSenha(id, rot) {
+      return '<label class="campo" style="margin-top:8px"><span class="campo__rot">' + rot + '</span>' +
+        '<input class="entrada" id="' + id + '" type="password" inputmode="numeric" autocomplete="off" ' +
+        'style="text-align:center;font-size:24px;letter-spacing:6px"></label>';
+    }
+    function criarSenhaEnc(u) {
+      var m = U.modal({
+        titulo: '🔑 Primeiro acesso — ' + u.nome,
+        html: '<p>Crie a sua senha (mínimo 4 números/letras). Ela é só sua: tudo o que você carregar fica no seu nome.</p>' +
+          campoSenha('es-1', 'Nova senha') + campoSenha('es-2', 'Repita a senha') +
+          '<p id="es-erro" class="aviso aviso--vermelho" hidden></p>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>CRIAR SENHA E ENTRAR</button>',
+        travado: true
+      });
+      var a = m.querySelector('#es-1'), b2 = m.querySelector('#es-2'), er = m.querySelector('#es-erro');
+      setTimeout(function () { try { a.focus(); } catch (e) { } }, 50);
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      function ok() {
+        var s1 = a.value.trim(), s2 = b2.value.trim();
+        if (s1.length < 4) { er.textContent = 'A senha precisa ter pelo menos 4 caracteres.'; er.hidden = false; return; }
+        if (s1 !== s2) { er.textContent = 'As duas senhas não são iguais.'; er.hidden = false; b2.value = ''; b2.focus(); return; }
+        var bt = m.querySelector('[data-ok]'); bt.disabled = true; bt.textContent = 'Salvando…';
+        Banco.cliente.from('usuarios').update({ senha_hash: Enc.hashSenha(u.id, s1) }).eq('id', u.id).select().then(function (r) {
+          if (r.error || !(r.data || []).length) {
+            bt.disabled = false; bt.textContent = 'CRIAR SENHA E ENTRAR';
+            er.innerHTML = r.error && Enc.faltaSQL(r.error) ? 'Falta rodar o <b>encarregados.sql</b> no Supabase.' : 'Não consegui salvar a senha: ' + U.esc((r.error && r.error.message) || 'sem permissão (rode o encarregados.sql)');
+            er.hidden = false; return;
+          }
+          m.fechar();
+          U.aviso('🔑 Senha criada! Guarde bem.', 'ok', 4000);
+          Sessao.entrar(u); mostrarApp(true); irParaCasa();
+        });
+      }
+      m.querySelector('[data-ok]').addEventListener('click', ok);
+      b2.addEventListener('keydown', function (e) { if (e.key === 'Enter') ok(); });
+    }
+    function pedirSenhaEnc(u) {
+      var m = U.modal({
+        titulo: '👷 ' + u.nome,
+        html: campoSenha('es-s', 'Digite a sua senha') + '<p id="es-erro" class="aviso aviso--vermelho" hidden></p>' +
+          '<p class="peq mut" style="margin-top:8px">Esqueceu? Peça para o coordenador zerar a sua senha.</p>',
+        pe: '<button class="btn btn--branco" data-x>Cancelar</button><button class="btn btn--verde" data-ok>ENTRAR</button>'
+      });
+      var c = m.querySelector('#es-s'), er = m.querySelector('#es-erro');
+      setTimeout(function () { try { c.focus(); } catch (e) { } }, 50);
+      m.querySelector('[data-x]').addEventListener('click', m.fechar);
+      function ok() {
+        if (Enc.hashSenha(u.id, c.value.trim()) !== u.senha_hash) {
+          er.textContent = 'Senha incorreta. Tente de novo.'; er.hidden = false; c.value = ''; c.focus(); return;
+        }
+        m.fechar(); Sessao.entrar(u); mostrarApp(true); irParaCasa();
+      }
+      m.querySelector('[data-ok]').addEventListener('click', ok);
+      c.addEventListener('keydown', function (e) { if (e.key === 'Enter') ok(); });
+    }
 
     U.$('#btn-conferente').addEventListener('click', function () {
       /* Busca a lista na hora: se a internet falhou na abertura do app,
