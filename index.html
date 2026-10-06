@@ -1506,6 +1506,10 @@ const Checklist = {
         if (/^(check\s?list|checklist|pedido( de)?( equipamentos| consolidado)?$|pedido consolidado|romaneio|rela[çc][ãa]o|lista(gem)?( de)?)/i.test(l)) return false;
         if (/^pedido de equipamentos/i.test(l)) return false;
         if (/^quantifica[çc][ãa]o\b/i.test(l)) return false;                 /* "QUANTIFICAÇÃO DE MATERIAL" */
+        /* título com letras espaçadas ("Q U A N T I F I C A Ç Ã O D E M A T E R I A L") e "Gerado em ..." */
+        var junto = l.replace(/[\s.]+/g, '');
+        if (/QUANTIFICA[ÇC][ÃA]O(DE)?MATERIAL/i.test(junto)) return false;
+        if (/^GERADOEM\d/i.test(junto) || /^gerado em\b/i.test(l)) return false;
         /* preâmbulo do documento: "CLIENTE: X", "LOCAL - Y", "CARRO -", "DATA MONTAGEM -",
            "RESP. CARREGAMENTO -", "OS", "SALDO E RET..." — dados do cabeçalho, não material */
         if (/^(cliente|local|carro|data|resp\w*|evento|os|o\.s\.?|n[fº°]|nota|saldo|montador|equipe|hor[áa]rio)\b\s*[:\-–]?/i.test(l) &&
@@ -1535,6 +1539,18 @@ const Checklist = {
         if (/^p[áa]gina\s+\d+/i.test(l) || /^\d+\s*\/\s*\d+$/.test(l)) return false;
         return true;
       });
+
+    /* cabeçalho de GRUPO da quantificação ("TRELIÇA Q30", "FERRAGENS"...):
+       linha-título solta antes dos itens não é material. Cai fora quando
+       (a) a linha seguinte começa com ela ("TRELIÇA Q30" → "TRELIÇA Q30 5M 41 UN") ou
+       (b) ela não tem número nenhum e a seguinte é um item completo (termina em "41 UN"). */
+    function itemCompleto(l) { return /\s\d+(?:[.,]\d+)?\s*(UN|UND|P[ÇC]|PC|CX|KG|PAR|RL|PCT|JG|M2|M²|M3|M³)\.?\s*$/i.test(l); }
+    cruas = cruas.filter(function (l, i) {
+      var prox = cruas[i + 1] || '';
+      if (prox.indexOf(l + ' ') === 0) return false;
+      if (!/\d/.test(l) && itemCompleto(prox)) return false;
+      return true;
+    });
 
     var achados = [];
 
@@ -3324,14 +3340,16 @@ function metragemLinear(linhas) {
   function medidaDe(nome) {
     /* tira o código Q30/Q25... para não confundir com metragem */
     var t = semAcento(nome).replace(/\bQ\s?-?\d+\b/g, ' ');
-    var m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:M|MT|MTS|METROS?)\b/) || t.match(/(\d+[.,]\d+)/);
+    var cm = t.match(/(\d+(?:[.,]\d+)?)\s*CM\b/);
+    var m = cm || t.match(/(\d+(?:[.,]\d+)?)\s*(?:M|MT|MTS|METROS?)\b/) || t.match(/(\d+[.,]\d+)/);
     if (!m) return 1;
     var v = parseFloat(m[1].replace(',', '.'));
+    if (cm) v = v / 100;
     if (!(v > 0) || v > 12) return 1;      /* número estranho: conta 1 m */
     return v < 1 ? 1 : v;                  /* abaixo de 1 m conta como 1 m */
   }
   var grupos = {}, total = 0;
-  linhas.forEach(function (l) {
+  (linhas || []).forEach(function (l) {
     var n = semAcento(l.nome);
     if (/SAPATA/.test(n)) return;          /* sapata é listada à parte, fora da metragem */
     var cat = null;
@@ -3345,9 +3363,10 @@ function metragemLinear(linhas) {
     g.m += qtd * mUn; g.qtd += qtd;
     total += qtd * mUn;
   });
+  var ordem = CATS.map(function (c) { return c.k; }).filter(function (k) { return grupos[k]; });
+  metragemLinear._ultimo = { grupos: grupos, total: total, ordem: ordem };
   if (!total) return '';
   function f(v) { return U.fmt(Math.round(v * 100) / 100); }
-  var ordem = CATS.map(function (c) { return c.k; }).filter(function (k) { return grupos[k]; });
   return '<div class="obs" style="border-left-color:#0B4F9E;background:#EEF4FB;margin-top:12px">' +
     '<b>📏 METRAGEM LINEAR (peça abaixo de 1 m conta como 1 m · cubo, sleeve, ângulo, grau e talha = 1 m cada):</b>' +
     '<table style="margin-top:6px">' +
@@ -3365,6 +3384,16 @@ function metragemLinear(linhas) {
     '<tr><td colspan="3" style="font-weight:900;background:#0B4F9E;color:#fff">TOTAL GERAL</td>' +
       '<td class="num" style="font-weight:900;background:#0B4F9E;color:#fff">' + f(total) + ' m</td></tr>' +
     '</table></div>';
+}
+
+/* 📏 resumo compacto da metragem, para mostrar na tela (caixa do checklist do caminhão) */
+function metragemResumo(linhas) {
+  metragemLinear(linhas);   /* só para calcular */
+  var r = metragemLinear._ultimo;
+  if (!r || !r.total) return '';
+  function f(v) { return U.fmt(Math.round(v * 100) / 100); }
+  return '📏 ' + r.ordem.map(function (k) { return k + ' <b>' + f(r.grupos[k].m) + ' m</b>'; }).join(' · ') +
+    ' · TOTAL <b>' + f(r.total) + ' m</b> <span class="mut" style="font-weight:400">(peça &lt;1 m = 1 m · cubo/sleeve/ângulo/grau/talha = 1 m)</span>';
 }
 
 /* 🖨️ CHECKLIST TOTAL do evento — folha para imprimir ou salvar em PDF */
@@ -7260,7 +7289,15 @@ function TelaEvento(eventoId) {
                     '<span>' + U.esc(prod.nome) + '</span>' +
                     '<b style="flex:none">' + U.fmt(pl.quantidade) + ' ' + U.esc(prod.unidade || 'UN') + '</b></div>';
                 }).join('') +
-              '</div></div>'
+              '</div>' +
+              (function () {
+                var r = metragemResumo(planoCg.map(function (pl) {
+                  var prod = p.produtos.filter(function (x) { return x.id === pl.produto_id; })[0];
+                  return prod ? { nome: prod.nome, prevista: pl.quantidade } : null;
+                }).filter(Boolean));
+                return r ? '<div class="peq" style="background:#EEF4FB;color:var(--azul);padding:6px 12px;border-top:1px solid var(--linha)">' + r + '</div>' : '';
+              })() +
+              '</div>'
             : '') +
           ((cg.observacoes || '').trim() || (ehCoord && !eventoFechado)
             ? '<div class="aviso aviso--amarelo" style="margin:10px 14px 0"><span class="aviso__ico">📝</span><div>' +
