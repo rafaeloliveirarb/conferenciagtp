@@ -1058,12 +1058,26 @@ function pecasHTML(p){
     '<table class="pecas"><thead><tr><th>#</th><th>Peça</th><th>Qtd</th><th></th></tr></thead><tbody id="pc-'+p.pid+'">'+
       v.pecas.map(function(it,i){ return linhaPeca(p,i,it); }).join('')+'</tbody></table>';
 }
+/* ⌨️ MEMÓRIA DE DIGITAÇÃO: só o que o coordenador digitou (a partir de 06/10/2026).
+   Fica na nuvem (linha especial da q30_memorias) e vale em todos os computadores. */
+var DIG_ID = '00000000-0000-4000-8000-00000000d161', DIG_NOME = '__DIGITADAS__', CHAVE_DIG = 'quant:q30:digitadas:v2';
+var digitadas = [];
+try{ digitadas = JSON.parse(localStorage.getItem(CHAVE_DIG) || '[]') || []; }catch(e){ digitadas = []; }
+var _digTimer = null;
+function guardarDigitada(n){
+  n = up(n).replace(/\s+/g,' ').trim();
+  if(n.length < 2 || digitadas.indexOf(n) >= 0) return;
+  digitadas.push(n); digitadas.sort(function(a,b){ return a.localeCompare(b,'pt-BR',{numeric:true}); });
+  try{ localStorage.setItem(CHAVE_DIG, JSON.stringify(digitadas)); }catch(e){}
+  sugestoesQ30();
+  clearTimeout(_digTimer);
+  _digTimer = setTimeout(function(){
+    if(nuvem) nuvem.from('q30_memorias').upsert({ id:DIG_ID, nome:DIG_NOME, itens:digitadas.map(function(x){ return {n:x}; }) }).then(function(){}, function(){});
+  }, 800);
+}
 function sugestoesQ30(){
-  var dl=$('q30sug'); if(!dl) return; var vistos=PADRAO_Q30.slice();
-  function pega(n){ n=up(n); if(n && vistos.indexOf(n)<0) vistos.push(n); }
-  memQ30.forEach(function(m){ (m.itens||[]).forEach(function(i){ pega(i.n); }); });
-  st.ambientes.forEach(function(a){ a.produtos.forEach(function(p){ (p.vals.pecas||[]).forEach(function(i){ pega(i.n); }); }); });
-  dl.innerHTML=vistos.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('');
+  var dl=$('q30sug'); if(!dl) return;
+  dl.innerHTML=digitadas.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('');
 }
 function produtoHTML(p){
   var cat=produtoCat(p.prodId), perf=perfilDe(p); if(!cat||!perf) return '';
@@ -1596,8 +1610,22 @@ if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
 preencherMeta();
 desenharAmbientes();
 if(nuvem) nuvem.from('q30_memorias').select('id,nome,itens').order('nome').then(function(r){
-  if(r.error || !r.data) return; memQ30=r.data; desenharAmbientes();
+  if(r.error || !r.data) return;
+  var dig = r.data.filter(function(m){ return m.nome === DIG_NOME; })[0];
+  memQ30 = r.data.filter(function(m){ return m.nome !== DIG_NOME; });
+  if(dig){
+    /* junta o que veio da nuvem com o que foi digitado aqui offline */
+    (dig.itens||[]).forEach(function(i){ var n=up(i.n); if(n && digitadas.indexOf(n)<0) digitadas.push(n); });
+    digitadas.sort(function(a,b){ return a.localeCompare(b,'pt-BR',{numeric:true}); });
+    try{ localStorage.setItem(CHAVE_DIG, JSON.stringify(digitadas)); }catch(e){}
+  }
+  desenharAmbientes();
 }).catch(function(){});
+/* salva a peça quando o coordenador termina de digitar (sai do campo ou escolhe) */
+document.addEventListener('change', function(e){
+  var t=e.target; if(!t || t.dataset.k!=='n' || t.dataset.peca===undefined) return;
+  guardarDigitada(t.value);
+});
 window.__quant = { st:function(){ return st; }, calc:calcularTudo, perfis:PERFIS, catalogo:CATALOGO, listaEnvio:listaEnvio, areasEnvio:areasEnvio,
   motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
 })();
