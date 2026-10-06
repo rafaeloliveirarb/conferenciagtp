@@ -3306,6 +3306,67 @@ function romaneioPagina(p, cg, cadastro) {
   return pagina;
 }
 
+/* 📏 METRAGEM LINEAR de treliça e peças da torre (para o checklist total).
+   Regra da casa: peça de treliça abaixo de 1 m conta como 1 m;
+   cubo, sleeve, ângulo, grau e talha contam 1 m cada; sapata fica de fora. */
+function metragemLinear(linhas) {
+  function semAcento(t) { return String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  /* a peça especial (cubo, sleeve...) ganha da treliça mesmo com "Q30" no nome */
+  var CATS = [
+    { k: 'CUBO', mede: false, re: /\bCUBO/ },
+    { k: 'SLEEVE', mede: false, re: /SLEEVE|SLIVE|SLEVE|SLIVI/ },
+    { k: 'PAU DE CARGA', mede: true, re: /PAU DE CARGA/ },
+    { k: 'TALHA', mede: false, re: /\bTALHA/ },
+    { k: 'ÂNGULO', mede: false, re: /\bANGULO/ },
+    { k: 'GRAU', mede: false, re: /\bGRAUS?\b/ },
+    { k: 'TRELIÇA', mede: true, re: /\bQ\s?-?(15|25|30|40|50)\b|TRELIC|BOX ?TRUSS/ }
+  ];
+  function medidaDe(nome) {
+    /* tira o código Q30/Q25... para não confundir com metragem */
+    var t = semAcento(nome).replace(/\bQ\s?-?\d+\b/g, ' ');
+    var m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:M|MT|MTS|METROS?)\b/) || t.match(/(\d+[.,]\d+)/);
+    if (!m) return 1;
+    var v = parseFloat(m[1].replace(',', '.'));
+    if (!(v > 0) || v > 12) return 1;      /* número estranho: conta 1 m */
+    return v < 1 ? 1 : v;                  /* abaixo de 1 m conta como 1 m */
+  }
+  var grupos = {}, total = 0;
+  linhas.forEach(function (l) {
+    var n = semAcento(l.nome);
+    if (/SAPATA/.test(n)) return;          /* sapata é listada à parte, fora da metragem */
+    var cat = null;
+    for (var i = 0; i < CATS.length; i++) if (CATS[i].re.test(n)) { cat = CATS[i]; break; }
+    if (!cat) return;
+    var qtd = U.num(l.prevista) || 0;
+    if (!(qtd > 0)) return;
+    var mUn = cat.mede ? medidaDe(l.nome) : 1;
+    var g = grupos[cat.k] || (grupos[cat.k] = { itens: [], m: 0, qtd: 0 });
+    g.itens.push({ nome: l.nome, qtd: qtd, mUn: mUn, m: qtd * mUn });
+    g.m += qtd * mUn; g.qtd += qtd;
+    total += qtd * mUn;
+  });
+  if (!total) return '';
+  function f(v) { return U.fmt(Math.round(v * 100) / 100); }
+  var ordem = CATS.map(function (c) { return c.k; }).filter(function (k) { return grupos[k]; });
+  return '<div class="obs" style="border-left-color:#0B4F9E;background:#EEF4FB;margin-top:12px">' +
+    '<b>📏 METRAGEM LINEAR (peça abaixo de 1 m conta como 1 m · cubo, sleeve, ângulo, grau e talha = 1 m cada):</b>' +
+    '<table style="margin-top:6px">' +
+    ordem.map(function (k) {
+      var g = grupos[k];
+      return g.itens.map(function (it, i) {
+        return '<tr>' + (i === 0 ? '<td style="width:120px;font-weight:800" rowspan="' + g.itens.length + '">' + k + '</td>' : '') +
+          '<td>' + U.esc(it.nome) + '</td>' +
+          '<td class="num" style="font-weight:400">' + U.fmt(it.qtd) + ' un \u00D7 ' + f(it.mUn) + ' m</td>' +
+          '<td class="num" style="width:80px">' + f(it.m) + ' m</td></tr>';
+      }).join('') +
+      '<tr><td></td><td style="font-weight:800">Total ' + k + ' \u00B7 ' + U.fmt(g.qtd) + ' un</td><td></td>' +
+        '<td class="num" style="font-weight:800">' + f(g.m) + ' m</td></tr>';
+    }).join('') +
+    '<tr><td colspan="3" style="font-weight:900;background:#0B4F9E;color:#fff">TOTAL GERAL</td>' +
+      '<td class="num" style="font-weight:900;background:#0B4F9E;color:#fff">' + f(total) + ' m</td></tr>' +
+    '</table></div>';
+}
+
 /* 🖨️ CHECKLIST TOTAL do evento — folha para imprimir ou salvar em PDF */
 function imprimirChecklistTotal(p) {
   var ev = p.evento;
@@ -3350,6 +3411,7 @@ function imprimirChecklistTotal(p) {
     (temSaida
       ? '<p class="peq-note">"Saiu" soma todas as confer\u00EAncias de sa\u00EDda finalizadas ou em andamento do evento.</p>'
       : '<p class="peq-note">Use a coluna SEPARADO para marcar o material conforme for separado no galp\u00E3o.</p>') +
+    metragemLinear(linhas) +
     '<div class="asss">' +
       '<div class="ass"><span></span>CONFERENTE</div>' +
       '<div class="ass"><span></span>COORDENADOR</div>' +
