@@ -584,6 +584,18 @@
 
   carregar();
   setInterval(carregar, 60000);
+  /* 2.0 AO VIVO: mudou no banco → a TV atualiza em 2 s (o relógio de 1 min fica de reserva) */
+  try {
+    var tvTimer = null;
+    var canalTv = cli.channel('tv-ao-vivo');
+    ['eventos', 'carregamentos', 'conferencias', 'patio_demanda', 'patio_tarefas', 'patio_presenca', 'patio_colaboradores', 'carga_encarregado']
+      .forEach(function (t) {
+        canalTv.on('postgres_changes', { event: '*', schema: 'public', table: t }, function () {
+          clearTimeout(tvTimer); tvTimer = setTimeout(carregar, 2000);
+        });
+      });
+    canalTv.subscribe();
+  } catch (e) { /* sem tempo real: segue no relógio */ }
 
   /* ---------- ⛶ tela cheia ----------
      O navegador só deixa entrar em tela cheia depois de um toque/tecla.

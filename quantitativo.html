@@ -1458,7 +1458,11 @@ $('bAbrir').addEventListener('click', function(){
     .catch(function(e){ console.error(e); $('mCorpo').innerHTML='<div class="msg erro">'+(semTabela(e)?'Falta rodar o <b>quantitativo.sql</b> no Supabase.':'Não consegui falar com a nuvem. Tente de novo.')+'</div>'; });
 });
 $('mCorpo').addEventListener('click', function(e){
-  var t=e.target.closest('[data-abre],[data-apaga],[data-ev],[data-novo]'); if(!t) return;
+  var t=e.target.closest('[data-abre],[data-apaga],[data-ev],[data-novo],[data-cg]'); if(!t) return;
+  if(t.dataset.cg!==undefined && envPend){
+    Array.prototype.forEach.call(document.querySelectorAll('#mCorpo button'), function(b){ b.disabled=true; });
+    var ep=envPend; envPend=null; enviarPara(ep.eventoId, ep.nome, t.dataset.cg); return;
+  }
   if(t.dataset.abre!==undefined){
     nuvem.from('quant_material').select('dados').eq('id', t.dataset.abre).then(function(r){
       if(r.error) throw r.error;
@@ -1537,15 +1541,36 @@ function confirmarEnvio(btn, eventoId, nome){
     btn.querySelector('span').textContent='⚠ Esta quantificação JÁ FOI ENVIADA para este evento. Tocar de novo SOMA TUDO DE NOVO no checklist.';
     return;
   }
-  Array.prototype.forEach.call(document.querySelectorAll('#mCorpo button'), function(b){ b.disabled=true; });
-  enviarPara(eventoId, nome);
+  escolherCaminhao(eventoId, nome);
+}
+/* 🔗 2.0: escolhe para qual CAMINHÃO vai (o checklist do caminhão vai direto para o encarregado) */
+var envPend=null;
+function escolherCaminhao(eventoId, nome){
+  envPend={ eventoId:eventoId, nome:nome };
+  $('mCorpo').innerHTML='<div class="msg info">Buscando os caminhões de "'+esc(nome)+'"…</div>';
+  Promise.all([
+    nuvem.from('carregamentos').select('id,numero,nome,sentido,status,caminhao_id').eq('evento_id', eventoId),
+    nuvem.from('caminhoes').select('id,tipo,placa')
+  ]).then(function(rr){
+    var cgs=((rr[0]&&rr[0].data)||[]).filter(function(c){ return c.sentido!=='retorno' && c.status!=='Saída finalizada'; })
+      .sort(function(a,b){ return (a.numero||0)-(b.numero||0); });
+    var cams=(rr[1]&&rr[1].data)||[];
+    function camNome(id){ var c=cams.filter(function(x){ return x.id===id; })[0]; return c ? [c.tipo,c.placa].filter(Boolean).join(' · ') : 'caminhão a definir'; }
+    var h='<div class="msg info"><b>'+esc(nome)+'</b> — para qual <b>caminhão</b> vai esse material? O checklist do caminhão já cai no painel do encarregado para separar.</div>';
+    h+=cgs.map(function(c){
+      return '<button class="esc" type="button" data-cg="'+esc(c.id)+'"><b>🚚 Carregamento '+(c.numero||'?')+(c.nome?' · '+esc(c.nome):'')+'</b><span>'+esc(camNome(c.caminhao_id))+' · '+esc(c.status||'')+'</span></button>';
+    }).join('');
+    h+='<button class="esc novo" type="button" data-cg="novo"><b>➕ NOVO CARREGAMENTO</b><span>cria o caminhão '+(cgs.reduce(function(m,c){ return Math.max(m,c.numero||0); },0)+1)+' (o caminhão/placa escolhe depois na Central)</span></button>';
+    h+='<button class="esc" type="button" data-cg=""><b>📋 SÓ NO CHECKLIST DO EVENTO</b><span>divido nos caminhões depois, na Central</span></button>';
+    $('mCorpo').innerHTML=h;
+  }).catch(function(e){ console.error(e); enviarPara(eventoId, nome, ''); });
 }
 function criarEventoEEnviar(btn){
   btn.disabled=true;
   nuvem.from('eventos').insert({ nome: st.evento, cliente:'', local:'', data: st.data || new Date().toISOString().slice(0,10),
     conferente_id:null, status:'Aguardando conferência' }).select().then(function(r){
     if(r.error || !(r.data||[])[0]) throw (r.error || new Error('sem retorno'));
-    enviarPara(r.data[0].id, r.data[0].nome);
+    escolherCaminhao(r.data[0].id, r.data[0].nome);
   }).catch(function(e){ console.error(e); btn.disabled=false; toast('Não consegui criar o evento. Tente de novo.','erro'); });
 }
 function chaveNome(n){ return up(n); }
@@ -1564,8 +1589,9 @@ function gravaAreas(eventoId){
     return nuvem.from('q30_areas').insert({ evento_id:eventoId, dados:novas }).then(function(r2){ if(r2.error) throw r2.error; });
   });
 }
-function enviarPara(eventoId, nomeEv){
+function enviarPara(eventoId, nomeEv, cgEscolha){
   var lista=listaEnvio();
+  var cgTxt='';
   $('mCorpo').insertAdjacentHTML('afterbegin','<div class="msg info" id="envStatus">Enviando o checklist…</div>');
   var guiaOk=true;
   gravaAreas(eventoId).catch(function(e){ console.error(e); guiaOk=false; })
@@ -1583,11 +1609,12 @@ function enviarPara(eventoId, nomeEv){
     if(novos.length) passos.push(nuvem.from('produtos').insert(novos).then(function(r2){ if(r2.error) throw r2.error; }));
     return Promise.all(passos);
   })
+  .then(function(){ return cgEscolha ? mandarProCaminhao(eventoId, cgEscolha, lista).then(function(t){ cgTxt=t; }) : null; })
   .then(function(){
     st.envios.push({ eventoId:eventoId, eventoNome:nomeEv, em:new Date().toISOString(), itens:lista.length });
     if(!st.evento) st.evento=up(nomeEv);
     preencherMeta(); salvarLocal(); salvarNuvem(true); recalcular();
-    $('mCorpo').innerHTML='<div class="msg ok">✓ Enviado para "'+esc(nomeEv)+'": '+lista.length+' itens no checklist.'+
+    $('mCorpo').innerHTML='<div class="msg ok">✓ Enviado para "'+esc(nomeEv)+'": '+lista.length+' itens no checklist.'+(cgTxt?'<br>🚚 '+cgTxt+' — já está no painel do encarregado.':'')+
       (guiaOk?'<br>O separado por ambiente já aparece na página do produtor como guia de montagem.':'')+'</div>'+
       (guiaOk?'':'<div class="msg erro">O guia por ambiente não foi gravado (falta a tabela q30_areas). O checklist foi enviado normalmente.</div>');
     $('mPe').innerHTML='<button class="btn b-verde" type="button" id="mFechar">OK</button>'; $('mFechar').onclick=fecharModal;
@@ -1598,6 +1625,36 @@ function enviarPara(eventoId, nomeEv){
     var s=$('envStatus'); if(s){ s.className='msg erro'; s.textContent='Não consegui enviar. Verifique a internet e tente de novo.'; }
     Array.prototype.forEach.call(document.querySelectorAll('#mCorpo button'), function(b){ b.disabled=false; });
   });
+}
+
+/* coloca os itens no plano do caminhão (soma se o item já estiver lá) */
+function mandarProCaminhao(eventoId, cgEscolha, lista){
+  var cgId=cgEscolha, numero=null;
+  var passo = cgEscolha==='novo'
+    ? nuvem.from('carregamentos').select('numero').eq('evento_id', eventoId).then(function(r){
+        numero=((r.data||[]).reduce(function(m,c){ return Math.max(m,c.numero||0); },0))+1;
+        return nuvem.from('carregamentos').insert({ evento_id:eventoId, numero:numero, sentido:'saida', status:'Saída pendente' }).select();
+      }).then(function(r){ if(r.error||!(r.data||[])[0]) throw (r.error||new Error('sem caminhão')); cgId=r.data[0].id; })
+    : nuvem.from('carregamentos').select('numero').eq('id', cgId).then(function(r){ numero=((r.data||[])[0]||{}).numero; });
+  return passo.then(function(){
+    return Promise.all([
+      nuvem.from('produtos').select('id,nome').eq('evento_id', eventoId),
+      nuvem.from('itens_carregamento').select('*').eq('carregamento_id', cgId)
+    ]);
+  }).then(function(rr){
+    if(rr[0].error) throw rr[0].error;
+    var idPorNome={}; (rr[0].data||[]).forEach(function(p){ idPorNome[chaveNome(p.nome)]=p.id; });
+    var planoPorProd={}; ((rr[1]&&rr[1].data)||[]).forEach(function(pl){ planoPorProd[pl.produto_id]=pl; });
+    var passos=[], novos=[];
+    lista.forEach(function(it){
+      var pid=idPorNome[chaveNome(it.nome)]; if(!pid) return;
+      var ja=planoPorProd[pid];
+      if(ja) passos.push(nuvem.from('itens_carregamento').update({ quantidade:(Number(ja.quantidade)||0)+it.qtd }).eq('id', ja.id));
+      else novos.push({ carregamento_id:cgId, produto_id:pid, quantidade:it.qtd });
+    });
+    if(novos.length) passos.push(nuvem.from('itens_carregamento').insert(novos));
+    return Promise.all(passos);
+  }).then(function(){ return 'Carregamento '+(numero||'')+' com '+lista.length+' itens'; });
 }
 
 /* ================================================================
