@@ -252,6 +252,12 @@
       lista(cli.from("itens_carregamento").select("carregamento_id,produto_id,quantidade")).catch(function () { return []; }),
       lista(cli.from("carga_encarregado").select("*").gte("em", hojeISO(-15))).catch(function () { return []; })
     ]).then(function (rr) {
+      (rr[7] || []).forEach(function (t) {
+        if (t && t.obs && /§FIM§\d{4}-\d{2}-\d{2}§/.test(t.obs)) {
+          if (!t.data_fim) t.data_fim = t.obs.match(/§FIM§(\d{4}-\d{2}-\d{2})§/)[1];
+          t.obs = t.obs.replace(/\s*§FIM§\d{4}-\d{2}-\d{2}§/g, "").trim() || null;
+        }
+      });
       D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8], planos: rr[9], sep: rr[10] };
       desenhar();
       $("erro").hidden = true;
