@@ -80,6 +80,8 @@
   .chip.ruim{border-color:var(--vermelho);color:var(--vermelho)}
   .chip.st-FOLGA{border-color:var(--azul);color:var(--azul)}
   .chip.st-OUTRO{border-color:var(--vermelho);color:var(--vermelho)}
+  .cam{margin-top:7px;padding:6px 8px;border-radius:9px;background:#101830;font-size:15px}
+  .cam.saiu{opacity:.65}
   .equipe{margin-top:6px;font-size:14.5px;color:#C9D6F2}
   .equipe b{color:var(--txt)}
   .equipe.sem{color:var(--vermelho);font-weight:900}
@@ -238,7 +240,7 @@
     Promise.all([
       lista(cli.from("eventos").select("id,nome,cliente,local,data,data_desmontagem,data_desmontagem_fim,status")),
       lista(cli.from("carregamentos").select("id,evento_id,numero,nome,sentido,caminhao_id,cavalo_id")),
-      lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,finalizada_em")),
+      lista(cli.from("conferencias").select("id,evento_id,carregamento_id,tipo,finalizada_em,status")),
       lista(cli.from("caminhoes").select("id,tipo,placa")),
       lista(cli.from("patio_colaboradores").select("id,nome,ativo")).catch(function () { return []; }),
       lista(cli.from("patio_presenca").select("data,colaborador_id,status,obs")
@@ -246,9 +248,11 @@
       lista(cli.from("patio_demanda").select("*")).then(function (l) { return l.map(abrirPacote); }).catch(function () { return []; }),
       lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
         .gte("data", hojeISO(-30)).lte("data", hojeISO(7))).catch(function () { return []; }),
-      presencaMes().catch(function () { return []; })
+      presencaMes().catch(function () { return []; }),
+      lista(cli.from("itens_carregamento").select("carregamento_id,produto_id,quantidade")).catch(function () { return []; }),
+      lista(cli.from("carga_encarregado").select("*").gte("em", hojeISO(-15))).catch(function () { return []; })
     ]).then(function (rr) {
-      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8] };
+      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8], planos: rr[9], sep: rr[10] };
       desenhar();
       $("erro").hidden = true;
       $("atualizado").textContent = "atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
@@ -338,8 +342,61 @@
     $("c-folga").innerHTML = hFolga;
     $("n-folga").textContent = totFolgaHoje + " hoje";
 
-    /* ---- 🚚 CARREGAMENTO: hoje + próximos dias ---- */
+    /* ---- 🦺 2.0: separação do encarregado + conferência de cada caminhão ---- */
+    function sepDe(cgId) {
+      var plano = {}; (D.planos || []).forEach(function (p) { if (p.carregamento_id === cgId) plano[p.produto_id] = Number(p.quantidade) || 0; });
+      var pids = Object.keys(plano);
+      if (!pids.length) return null;
+      var pp = {}, conc = false, mexeu = false;
+      (D.sep || []).filter(function (r) { return r.carregamento_id === cgId; })
+        .sort(function (a, b) { return String(a.em).localeCompare(String(b.em)); })
+        .forEach(function (r) {
+          var x = r.produto_id ? (pp[r.produto_id] = pp[r.produto_id] || { q: 0, k: 0, falta: false }) : null;
+          if (r.acao === "carregou" || r.acao === "falta") { mexeu = true; x.q = Number(r.qtd) || 0; if (r.acao === "falta") x.falta = true; }
+          else if (r.acao === "desfez") { x.q = 0; x.k = 0; x.falta = false; }
+          else if (r.acao === "composto") { mexeu = true; x.k = Number(r.qtd) || 0; }
+          else if (r.acao === "concluiu") conc = true;
+          else if (r.acao === "reabriu") conc = false;
+        });
+      var ok = 0, faltas = 0;
+      pids.forEach(function (pid) { var x = pp[pid]; if (!x) return; if (x.falta) faltas++; if (x.q + x.k >= plano[pid] || x.falta) ok++; });
+      return { pct: Math.round(ok / pids.length * 100), conc: conc, mexeu: mexeu, faltas: faltas };
+    }
+    function chipsCam(cg) {
+      var cS = D.confs.filter(function (c) { return c.carregamento_id === cg.id && c.tipo === "saida"; })[0];
+      var saiu = !!(cS && cS.finalizada_em), div = saiu && cS.status === "Com divergência";
+      var sp = sepDe(cg.id);
+      var sepChip = saiu ? "" : !sp ? '<span class="chip">🦺 sem checklist</span>'
+        : sp.conc ? '<span class="chip ok">🦺 SEPARADO</span>'
+        : sp.mexeu ? '<span class="chip pend">🦺 SEPARANDO ' + sp.pct + "%</span>"
+        : '<span class="chip">🦺 NÃO COMEÇOU</span>';
+      var falta = !saiu && sp && sp.faltas ? '<span class="chip ruim">❌ ' + sp.faltas + " FALTA" + (sp.faltas > 1 ? "S" : "") + "</span>" : "";
+      var conf = div ? '<span class="chip ruim">⚠ SAIU COM DIVERGÊNCIA</span>'
+        : saiu ? '<span class="chip ok">✓ SAIU</span>'
+        : cS ? '<span class="chip pend">📋 CONFERINDO</span>'
+        : '<span class="chip">📋 AGUARDA CONFERÊNCIA</span>';
+      return '<div class="cam' + (saiu ? " saiu" : "") + '"><b>🚛 ' + esc(nomeCam(cg)) + "</b><br>" + sepChip + falta + conf + "</div>";
+    }
+    function cgsSaida(evId) { return D.cgs.filter(function (c) { return c.evento_id === evId && c.sentido !== "retorno"; }); }
+    function saiuCg(cg) { return D.confs.some(function (c) { return c.carregamento_id === cg.id && c.tipo === "saida" && c.finalizada_em; }); }
+
+    /* ---- 🚚 CARREGAMENTO: atrasados + hoje + próximos dias ---- */
     var hCarga = "", totCarga = 0;
+    var atrasC = D.eventos.filter(function (e) {
+      var dc = dataDem(e, "carregamento");
+      if (!aberto(e) || !dc || dc >= hoje) return false;
+      var cs = cgsSaida(e.id);
+      return cs.length && cs.some(function (cg) { return !saiuCg(cg); });
+    });
+    if (atrasC.length) {
+      hCarga += '<div class="dia hoje">⏰ CARREGAMENTO ATRASADO</div>';
+      atrasC.forEach(function (e) {
+        totCarga++;
+        avisos.push("🚚 Carregamento atrasado: " + e.nome + " (era " + fmtData(dataDem(e, "carregamento")) + ")");
+        hCarga += '<div class="card ruim"><b class="tit">' + esc(e.nome) + '</b><div class="sub">era ' + fmtData(dataDem(e, "carregamento")) + "</div>" +
+          cgsSaida(e.id).filter(function (cg) { return !saiuCg(cg); }).map(chipsCam).join("") + "</div>";
+      });
+    }
     for (var j = 0; j <= DIAS_FRENTE; j++) {
       var dj = hojeISO(j);
       var evs = D.eventos.filter(function (e) { return aberto(e) && dataDem(e, "carregamento") === dj; });
@@ -355,10 +412,10 @@
         hCarga += '<div class="card' + (!eq.length ? " ruim" : "") + '">' +
           '<b class="tit">' + esc(e.nome) + "</b>" +
           '<div class="sub">' + [e.cliente, e.local].filter(Boolean).map(esc).join(" · ") + "</div>" +
-          (cgsE.length ? cgsE.map(function (cg) {
-            var saiu = D.confs.some(function (c) { return c.carregamento_id === cg.id && c.tipo === "saida" && c.finalizada_em; });
+          (cgsE.length ? (j <= 1 ? cgsE.map(chipsCam).join("") : cgsE.map(function (cg) {
+            var saiu = saiuCg(cg);
             return '<span class="chip ' + (saiu ? "ok" : "pend") + '">' + (saiu ? "✓ " : "") + esc(nomeCam(cg)) + (saiu ? " SAIU" : "") + "</span>";
-          }).join("") : '<span class="chip ruim">SEM CAMINHÃO</span>') +
+          }).join("")) : '<span class="chip ruim">SEM CAMINHÃO</span>') +
           chipMudou(e, "carregamento") +
           linhaEquipe(eq) +
           (dem && dem.obs ? '<div class="sub">📝 ' + esc(dem.obs) + "</div>" : "") +
