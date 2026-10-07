@@ -246,7 +246,7 @@
       lista(cli.from("patio_presenca").select("data,colaborador_id,status,obs")
         .gte("data", hojeISO(0)).lte("data", hojeISO(DIAS_FRENTE))).catch(function () { return []; }),
       lista(cli.from("patio_demanda").select("*")).then(function (l) { return l.map(abrirPacote); }).catch(function () { return []; }),
-      lista(cli.from("patio_tarefas").select("id,data,titulo,obs,colaboradores,urgente,feita")
+      lista(cli.from("patio_tarefas").select("*")
         .gte("data", hojeISO(-30)).lte("data", hojeISO(7))).catch(function () { return []; }),
       presencaMes().catch(function () { return []; }),
       lista(cli.from("itens_carregamento").select("carregamento_id,produto_id,quantidade")).catch(function () { return []; }),
@@ -469,13 +469,16 @@
 
     /* ---- 📝 TAREFAS: atrasadas + hoje + próximos ---- */
     var hTar = "", feitasHoje = 0, totHoje = 0;
-    var tAtras = D.tarefas.filter(function (t) { return !t.feita && String(t.data).slice(0, 10) < hoje; })
-      .sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
+    function iniT(t) { return String(t.data || "").slice(0, 10); }
+    function fimT(t) { var f = String(t.data_fim || "").slice(0, 10); return f && f > iniT(t) ? f : iniT(t); }
+    var tAtras = D.tarefas.filter(function (t) { return !t.feita && fimT(t) < hoje; })
+      .sort(function (a, b) { return fimT(a).localeCompare(fimT(b)); });
     function cardTarefa(t, atrasada) {
       var quem = (t.colaboradores || []).map(nomeDe).filter(Boolean);
       return '<div class="card' + (t.feita ? " feita" : (t.urgente || atrasada) ? " ruim" : "") + '">' +
         '<b class="tit">' + (t.feita ? "✓ " : t.urgente ? "🔴 " : "") + esc(t.titulo) + "</b>" +
-        (atrasada ? '<span class="chip ruim">ATRASADA · era para ' + fmtData(t.data) + "</span>" : "") +
+        (atrasada ? '<span class="chip ruim">ATRASADA · era para ' + fmtData(fimT(t)) + "</span>" : "") +
+        (fimT(t) !== iniT(t) ? '<span class="chip">📅 ' + fmtData(iniT(t)).slice(0, 5) + " a " + fmtData(fimT(t)).slice(0, 5) + "</span>" : "") +
         (t.obs ? '<div class="sub">' + esc(t.obs) + "</div>" : "") +
         linhaEquipe(quem) + "</div>";
     }
@@ -485,7 +488,7 @@
     }
     for (var m = 0; m <= DIAS_FRENTE; m++) {
       var dm = hojeISO(m);
-      var tf = D.tarefas.filter(function (t) { return String(t.data).slice(0, 10) === dm; })
+      var tf = D.tarefas.filter(function (t) { return iniT(t) === dm || (m === 0 && iniT(t) <= dm && dm <= fimT(t)); })
         .sort(function (a, b) { return (a.feita ? 1 : 0) - (b.feita ? 1 : 0) || (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0); });
       if (m === 0) { totHoje = tf.length; feitasHoje = tf.filter(function (t) { return t.feita; }).length; }
       if (!tf.length) continue;

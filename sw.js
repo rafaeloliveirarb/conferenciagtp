@@ -2,7 +2,7 @@
    - páginas (.html): busca na internet primeiro; sem sinal, abre a última cópia
    - bibliotecas (cdn): usa a cópia guardada e atualiza por trás
    - banco (supabase): NUNCA guarda — sempre ao vivo */
-var VERSAO = 'gtp-v2-5';
+var VERSAO = 'gtp-v2-7';
 var CASCA = ['./', './index.html', './tv.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
 
 self.addEventListener('install', function (e) {
