@@ -36,8 +36,11 @@
   .num{font-variant-numeric:tabular-nums}
   .wrap{max-width:1060px;margin:0 auto;padding-inline:16px;padding-block:0 44px}
 
-  .topo{background:var(--azul);color:#fff;margin-inline:-16px;padding:16px;
+  .topo{background:var(--azul);color:#fff;padding:16px;
         padding-top:calc(16px + env(safe-area-inset-top,0px))}
+  body{overflow-x:clip}
+  .folha{overflow-x:auto}
+  #rolo{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .topo-in{max-width:1028px;margin:0 auto;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between}
   .marca{display:flex;align-items:center;gap:12px}
   .barras{display:flex;gap:3px;align-items:flex-end;height:30px}
@@ -241,6 +244,15 @@
     .linha{flex-wrap:wrap}
     .linha .nm{flex:1 1 60%}
     .trilho .vaomem{margin-left:0;width:100%;text-align:left}
+  }
+  @media (max-width:560px){
+    table.planilha{min-width:0}
+    table.planilha th.q,table.planilha td.q{width:84px}
+    .marca h1{font-size:19px}
+    .placar .n{font-size:28px}
+    .topo-in{gap:8px}
+    .ficha{grid-template-columns:1fr}
+    .previaBarra{flex-wrap:wrap;gap:8px}
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 

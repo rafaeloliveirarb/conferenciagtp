@@ -124,6 +124,26 @@
   @keyframes passa{to{transform:translateX(-100%)}}
   .erro{position:absolute;top:118px;left:28px;right:28px;background:rgba(255,90,78,.15);
     border:1px solid var(--vermelho);border-radius:12px;padding:10px 16px;color:#FFB4AE;font-weight:800;z-index:5}
+  /* 📱 no celular: 2 colunas (ou 1 bem estreito), topo menor */
+  @media (max-width:760px){
+    .painel{grid-template-columns:1fr 1fr;padding:10px 12px;gap:10px;inset:86px 0 48px}
+    .topo{padding:10px 12px 8px;gap:8px}
+    .topo h1{font-size:19px}
+    .topo h1 small{font-size:11px}
+    .relogio{font-size:28px}
+    .atua{font-size:10px}
+    .col h2{font-size:14px;letter-spacing:.5px}
+    .col h2 .n{font-size:12px;padding:1px 9px}
+    .card b.tit{font-size:15px}
+    .card .sub{font-size:12px}
+    .chip{font-size:11px;padding:1px 7px}
+    .painel.solo .col.on .rolo{column-count:1}
+    .painel.solo .col.on h2{font-size:20px}
+    .painel.solo .col.on .card b.tit{font-size:17px}
+  }
+  @media (max-width:430px){
+    .painel{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
