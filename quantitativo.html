@@ -709,6 +709,8 @@ function calcAluminio(v){
   var cavML = escoras*2 + e.cav;
   var gc={g250:0,g125:0,ac:0,am:0}; if(v.guardaCorpo && v.guardaCorpo.ativo){ gc.g250=int(v.guardaCorpo.g250); gc.g125=int(v.guardaCorpo.g125); gc.ac=int(v.guardaCorpo.ac); gc.am=int(v.guardaCorpo.am); }
   var g='Piso Alumínio';
+  var placas=fl(L/1.25)*fl(C/1.25);   /* uma placa 1,25×1,25 por módulo coberto */
+  M(m,g,'Placas 1,25 × 1,25',Math.ceil(placas));
   M(m,g,'Grades',Math.ceil(grades)); M(m,g,'Trancas',Math.ceil(trancas)); M(m,g,'Taipais de Piso',Math.ceil(taipais));
   M(m,g,'Pés ('+peAluminio(alt)+')',Math.ceil(pes)); M(m,g,'Cavilha de Rodar',Math.ceil(pes));
   if(escoras>0) M(m,g,'Escoras',escoras);
@@ -719,7 +721,7 @@ function calcAluminio(v){
   if(gc.g250>0) M(m,g,'Guarda Corpo 2,50m',gc.g250); if(gc.g125>0) M(m,g,'Guarda Corpo 1,25m',gc.g125);
   if(gc.ac>0) M(m,g,'Aplique de Canto',gc.ac); if(gc.am>0) M(m,g,'Aplique de Meio',gc.am);
   if(v.lycra){ var ly=Math.round(((L*2)+(C*2))*1.1*100)/100; if(ly>0) M(m,g,'Lycra',ly,'m'); }
-  return { area:area, materiais:m, info: fmt(area)+' m² · '+fmt(taipais)+' taipais · '+peAluminio(alt)+(avisos.length?' · '+avisos.join(' · '):'') };
+  return { area:area, materiais:m, info: '📐 '+fmt(area)+' m² de cobertura · 🔲 '+fmt(placas)+' placas 1,25×1,25 · '+peAluminio(alt)+(avisos.length?' · '+avisos.join(' · '):'') };
 }
 
 /* ---------- EQUIPAMENTOS / FERRAMENTAS (não vão para o checklist: o conferente lança no carregamento) ---------- */
@@ -1500,7 +1502,7 @@ function areasEnvio(){
     var its=[], tot=0;
     a.itens.forEach(function(m){ if(fora(m) || m.grupo==='Ferramentas') return;
       its.push({ n: nomeCk(m.nome) + (m.unidade!=='un' ? ' ('+up(m.unidade)+')' : ''), q: Math.round(m.qtd*100)/100 }); tot+=m.unidade==='un'?m.qtd:0; });
-    return { nome: up(a.nome), itens: its, total: Math.round(tot*100)/100, origem:'material' };
+    return { nome: up(a.nome), itens: its, total: Math.round(tot*100)/100, area: Math.round((a.area||0)*100)/100, origem:'material' };
   }).filter(function(a){ return a.itens.length; });
 }
 function abrirEnvio(){

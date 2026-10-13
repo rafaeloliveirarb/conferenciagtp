@@ -607,6 +607,7 @@ function cartaoAreasQ30() {
       '<p class="peq mut" style="margin:0 0 10px">Onde cada peça vai. É só um guia — a conferência continua sendo pelo caminhão.</p>' +
       areasQ30.map(function (a) {
         return '<div class="q30bloco"><header>' + esc(a.nome) + '</header>' +
+          (a.area > 0 ? '<div class="it" style="background:#EAF2FD;font-weight:800;color:var(--azul)"><span>📐 Área de cobertura</span><b>' + fmt(a.area) + ' m²</b></div>' : '') +
           (a.itens || []).map(function (it) {
             return '<div class="it"><span>' + esc(it.n) + '</span><b>' + fmt(it.q) + '</b></div>';
           }).join('') +
