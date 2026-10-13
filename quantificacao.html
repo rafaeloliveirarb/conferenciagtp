@@ -1366,35 +1366,32 @@
   // regras usadas tanto na prévia (com prefixo) quanto na janela de impressão
   var REGRAS = [
     ["*","box-sizing:border-box"],
-    ["body","margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#000;background:#fff;" +
+    ["body","margin:0;font:11px/1.45 'Segoe UI',Arial,sans-serif;color:#17202B;background:#fff;" +
             "-webkit-print-color-adjust:exact;print-color-adjust:exact"],
-    [".folha","color:#000;background:#fff;font-family:Arial,Helvetica,sans-serif"],
-    [".topo","display:flex;justify-content:space-between;align-items:flex-end;gap:12px;" +
-             "background:transparent;color:#000;border:0;border-radius:0;margin:0 0 8px;padding:0 0 6px;" +
-             "border-bottom:3px solid #F28C28"],
-    [".topo b","font-size:15px;color:#1F3A6E;letter-spacing:.04em;border-left:5px solid #F28C28;" +
-               "padding-left:8px;font-family:Arial,Helvetica,sans-serif"],
-    [".topo span","font-size:14px;font-weight:bold;text-align:right;color:#000"],
-    [".sub","margin:0 0 10px;font-size:10px;color:#555;letter-spacing:.04em"],
-    ["table.t","border-collapse:collapse;width:100%"],
-    ["table.t th,table.t td","border:1px solid #9AA6B8;padding:5px 8px;text-align:right;white-space:nowrap"],
-    ["table.t th.l,table.t td.l","text-align:left"],
-    ["table.t thead th","background:#1F3A6E;color:#fff;font-size:10px;letter-spacing:.04em"],
-    ["table.t tbody th","background:#fff;font-size:11.5px;padding:6px 8px"],
-    ["table.t tbody tr:nth-child(even) th,table.t tbody tr:nth-child(even) td","background:#F4F7FB"],
-    ["table.t td.big","font-size:13px;font-weight:bold;width:130px"],
-    ["table.t tfoot th,table.t tfoot td","background:#1F3A6E;color:#fff;font-weight:bold"],
-    ["table.t tfoot td.tt","background:#F28C28;color:#000;font-size:14px"],
+    [".folha","color:#17202B;background:#fff;font:11px/1.45 'Segoe UI',Arial,sans-serif"],
+    [".cab","display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #F57C00;padding-bottom:9px;margin-bottom:14px"],
+    [".marca","font-size:19px;font-weight:900;color:#0B4F9E"],
+    [".marca small","display:block;font-size:9px;color:#8695A6;letter-spacing:2.5px;font-weight:600"],
+    [".info","text-align:right"],
+    [".info b","display:block;font-size:14px;color:#0B4F9E;text-transform:uppercase"],
+    [".info span","display:block;font-size:10px;color:#5A6B7D"],
+    ["h2.mt","font-size:13px;color:#0B4F9E;text-transform:uppercase;margin:0 0 2px;font-weight:bold"],
+    ["h2.mt small","color:#5A6B7D;font-weight:600;text-transform:none"],
+    [".fil","height:2px;width:52px;background:#F57C00;margin:0 0 8px"],
+    ["table.t","width:100%;border-collapse:collapse;font-size:11px"],
+    ["table.t th","background:#E8F0FA;color:#0B4F9E;text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;border-bottom:2px solid #0B4F9E"],
+    ["table.t td","padding:5px 8px;border-bottom:1px solid #E4EAF2"],
+    ["table.t .n","text-align:right;white-space:nowrap"],
+    ["table.t th.n","text-align:right"],
+    ["table.t .cf","width:90px;border-left:1px solid #E4EAF2"],
+    ["table.t tr.g td","background:#F4F6FA;font-weight:800;color:#0B4F9E;font-size:9.5px;text-transform:uppercase"],
+    ["table.t tr.st td","background:#FDEEDF;font-weight:bold;border-top:1px solid #F57C00"],
+    ["table.t tfoot td","background:#E8F0FA;color:#0B4F9E;font-weight:800;border-top:2px solid #0B4F9E"],
     ["thead","display:table-header-group"],
-    [".nota","margin:8px 0 0;font-size:10px;color:#555"],
-    [".cols","column-count:2;column-gap:16px"],
-    [".bloco","break-inside:avoid;page-break-inside:avoid;margin-bottom:12px"],
-    [".bloco h4","margin:0;background:#1F3A6E;color:#fff;font-size:11px;padding:5px 8px;letter-spacing:.04em;" +
-                 "font-family:Arial,Helvetica,sans-serif;font-weight:bold"],
-    ["table.m","border-collapse:collapse;width:100%;border:1px solid #9AA6B8;border-top:0"],
-    ["table.m td","border-bottom:1px solid #DCE2ED;padding:3px 8px"],
-    ["table.m td.q","text-align:right;font-weight:bold;width:60px"],
-    ["table.m tr.tt td","background:#FDEEDF;font-weight:bold;border-top:1px solid #F28C28"]
+    [".nota","margin:8px 0 0;font-size:10px;color:#5A6B7D"],
+    [".ass","display:flex;gap:30px;margin-top:34px"],
+    [".ass div","flex:1;border-top:1px solid #999;padding-top:4px;text-align:center;font-size:9.5px;color:#5A6B7D"],
+    [".rod","margin-top:16px;padding-top:6px;border-top:1px solid #DCE3ED;display:flex;justify-content:space-between;font-size:8.5px;color:#8695A6"]
   ];
   function estilosFolha(p){
     return REGRAS.map(function(r){
@@ -1412,58 +1409,69 @@
     return sub.join(" &nbsp;|&nbsp; ");
   }
 
-  function tabelaTotalHtml(){
-    var us = usadas(), h = "";
-    h += '<table class="t"><thead><tr><th class="l">PEÇA</th><th>QUANTIDADE</th></tr></thead><tbody>';
-    ordemPecas(us).forEach(function(p){
-      var s = us.reduce(function(t,a){ return t + qtdPeca(a,p); }, 0);
-      if(!s) return;
-      h += '<tr><th class="l">' + eh(p) + '</th><td class="big">' + s + '</td></tr>';
+  function tabModelo(linhas, rotTotal, totalN){
+    var h = '<table class="t"><thead><tr><th>Material</th><th class="n">Qtd</th><th class="n">Un</th><th class="cf">Conferência</th></tr></thead><tbody>';
+    linhas.forEach(function(l){
+      if(l.g !== undefined){ h += '<tr class="' + (l.sub ? 'st' : 'g') + '"><td colspan="4">' + l.g + '</td></tr>'; return; }
+      h += '<tr><td>' + eh(l.n) + '</td><td class="n"><b>' + l.q + '</b></td><td class="n">un</td><td class="cf"></td></tr>';
     });
-    h += '</tbody><tfoot><tr><th class="l">TOTAL DE PEÇAS</th>' +
-         '<td class="tt">' + totalGeral() + '</td></tr></tfoot></table>';
+    h += '</tbody>';
+    if(rotTotal) h += '<tfoot><tr><td>' + rotTotal + '</td><td class="n">' + totalN + '</td><td class="n">un</td><td class="cf"></td></tr></tfoot>';
+    return h + '</table>';
+  }
+  function tabelaTotalHtml(){
+    var us = usadas(), linhas = [{g:'TRELIÇA Q30'}];
+    ordemPecas(us).forEach(function(pz){
+      var sm = us.reduce(function(t,a){ return t + qtdPeca(a,pz); }, 0);
+      if(sm) linhas.push({ n:pz, q:sm });
+    });
+    var h = tabModelo(linhas, 'TOTAL DE PEÇAS', totalGeral());
     if(us.length >= 2) h += '<p class="nota">' + us.length + ' áreas montadas — detalhamento na folha 2.</p>';
     return h;
   }
   function blocosAreasHtml(){
-    var h = '<div class="cols">';
+    var linhas = [];
     usadas().forEach(function(a){
-      h += '<div class="bloco"><h4>' + eh(a.nome) +
-           ((a.rep||1)>1 ? " (×"+a.rep+" IGUAIS)" : "") + '</h4><table class="m">';
-      itensEnviados(a).forEach(function(it){
-        h += '<tr><td>' + eh(it.n) + '</td><td class="q">' + it.q + '</td></tr>';
-      });
-      h += '<tr class="tt"><td>TOTAL DE PEÇAS</td><td class="q">' + enviadoArea(a) + '</td></tr>';
-      h += '</table></div>';
+      linhas.push({ g: eh(a.nome) + ((a.rep||1)>1 ? ' (×' + a.rep + ' IGUAIS)' : '') });
+      itensEnviados(a).forEach(function(it){ linhas.push({ n: it.n, q: it.q }); });
+      linhas.push({ g: 'TOTAL — ' + eh(a.nome) + ': ' + enviadoArea(a) + ' peças', sub: true });
     });
-    return h + '</div>';
+    return tabModelo(linhas, 'TOTAL DE PEÇAS', totalGeral());
   }
   function blocosMemHtml(){
-    var h = '<div class="cols">';
+    var linhas = [];
     (st.memorias||[]).forEach(function(m){
-      h += '<div class="bloco"><h4>' + eh(m.nome) + '</h4><table class="m">';
-      validos(m.itens).forEach(function(it){
-        h += '<tr><td>' + eh(lim(it.n)) + '</td><td class="q">' + it.q + '</td></tr>';
-      });
-      h += '<tr class="tt"><td>TOTAL DE PEÇAS</td><td class="q">' + somaItens(m.itens) + '</td></tr>';
-      h += '</table></div>';
+      linhas.push({ g: eh(m.nome) });
+      validos(m.itens).forEach(function(it){ linhas.push({ n: lim(it.n), q: it.q }); });
+      linhas.push({ g: 'TOTAL — ' + eh(m.nome) + ': ' + somaItens(m.itens) + ' peças', sub: true });
     });
-    return h + '</div>';
+    return tabModelo(linhas, '', 0);
   }
-
   // folha 1 = total de peças · folha 2 = separado por área (2 áreas ou mais)
   function folhas(qual){
     if(qual === "memorias"){
-      return [{ t:"MEMÓRIAS DE CÁLCULO", s:"TRELIÇA Q30 — RECEITA DE MATERIAL POR ESTRUTURA", c:blocosMemHtml() }];
+      return [{ t:"MEMÓRIAS DE CÁLCULO", s:"Treliça Q30 — receita por estrutura", c:blocosMemHtml() }];
     }
-    var out = [{ t:"TOTAL DE PEÇAS", s:subLinha(), c:tabelaTotalHtml() }];
-    if(usadas().length >= 2) out.push({ t:"SEPARADO POR ÁREA", s:subLinha(), c:blocosAreasHtml() });
+    var out = [{ t:"CHECKLIST CONSOLIDADO", s:usadas().length + " área(s) · Treliça Q30", c:tabelaTotalHtml() }];
+    if(usadas().length >= 2) out.push({ t:"SEPARADO POR ÁREA", s:usadas().length + " área(s) · Treliça Q30", c:blocosAreasHtml() });
     return out;
   }
   function folhaWrap(f){
-    return '<section class="folha"><div class="topo"><b>GRUPO TENDAS PLENART</b>' +
-           '<span>' + eh(f.t) + '</span></div>' +
-           (f.s ? '<p class="sub">' + f.s + '</p>' : "") + f.c + '</section>';
+    var info = '<b>' + eh(st.evento || 'Checklist de material') + '</b>';
+    var l2 = [];
+    if(st.data) l2.push('Data da montagem: ' + st.data.split('-').reverse().join('/'));
+    if(st.os) l2.push('O.S. ' + eh(st.os));
+    if(l2.length) info += '<span>' + l2.join(' · ') + '</span>';
+    if(st.caminhao) info += '<span>Caminhão: ' + eh(st.caminhao) + '</span>';
+    info += '<span>Gerado em ' + new Date().toLocaleString('pt-BR').slice(0, 16) + '</span>';
+    return '<section class="folha">' +
+      '<div class="cab"><div class="marca">GRUPO TENDAS PLENART<small>QUANTIFICAÇÃO DE MATERIAL</small></div>' +
+        '<div class="info">' + info + '</div></div>' +
+      '<h2 class="mt">' + eh(f.t) + (f.s ? ' <small>· ' + f.s + '</small>' : '') + '</h2><div class="fil"></div>' +
+      f.c +
+      '<div class="ass"><div>Separado por</div><div>Conferido por</div><div>Motorista</div></div>' +
+      '<div class="rod"><span>Grupo Tendas Plenart · Quantificação de material</span><span>' + eh(st.evento || '') + '</span></div>' +
+    '</section>';
   }
 
   function paginaImpressao(qual){
