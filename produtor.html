@@ -146,8 +146,29 @@
     <div class="nota-txt" id="nota-txt">Toque nas estrelas</div>
     <label style="display:block;margin-top:12px"><span class="peq mut" id="av-com-rot">Comentário sobre o carregamento (opcional)</span>
       <textarea class="entrada" id="av-com" rows="3" style="resize:vertical;margin-top:4px" placeholder="Ex.: material bem amarrado, veio tudo separado por família"></textarea></label>
+    <div style="margin-top:12px"><span class="peq mut">✍️ Assine aqui com o dedo (obrigatório) — fica registrado quem recebeu</span>
+      <canvas id="ass-pad" width="600" height="180" style="width:100%;height:120px;border:2px dashed #9AA6B8;border-radius:10px;background:#fff;touch-action:none;margin-top:4px"></canvas>
+      <button class="btn" id="ass-limpar" type="button" style="margin-top:6px;min-height:40px;padding:6px 14px">↺ Limpar assinatura</button></div>
     <button class="btn btn--verde" id="av-enviar" style="margin-top:14px">✓ ENVIAR CONFERÊNCIA</button>
     <button class="btn" id="av-cancelar" style="margin-top:8px">Voltar para a conferência</button>
+  </div>
+</div>
+
+<div class="modal" id="modal-falta" role="dialog" aria-modal="true">
+  <div class="modal__caixa">
+    <h3>🆘 Faltou material na montagem</h3>
+    <p class="peq mut" style="margin:0 0 10px">O coordenador recebe na hora e já vê de qual caminhão deveria ter ido.</p>
+    <label style="display:block"><span class="peq mut">Qual material faltou? *</span>
+      <input class="entrada" id="ft-nome" list="dl-falta" style="margin-top:4px;text-transform:uppercase" placeholder="Toque e escolha ou digite"></label>
+    <datalist id="dl-falta"></datalist>
+    <label style="display:block;margin-top:10px"><span class="peq mut">Quantas faltaram? *</span>
+      <input class="entrada" id="ft-qtd" type="number" inputmode="numeric" min="1" style="margin-top:4px;font-size:22px;font-weight:800;text-align:center"></label>
+    <label style="display:block;margin-top:10px"><span class="peq mut">Observação (opcional)</span>
+      <input class="entrada" id="ft-obs" style="margin-top:4px" placeholder="Ex.: precisa chegar até as 14h"></label>
+    <label style="display:block;margin-top:10px"><span class="peq mut">Seu nome *</span>
+      <input class="entrada" id="ft-resp" style="margin-top:4px" placeholder="Quem está avisando"></label>
+    <button class="btn btn--verde" id="ft-enviar" style="margin-top:14px">🆘 AVISAR O COORDENADOR</button>
+    <button class="btn" id="ft-cancelar" style="margin-top:8px">Cancelar</button>
   </div>
 </div>
 
@@ -293,6 +314,14 @@ document.addEventListener('DOMContentLoaded', function () {
   setTimeout(enviaFila, 2000);
 });
 var cargas = [], cargaSel = null, caminhoes = [], sobraBase = [];
+var fotoPeca = {};          /* 63: foto da ficha do estoque, por nome */
+var faltasEnviadas = [];    /* 64: faltas já avisadas pela montagem */
+var saiuPorCg = {};         /* 62: o que SAIU CONFERIDO do galpão, por caminhão */
+function chaveN(n) { return String(n || '').trim().toUpperCase().replace(/\s+/g, ' '); }
+function thumbPeca(nome, tam) {
+  var f = fotoPeca[chaveN(nome)];
+  return f ? '<img src="' + esc(f) + '" class="js-ver" style="width:' + tam + 'px;height:' + tam + 'px;object-fit:cover;border-radius:10px;flex:none;border:2px solid #E4EAF2" alt="' + esc(nome) + '">' : '';
+}
 var produtosEv = [], planoPorCg = {};
 var areasQ30 = [], areasAbertas = false;
 
@@ -348,13 +377,19 @@ function carregar() {
         cli.from('caminhoes').select('id,tipo,modelo,placa'),
         cli.from('q30_areas').select('dados').eq('evento_id', evento.id)
           .then(function (r) { return r.error ? [] : (r.data || []); })
+          .catch(function () { return []; }),
+        cli.from('estoque').select('nome,foto')
+          .then(function (r) { return r.error ? [] : (r.data || []); })
           .catch(function () { return []; })
       ]).then(function (rr) {
+        (rr[5] || []).forEach(function (i) { if (i.foto) fotoPeca[chaveN(i.nome)] = i.foto; });
         produtosEv = (rr[0].data || []);
         caminhoes = (rr[3].data || []);
         areasQ30 = ((rr[4] || [])[0] || {}).dados || [];
+        faltasEnviadas = [];
         (rr[2].data || []).forEach(function (c) {
           if (c.tipo === 'sobra') jaFeitas.sobra = c;
+          else if (c.tipo === 'falta_montagem') faltasEnviadas.push(c);
           else jaFeitas.chegada[c.carregamento_id] = c;
         });
         /* só os carregamentos de SAÍDA (o que vai para o evento) */
@@ -394,8 +429,8 @@ function carregarTerceirizado() {
       if (r.error) throw r.error;
       var saidas = (r.data || []).filter(function (c) { return c.tipo === 'saida'; });
       if (!saidas.length) return;
-      var cgDe = {};
-      saidas.forEach(function (c) { cgDe[c.id] = c.carregamento_id; });
+      var cgDe = {}, finalizadaDe = {};
+      saidas.forEach(function (c) { cgDe[c.id] = c.carregamento_id; finalizadaDe[c.id] = !!c.finalizada_em; });
       return cli.from('itens_conferencia').select('conferencia_id,produto_id,quantidade,qtd_terceirizada')
         .in('conferencia_id', Object.keys(cgDe))
         .then(function (r2) {
@@ -409,6 +444,11 @@ function carregarTerceirizado() {
             var b = tercPorCg[cg] || (tercPorCg[cg] = {});
             b[i.produto_id] = (b[i.produto_id] || 0) + t;
             tercEv[i.produto_id] = (tercEv[i.produto_id] || 0) + t;
+            /* 62: a chegada confere contra o que SAIU CONFERIDO do galpão */
+            if (finalizadaDe[i.conferencia_id]) {
+              var sc = saiuPorCg[cg] || (saiuPorCg[cg] = {});
+              sc[i.produto_id] = (sc[i.produto_id] || 0) + num(i.quantidade);
+            }
           });
         });
     })
@@ -490,15 +530,30 @@ function desenhar() {
           '</div></div>';
       }).join('');
     }
+    h += '<button class="btn" id="btn-faltou" style="background:var(--vermelho,#C62828);background:#C62828;color:#fff;font-weight:900;margin:4px 0 12px">🆘 FALTOU MATERIAL NA MONTAGEM</button>';
+    if (faltasEnviadas.length) {
+      h += '<div class="cartao"><div class="cartao__topo"><h3>🆘 Faltas avisadas</h3></div><div class="cartao__corpo">' +
+        faltasEnviadas.map(function (f) {
+          var it = (f.itens || [])[0] || {};
+          return '<div class="item"><span class="item__n"><b>' + esc(it.nome || '?') + '</b>' +
+            '<span class="peq mut">' + fmtData(f.finalizada_em) + (f.responsavel ? ' · ' + esc(f.responsavel) : '') +
+            (f.observacao ? ' · ' + esc(f.observacao) : '') + '</span></span>' +
+            '<b style="color:#C62828">faltam ' + fmt(it.qtd) + '</b></div>';
+        }).join('') + '</div></div>';
+    }
     h += cartaoAreasQ30();
     tela.innerHTML = h;
+    var bFal = document.getElementById('btn-faltou');
+    if (bFal) bFal.addEventListener('click', abrirFalta);
     return ligarTudo();
   }
 
   /* 2) caminhão escolhido */
   var cg = cargas.filter(function (c) { return c.id === cargaSel; })[0];
   var feita = jaFeitas.chegada[cargaSel];
-  if (!rascPorCg[cargaSel]) rascPorCg[cargaSel] = montar(produtosEv, planoPorCg[cargaSel] || {}, true, tercPorCg[cargaSel] || {});
+  var temSaidaConf = saiuPorCg[cargaSel] && Object.keys(saiuPorCg[cargaSel]).length > 0;
+  if (!rascPorCg[cargaSel]) rascPorCg[cargaSel] = montar(produtosEv,
+    temSaidaConf ? saiuPorCg[cargaSel] : (planoPorCg[cargaSel] || {}), true, tercPorCg[cargaSel] || {});
   itensBase = rascPorCg[cargaSel];
 
   h += '<button class="btn" id="voltar-cargas" style="margin-bottom:12px">‹ VER OS OUTROS CAMINHÕES</button>' +
@@ -533,7 +588,8 @@ function desenhar() {
   }
 
   h += '<div class="aviso"><span>ℹ️</span><div><b>Confira o que desceu deste caminhão.</b> ' +
-      'Conte e digite a quantidade de cada item. O que não chegou, deixe zerado. ' +
+      (temSaidaConf ? 'A lista é o que <b>saiu conferido do galpão</b>. ' : 'A lista é o checklist do caminhão. ') +
+      'Em cada item: bateu, toque no <b>✔</b> verde; não bateu, toque no <b>✘</b> e digite quanto chegou. ' +
       'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.' +
       (qtdTerc() ? ' O material <b>🔗 terceirizado</b> (de fornecedor) está num quadro separado, confira ele também.' : '') +
       '</div></div>' +
@@ -609,7 +665,8 @@ function cartaoAreasQ30() {
         return '<div class="q30bloco"><header>' + esc(a.nome) + '</header>' +
           (a.area > 0 ? '<div class="it" style="background:#EAF2FD;font-weight:800;color:var(--azul)"><span>📐 Área de cobertura</span><b>' + fmt(a.area) + ' m²</b></div>' : '') +
           (a.itens || []).map(function (it) {
-            return '<div class="it"><span>' + esc(it.n) + '</span><b>' + fmt(it.q) + '</b></div>';
+            return '<div class="it" style="display:flex;align-items:center;gap:8px">' + thumbPeca(it.n, 34) +
+              '<span style="flex:1">' + esc(it.n) + '</span><b>' + fmt(it.q) + '</b></div>';
           }).join('') +
           '<footer><span>TOTAL DE PEÇAS</span><b>' + fmt(a.total) + '</b></footer></div>';
       }).join('') + '</div>';
@@ -651,6 +708,45 @@ function desenharLista() {
 }
 
 function htmlItemEdit(b, i) {
+  /* 62: na CHEGADA o item vira um cartão grande: foto, quanto devia chegar e ✔/✘ */
+  if (aba === 'chegada' && !b.extra) {
+    var temQ = b.qtd !== '' && b.qtd !== undefined && b.qtd !== null;
+    var bateu = temQ && num(b.qtd) === num(b.previsto);
+    var mostraCampo = b.nok || (temQ && !bateu);
+    var h2 = '<div class="item" style="border-left:5px solid ' + (temQ ? (bateu ? 'var(--verde)' : 'var(--laranja)') : '#D7DEE8') + ';border-radius:8px;padding-left:10px">' +
+      '<div style="display:flex;gap:10px;align-items:center">' +
+        thumbPeca(b.nome, 54) +
+        '<span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(b.nome) + '</b>' +
+          (b.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
+          '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">DEVIA CHEGAR: <span style="font-size:20px">' + fmt(b.previsto) + '</span> ' + esc(b.unidade) + '</span>' +
+          (temQ ? '<span style="display:block;font-weight:800;color:' + (bateu ? 'var(--verde)' : 'var(--laranja)') + '">' +
+            (bateu ? '✔ Bateu' : '✘ Chegou ' + fmt(b.qtd) + ' — diferença ' + (num(b.qtd) > num(b.previsto) ? '+' : '') + fmt(num(b.qtd) - num(b.previsto))) + '</span>' : '') +
+        '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
+        '<button class="btn js-okall" data-i="' + i + '" style="flex:2;min-height:52px;background:' + (bateu ? 'var(--verde)' : '#fff') + ';color:' + (bateu ? '#fff' : 'var(--verde)') + ';border:2px solid var(--verde);font-weight:900">✔ CHEGOU ' + fmt(b.previsto) + '</button>' +
+        '<button class="btn js-nok" data-i="' + i + '" style="flex:1;min-height:52px;background:' + (mostraCampo ? 'var(--laranja)' : '#fff') + ';color:' + (mostraCampo ? '#fff' : 'var(--laranja)') + ';border:2px solid var(--laranja);font-weight:900">✘ NÃO BATEU</button>' +
+        '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '">⚠️ Avaria</button>' +
+        (mostraCampo ? '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="Quanto chegou?" value="' + esc(b.qtd) + '" style="flex:1;min-width:110px;min-height:52px;font-size:20px;font-weight:800;text-align:center">' : '') +
+      '</div>';
+    if (b.avOn) {
+      h2 += '<div class="av">' +
+        '<div class="av__linha"><span class="av__rot" style="flex:1">Quantas peças avariadas?</span>' +
+          '<input class="entrada qtd js-avq" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.avQtd) + '"></div>' +
+        '<div class="av__linha"><input class="entrada js-avd" data-i="' + i + '" placeholder="O que aconteceu? Ex.: placa rachada, lona rasgada" value="' + esc(b.avDesc) + '"></div>' +
+        '<div class="fotos">' +
+          b.avFotos.map(function (f, k) {
+            return '<span class="foto"><img src="' + f + '" class="js-ver" alt="Foto da avaria">' +
+              '<button class="foto__x js-rmfoto" data-i="' + i + '" data-k="' + k + '" aria-label="Apagar foto">✕</button></span>';
+          }).join('') +
+          '<label class="btn-foto">📷 ' + (b.avFotos.length ? 'MAIS FOTO' : 'TIRAR FOTO') +
+            '<input type="file" accept="image/*" class="js-foto" data-i="' + i + '"></label>' +
+        '</div>' +
+        (b.avFotos.length ? '' : '<div class="falta-foto">Foto obrigatória para enviar</div>') +
+      '</div>';
+    }
+    return h2 + '</div>';
+  }
   var sub = b.extra
     ? '<span class="peq" style="color:#A85600">➕ acrescentado por você · ' + esc(b.unidade) +
         ' · <button class="btn-rm js-rmextra" data-i="' + i + '">remover</button></span>'
@@ -740,6 +836,19 @@ function ligarTudo() {
     if (t.classList.contains('js-rmextra')) {
       itensBase.splice(num(i), 1);
       return desenharLista();
+    }
+    if (t.classList.contains('js-okall')) {
+      itensBase[i].qtd = String(itensBase[i].previsto);
+      itensBase[i].nok = false;
+      return desenharLista();
+    }
+    if (t.classList.contains('js-nok')) {
+      itensBase[i].nok = true;
+      if (num(itensBase[i].qtd) === num(itensBase[i].previsto)) itensBase[i].qtd = '';
+      desenharLista();
+      var cmp = tela.querySelector('.js-q[data-i="' + i + '"]');
+      if (cmp) { cmp.focus(); }
+      return;
     }
   };
   tela.oninput = function (e) {
@@ -913,13 +1022,83 @@ document.querySelectorAll('.estrela').forEach(function (s) {
   s.addEventListener('click', function () { notaAv = num(s.dataset.n); pintarEstrelas(); });
 });
 document.getElementById('av-cancelar').addEventListener('click', fecharAvaliacao);
+/* 🆘 64: faltou material na montagem */
+function abrirFalta() {
+  var dl = document.getElementById('dl-falta');
+  dl.innerHTML = produtosEv.map(function (p) { return '<option value="' + esc(String(p.nome).toUpperCase()) + '">'; }).join('');
+  document.getElementById('ft-nome').value = '';
+  document.getElementById('ft-qtd').value = '';
+  document.getElementById('ft-obs').value = '';
+  document.getElementById('modal-falta').classList.add('on');
+}
+function fecharFalta() { document.getElementById('modal-falta').classList.remove('on'); }
+function zapFalta(it, reg) {
+  cli.from('config').select('valor').eq('chave', 'avisos_whatsapp').then(function (r) {
+    var c = (r.data && r.data[0]) ? r.data[0].valor : null;
+    if (typeof c === 'string') { try { c = JSON.parse(c); } catch (e) { c = null; } }
+    var nu = c ? String((c.num && (c.num.falta_montagem || c.num.falta)) || c.padrao || '').replace(/\D/g, '') : '';
+    var txt = '🆘 *FALTOU MATERIAL NA MONTAGEM*\n' + evento.nome +
+      '\n' + (it.nome || '?') + ': faltam ' + fmt(it.qtd) +
+      (reg.observacao ? '\n📝 ' + reg.observacao : '') +
+      '\n👷 ' + (reg.responsavel || '');
+    window.open('https://wa.me/' + nu + '?text=' + encodeURIComponent(txt), '_blank');
+  }).catch(function () { });
+}
+document.getElementById('ft-cancelar').addEventListener('click', fecharFalta);
+document.getElementById('ft-enviar').addEventListener('click', function () {
+  var nome = (document.getElementById('ft-nome').value || '').trim().toUpperCase();
+  var q = num(document.getElementById('ft-qtd').value);
+  var resp = (document.getElementById('ft-resp').value || '').trim();
+  if (nome.length < 2) return alert('Diga qual material faltou.');
+  if (!(q > 0)) return alert('Diga quantas peças faltaram.');
+  if (resp.length < 3) return alert('Escreva o seu nome.');
+  gravar({
+    evento_id: evento.id, tipo: 'falta_montagem', responsavel: resp, status: 'Finalizado',
+    itens: [{ nome: nome, qtd: q }],
+    observacao: (document.getElementById('ft-obs').value || '').trim() || null,
+    divergencias: 1
+  }, this);
+});
+
+/* ✍️ 65: assinatura na tela */
+var assTem = false;
+(function () {
+  var cv = document.getElementById('ass-pad');
+  if (!cv) return;
+  var cx = null; try { cx = cv.getContext('2d'); } catch (e) { }
+  if (!cx) { assTem = true; window.__assTeste = function () { }; return; }   /* navegador sem canvas: não trava o envio */
+  cx.lineWidth = 3; cx.lineCap = 'round'; cx.strokeStyle = '#17202B';
+  var down = false, px = 0, py = 0;
+  function pos(e) {
+    var r = cv.getBoundingClientRect();
+    var t = e.touches ? e.touches[0] : e;
+    return { x: (t.clientX - r.left) * (cv.width / r.width), y: (t.clientY - r.top) * (cv.height / r.height) };
+  }
+  function ini(e) { down = true; var q = pos(e); px = q.x; py = q.y; e.preventDefault(); }
+  function mov(e) {
+    if (!down) return;
+    var q = pos(e);
+    cx.beginPath(); cx.moveTo(px, py); cx.lineTo(q.x, q.y); cx.stroke();
+    px = q.x; py = q.y; assTem = true; e.preventDefault();
+  }
+  function fim() { down = false; }
+  cv.addEventListener('mousedown', ini); cv.addEventListener('mousemove', mov); window.addEventListener('mouseup', fim);
+  cv.addEventListener('touchstart', ini, { passive: false }); cv.addEventListener('touchmove', mov, { passive: false }); cv.addEventListener('touchend', fim);
+  document.getElementById('ass-limpar').addEventListener('click', function () { cx.clearRect(0, 0, cv.width, cv.height); assTem = false; });
+  window.__assTeste = function () { cx.fillRect(10, 10, 40, 10); assTem = true; };
+})();
 document.getElementById('av-enviar').addEventListener('click', function () {
   if (!envioPendente) return fecharAvaliacao();
   if (!notaAv) return alert('Dê uma nota de 1 a 5 estrelas para o carregamento.');
   var com = (document.getElementById('av-com').value || '').trim();
   if (notaAv <= 2 && com.length < 3) return alert('Conte o que estava ruim no carregamento.');
+  if (!assTem) { alert('✍️ Assine no quadro antes de enviar — é o registro de quem recebeu.'); return; }
   envioPendente.avaliacao = { nota: notaAv, comentario: com || null, por: envioPendente.responsavel, em: new Date().toISOString() };
-  gravar(envioPendente, this);
+  try { envioPendente.assinatura = document.getElementById('ass-pad').toDataURL('image/png'); } catch (e) { }
+  envioPendente.divergencias = (envioPendente.itens || []).filter(function (it) {
+    return !it.extra && num(it.qtd) !== num(it.previsto);
+  }).length;
+  gravar(envioPendente, document.getElementById('av-enviar'));
 });
 
 function gravar(reg, bt) {
@@ -950,6 +1129,17 @@ function gravar(reg, bt) {
           var n = (r2.data || [])[0] || copia; n.avaliacao = a; return n;
         });
       }
+      /* colunas da 3.0 (assinatura, divergencias, dados, carregamento_id) ainda não criadas: envia sem elas */
+      if (r.error && /assinatura|divergencias|dados|carregamento_id|column|schema/i.test(r.error.message || '')) {
+        var NOVAS = ['assinatura', 'divergencias', 'dados'];
+        var sem = {}; Object.keys(reg).forEach(function (k) { if (NOVAS.indexOf(k) < 0) sem[k] = reg[k]; });
+        if (Object.keys(sem).length < Object.keys(reg).length) {
+          return inserir(sem).then(function (r9) {
+            if (r9.error) throw r9.error;
+            return (r9.data || [])[0] || sem;
+          });
+        }
+      }
       if (r.error) throw r.error;
       return (r.data || [])[0] || reg;
     })
@@ -958,6 +1148,12 @@ function gravar(reg, bt) {
       fecharAvaliacao();
       envioPendente = null;
       if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = novo; delete rascPorCg[reg.carregamento_id]; }
+      else if (reg.tipo === 'falta_montagem') {
+        faltasEnviadas.unshift(novo);
+        fecharFalta();
+        var it9 = (reg.itens || [])[0] || {};
+        if (confirm('✓ Falta avisada — o coordenador já vê no painel.\n\nMandar também no WhatsApp dele agora?')) zapFalta(it9, reg);
+      }
       else jaFeitas.sobra = novo;
       desenhar();
       window.scrollTo({ top: 0, behavior: 'smooth' });
