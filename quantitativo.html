@@ -168,6 +168,24 @@ table.pecas td{padding:3px 4px}table.pecas td.pn{width:26px;color:var(--cinza);f
 table.pecas input{width:100%;padding:8px 9px;border:1.5px solid var(--borda);border-radius:6px;font-size:.92rem;background:#fafcff}
 table.pecas input:focus{outline:none;border-color:var(--laranja,#f47920)}
 .rodape{text-align:center;color:var(--cinza);font-size:.76rem;margin:18px 0 6px}
+/* 3.1 — revisão antes de enviar + roteiro da planta */
+.secR{font-family:Montserrat,sans-serif;font-weight:800;font-size:.7rem;color:var(--cinza);letter-spacing:.5px;margin:14px 0 6px}
+.fams{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.fam{border:1.5px solid var(--borda);border-radius:10px;padding:8px 10px;font-size:.78rem;font-weight:800;font-family:Montserrat,sans-serif;color:var(--azul)}
+.fam span{display:block;font-family:'Open Sans',sans-serif;font-size:.72rem;font-weight:600;color:var(--cinza);margin-top:2px}
+.fam.ok{border-color:#bfe3c8;background:var(--verde-claro)}
+.fam.vazia{border-color:#f3b8b8;background:var(--vermelho-claro);color:var(--vermelho)}
+.fam.vazia span{color:var(--vermelho);font-weight:700}
+.fam.nao{opacity:.6}
+.avq{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1.5px solid #f3d7a3;background:#fff8ea;border-radius:10px;padding:9px 10px;font-size:.82rem;margin-top:8px}
+.avq.h{border-color:#bcd6f3;background:#eef5fd}
+.avq .bt-add{flex:0 0 auto;border:0;border-radius:8px;background:var(--azul);color:#fff;font-family:Montserrat,sans-serif;font-weight:800;font-size:.7rem;padding:8px 10px;cursor:pointer}
+.avq .bt-add:hover{background:var(--azul-med)}
+.rotPg{font-family:Montserrat,sans-serif;font-weight:800;font-size:.68rem;color:var(--cinza);letter-spacing:.5px;margin-bottom:6px}
+.rotPerg{font-family:Montserrat,sans-serif;font-weight:800;font-size:1.05rem;color:var(--azul);margin:0 0 10px}
+.rotJa{font-size:.8rem;color:var(--verde);font-weight:700;margin:0 0 10px}
+textarea.regras{width:100%;min-height:200px;border:1.5px solid var(--borda);border-radius:8px;padding:10px;font:600 .82rem/1.5 'Courier New',monospace;text-transform:uppercase}
+@media (max-width:480px){ .fams{grid-template-columns:1fr 1fr} .avq{flex-direction:column;align-items:stretch} }
 </style>
 </head>
 <body>
@@ -176,6 +194,7 @@ table.pecas input:focus{outline:none;border-color:var(--laranja,#f47920)}
     <h1>GRUPO TENDAS <b>PLENART</b></h1>
     <span class="tag">📐 QUANTIFICAÇÃO DE MATERIAL</span>
     <div class="dir">
+      <button class="btop" id="bRoteiro" type="button">🧭 ROTEIRO DA PLANTA</button>
       <button class="btop" id="bNova" type="button">🗒️ NOVA</button>
       <button class="btop" id="bAbrir" type="button">📂 ABRIR SALVAS</button>
       <button class="btop" id="bSalvar" type="button">💾 SALVAR</button>
@@ -218,7 +237,7 @@ table.pecas input:focus{outline:none;border-color:var(--laranja,#f47920)}
       </div>
     </div>
   </div>
-  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 30/09 D</div>
+  <div class="rodape">Grupo Tendas Plenart · quantificação de material · versão 18/10 E</div>
 </div>
 
 <div class="modal hidden" id="modal"><div class="box">
@@ -885,7 +904,7 @@ var nomesCk = {};   /* renomeação para o checklist: NOME ORIGINAL -> nome novo
 try{ nomesCk = JSON.parse(localStorage.getItem(CHAVE_NOMES) || '{}') || {}; }catch(e){ nomesCk = {}; }
 
 function idNovo(){ try{ return crypto.randomUUID(); }catch(e){} return 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2,10); }
-function novoEstado(){ return { id:idNovo(), evento:'', data:'', resp:'', seq:1, ambientes:[], excluidos:[], envios:[], salvoEm:null }; }
+function novoEstado(){ return { id:idNovo(), evento:'', data:'', resp:'', seq:1, ambientes:[], excluidos:[], envios:[], roteiro:{}, salvoEm:null }; }
 function novoAmbiente(nome){ return { id: st.seq++, nome: nome || ('AMBIENTE ' + (st.ambientes.length + 1)), produtos:[] }; }
 function valsIniciais(perfil){
   var v={};
@@ -1484,6 +1503,303 @@ $('mCorpo').addEventListener('click', function(e){
 });
 
 /* ================================================================
+   3.1 — CONTRA ESQUECIMENTO: revisão antes de enviar (famílias em
+   vermelho, itens que andam juntos, comparação com o histórico) e
+   roteiro guiado da planta. Divergência encontrada = SINAL SONORO.
+   ================================================================ */
+var _actx=null;
+function bip(){
+  try{
+    if(typeof window.__quantBip==='function'){ window.__quantBip(); return; }
+    var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    _actx=_actx||new AC();
+    if(_actx.state==='suspended') _actx.resume();
+    var i;
+    for(i=0;i<3;i++){ (function(n){
+      var o=_actx.createOscillator(), g=_actx.createGain();
+      o.type='square'; o.frequency.value=880; o.connect(g); g.connect(_actx.destination);
+      var t=_actx.currentTime + n*0.25;
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.25,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+      o.start(t); o.stop(t+0.2);
+    })(i); }
+  }catch(e){}
+}
+
+/* ---------- 70: famílias de material ---------- */
+var FAMILIAS=[
+  { nome:'PISO',          grupos:['Piso','Piso Alumínio'], rot:'pisos' },
+  { nome:'FORRAÇÃO',      grupos:['Forração'],             rot:'forracao' },
+  { nome:'TENDA',         grupos:['Tenda'],                rot:'tendas' },
+  { nome:'ESTAQUEAMENTO', grupos:['Estaqueamento'],        rot:'tendas', soSe:'Tenda' },
+  { nome:'GALPÃO TFS',    grupos:['Galpão TFS'],           rot:'galpao' },
+  { nome:'TRELIÇA Q30',   grupos:['Treliça Q30'],          rot:'trelica' },
+  { nome:'TRELIÇA Q50',   grupos:['Treliça Q50'],          rot:'trelica' },
+  { nome:'DIVERSOS (talha, cinta, cabo…)', grupos:['Diversos'], rot:'trelica' }
+];
+function resumoFamilias(){
+  var c=ultimoCalc||calcularTudo();
+  var ativos=c.total.filter(function(m){ return !fora(m); });
+  var rot=st.roteiro||{}, out=[];
+  FAMILIAS.forEach(function(f){
+    var its=ativos.filter(function(m){ return f.grupos.indexOf(m.grupo)>=0; });
+    var estado;
+    if(its.length) estado='ok';
+    else if(f.soSe && !ativos.some(function(m){ return m.grupo===f.soSe; })) return;   /* só cobra estaqueamento se tiver tenda */
+    else if(rot[f.rot]==='nao') estado='nao';
+    else estado='vazia';
+    out.push({ nome:f.nome, estado:estado, itens:its.length,
+      pecas: Math.round(its.reduce(function(t,m){ return t+(m.unidade==='un'?m.qtd:0); },0)*100)/100 });
+  });
+  return out;
+}
+
+/* ---------- 68: itens que andam juntos (regras do coordenador) ---------- */
+var REGRAS_PADRAO=[
+  { se:['TENDA'], entao:['ESTACA','PESO DE CONCRETO','GALÃO','CONTENTOR'] },
+  { se:['TENDA'], entao:['MARRETA'] },
+  { se:['PISO IMPORTADO','PLACAS 1,25'], entao:['PÉ DE'] },
+  { se:['PISO IMPORTADO','PLACAS 1,25'], entao:['CAVILHA'] },
+  { se:['PISO IMPORTADO','PLACAS 1,25'], entao:['ESCORA'] },
+  { se:['TRELIÇA','Q30','Q50'], entao:['CUBO'] },
+  { se:['TRELIÇA','Q30','Q50'], entao:['PAU DE CARGA','TALHA'] },
+  { se:['TRELIÇA','Q30','Q50'], entao:['CINTA'] },
+  { se:['PALCO','PRATICÁVEL','TELESCÓPICO'], entao:['ESCADA'] },
+  { se:['PALCO','PRATICÁVEL','TELESCÓPICO'], entao:['GUARDA-CORPO','GUARDA CORPO'] }
+];
+var REGRAS=null, CHAVE_REGRAS='plenart_quant_regras_v1';
+try{ var _rg=JSON.parse(localStorage.getItem(CHAVE_REGRAS)||'null'); if(_rg && _rg.length) REGRAS=_rg; }catch(e){}
+function regrasAtuais(){ return (REGRAS && REGRAS.length) ? REGRAS : REGRAS_PADRAO; }
+function textoRegras(rs){ return rs.map(function(r){ return 'SE '+r.se.join(' OU ')+' ENTÃO '+r.entao.join(' / '); }).join('\n'); }
+function parseRegras(txt){
+  var out=[];
+  String(txt||'').split('\n').forEach(function(l){
+    l=l.replace(/\s+/g,' ').trim(); if(!l) return;
+    var m=l.match(/^SE (.+?) ENT[ÃA]O (.+)$/i); if(!m) return;
+    var se=m[1].split(/ OU /i).map(up).filter(Boolean);
+    var entao=m[2].split('/').map(up).filter(Boolean);
+    if(se.length && entao.length) out.push({ se:se, entao:entao });
+  });
+  return out;
+}
+function bateTermo(m, termo){ var t=up(termo); return !!t && (up(m.nome).indexOf(t)>=0 || up(m.grupo).indexOf(t)>=0); }
+function avisosRegras(itens){
+  var out=[];
+  regrasAtuais().forEach(function(r){
+    var gat=null;
+    itens.some(function(m){ return r.se.some(function(tm){ if(bateTermo(m,tm)){ gat=tm; return true; } return false; }); });
+    if(!gat) return;
+    var tem=itens.some(function(m){ return r.entao.some(function(tm){ return bateTermo(m,tm); }); });
+    if(!tem) out.push({ gatilho:gat, falta:r.entao[0], outros:r.entao.slice(1) });
+  });
+  return out;
+}
+function salvarRegras(rs){
+  REGRAS=rs;
+  try{ localStorage.setItem(CHAVE_REGRAS, JSON.stringify(rs)); }catch(e){}
+  if(!nuvem){ toast('Regras salvas neste aparelho.','ok'); return; }
+  nuvem.from('config').upsert({ chave:'quant_regras_juntos', valor: JSON.stringify(rs) }).then(function(r){
+    toast(r.error ? 'Regras salvas só neste aparelho.' : '⚙️ Regras salvas — valem em todos os computadores.', r.error?'erro':'ok');
+  }).catch(function(){ toast('Regras salvas só neste aparelho.','erro'); });
+}
+
+/* ---------- 69: comparação com os eventos parecidos da Central ---------- */
+var histEventos=null, histPedindo=null;
+function carregarHistorico(){
+  if(histEventos) return Promise.resolve(histEventos);
+  if(!nuvem) return Promise.resolve(null);
+  if(histPedindo) return histPedindo;
+  histPedindo=nuvem.from('produtos').select('evento_id,nome').limit(8000).then(function(r){
+    if(r.error || !r.data) return null;
+    var por={};
+    r.data.forEach(function(p){ if(!p.evento_id || !p.nome) return; (por[p.evento_id]=por[p.evento_id]||{})[up(p.nome)]=1; });
+    histEventos=Object.keys(por).map(function(k){ return por[k]; });
+    return histEventos;
+  }).catch(function(){ return null; });
+  return histPedindo;
+}
+var GATILHOS_HIST=['TENDA','PISO','TRELIÇA','GALPÃO','CARPETE','PALCO'];
+function sugestoesHistorico(nomes){
+  if(!histEventos || histEventos.length<3) return [];
+  var meu={}; (nomes||[]).forEach(function(n){ meu[up(n)]=1; });
+  function temTermo(obj,t){ var k; for(k in obj) if(k.indexOf(t)>=0) return true; return false; }
+  var out=[], visto={};
+  GATILHOS_HIST.forEach(function(g){
+    if(!temTermo(meu,g)) return;
+    var evs=histEventos.filter(function(e){ return temTermo(e,g); });
+    if(evs.length<3) return;
+    var cont={}, k;
+    evs.forEach(function(e){ var k2; for(k2 in e) cont[k2]=(cont[k2]||0)+1; });
+    for(k in cont){
+      if(meu[k] || visto[k]) continue;
+      var f=cont[k]/evs.length;
+      if(f>=0.7){ visto[k]=1; out.push({ nome:k, em10:Math.min(10,Math.round(f*10)), gatilho:g, eventos:evs.length }); }
+    }
+  });
+  out.sort(function(a,b){ return b.em10-a.em10; });
+  return out.slice(0,8);
+}
+
+/* ---------- adicionar com um toque ---------- */
+function addAvulso(nome, qtd){
+  nome=up(nome); var q=num(qtd);
+  if(!nome || !(q>0)) return false;
+  if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
+  st.ambientes[0].produtos.push({ pid: st.seq++, prodId:'avulso', vals:{ nome:nome, qtd:q, unidade:'un' }, emb:{}, fechado:true });
+  desenharAmbientes(); mudou();
+  return true;
+}
+
+/* ---------- revisão antes de enviar (abre no lugar do envio direto) ---------- */
+function abrirEnvio(){
+  var lista=listaEnvio();
+  if(!lista.length) return toast('Nada para enviar.','erro');
+  if(!nuvem) return toast('Sem conexão com a Central.','erro');
+  abrirModal('🧐 Revisão antes de enviar', '<div class="msg info">Conferindo a lista — procurando esquecimentos…</div>',
+    '<button class="btn b-branco" type="button" id="mFechar">Cancelar</button>');
+  $('mFechar').onclick=fecharModal;
+  carregarHistorico().then(function(){ desenharRevisao(); });
+}
+function desenharRevisao(){
+  var c=ultimoCalc||calcularTudo();
+  var ativos=c.total.filter(function(m){ return !fora(m); });
+  if(!ativos.length){ fecharModal(); return toast('Nada para enviar.','erro'); }
+  var fams=resumoFamilias();
+  var avisos=avisosRegras(ativos);
+  var sug=sugestoesHistorico(listaEnvio().map(function(i){ return i.nome; }));
+  var vazias=fams.filter(function(f){ return f.estado==='vazia'; }).length;
+  var h='';
+  if(avisos.length+sug.length) h+='<div class="msg erro">🔔 '+(avisos.length+sug.length)+' possível(is) esquecimento(s) — confira antes de enviar.</div>';
+  else h+='<div class="msg ok">✓ Nenhum esquecimento encontrado pelas regras e pelo histórico.</div>';
+  h+='<p class="secR">FAMÍLIAS DE MATERIAL'+(vazias?' — AS VERMELHAS ESTÃO SEM NADA':'')+'</p><div class="fams">'+
+    fams.map(function(f){
+      if(f.estado==='ok') return '<div class="fam ok">✔ '+esc(f.nome)+'<span>'+f.itens+' item(ns)'+(f.pecas?' · '+fmt(f.pecas)+' pç':'')+'</span></div>';
+      if(f.estado==='nao') return '<div class="fam nao">— '+esc(f.nome)+'<span>você respondeu NÃO TEM no roteiro</span></div>';
+      return '<div class="fam vazia">⚠ '+esc(f.nome)+'<span>NADA NA LISTA</span></div>';
+    }).join('')+'</div>';
+  if(avisos.length){
+    h+='<p class="secR">ITENS QUE ANDAM JUNTOS</p>'+avisos.map(function(a){
+      return '<div class="avq"><span>⚠ Tem <b>'+esc(a.gatilho)+'</b> mas não tem <b>'+esc(a.falta)+'</b>'+
+        (a.outros.length?' (nem '+esc(a.outros.join(' / '))+')':'')+' — esqueceu?</span>'+
+        '<button class="bt-add" type="button" data-addq="'+esc(a.falta)+'">➕ ADICIONAR</button></div>';
+    }).join('');
+  }
+  if(sug.length){
+    h+='<p class="secR">PELO HISTÓRICO DOS EVENTOS DA CENTRAL</p>'+sug.map(function(s){
+      return '<div class="avq h"><span>📊 <b>'+s.em10+' em cada 10</b> eventos com '+esc(s.gatilho)+' levaram <b>'+esc(s.nome)+'</b> — a sua lista está sem <small>('+s.eventos+' eventos olhados)</small></span>'+
+        '<button class="bt-add" type="button" data-addq="'+esc(s.nome)+'">➕ ADICIONAR</button></div>';
+    }).join('');
+  }
+  $('mTit').textContent='🧐 Revisão antes de enviar';
+  $('modal').classList.remove('hidden');
+  $('mCorpo').innerHTML=h;
+  $('mPe').innerHTML='<button class="btn b-branco" type="button" id="revRegras" style="margin-right:auto">⚙️ REGRAS</button>'+
+    '<button class="btn b-branco" type="button" id="mFechar">Voltar</button>'+
+    '<button class="btn b-verde" type="button" id="revOk">✅ ESTÁ CERTO — ESCOLHER O EVENTO</button>';
+  $('mFechar').onclick=fecharModal;
+  $('revOk').onclick=function(){ escolherEvento(); };
+  $('revRegras').onclick=editorRegras;
+  if(avisos.length+sug.length) bip();   /* 🔔 sinal sonoro automático em cada divergência */
+}
+function editorRegras(){
+  var s=prompt('Senha do coordenador para mudar as regras:');
+  if(s===null) return;
+  if(s!=='415263') return toast('Senha errada.','erro');
+  $('mTit').textContent='⚙️ Regras dos itens que andam juntos';
+  $('mCorpo').innerHTML='<div class="msg info">Uma regra por linha, no formato <b>SE … ENTÃO …</b>. Do lado do SE pode usar <b>OU</b>; do lado do ENTÃO separe as opções com <b>/</b> (basta UMA delas estar na lista para o aviso não aparecer).</div>'+
+    '<textarea class="regras" id="regTxt">'+esc(textoRegras(regrasAtuais()))+'</textarea>';
+  $('mPe').innerHTML='<button class="btn b-branco" type="button" id="regPadrao" style="margin-right:auto">↺ PADRÃO</button>'+
+    '<button class="btn b-branco" type="button" id="regVoltar">Cancelar</button>'+
+    '<button class="btn b-verde" type="button" id="regSalvar">💾 SALVAR AS REGRAS</button>';
+  $('regVoltar').onclick=desenharRevisao;
+  $('regPadrao').onclick=function(){ $('regTxt').value=textoRegras(REGRAS_PADRAO); };
+  $('regSalvar').onclick=function(){
+    var rs=parseRegras($('regTxt').value);
+    if(!rs.length) return toast('Nenhuma regra válida — confira o formato SE … ENTÃO …','erro');
+    salvarRegras(rs); desenharRevisao();
+  };
+}
+
+/* ---------- 67: roteiro guiado da planta ---------- */
+var ROTEIRO=[
+  { k:'tendas',   ico:'⛺', t:'TENDAS',            p:'O evento tem TENDA?', grupo:'Tendas' },
+  { k:'pisos',    ico:'🟫', t:'PISOS / PALCO',     p:'Tem PISO (elevado, praticável, telescópico, alumínio…)?', grupo:'Pisos' },
+  { k:'forracao', ico:'🧻', t:'FORRAÇÃO',          p:'Tem FORRAÇÃO (carpete, easyfloor, criadeck…)?', grupo:'Forração' },
+  { k:'galpao',   ico:'🏭', t:'GALPÃO TFS',        p:'Tem GALPÃO TFS?', grupo:'Galpão TFS' },
+  { k:'trelica',  ico:'🔺', t:'TRELIÇA BOX TRUSS', p:'Tem TRELIÇA (Q30, Q50, talha, cinta, pau de carga…)?', grupo:'Treliça Box Truss' },
+  { k:'outros',   ico:'📦', t:'OUTROS',            p:'Tem mais alguma coisa fora das famílias acima (gerador, mesa, item avulso…)?', grupo:'Outros' }
+];
+var rotIdx=0;
+function produtosDoGrupo(grupo){
+  var n=0;
+  st.ambientes.forEach(function(a){ a.produtos.forEach(function(p){ var c=produtoCat(p.prodId); if(c && c.grupo===grupo) n++; }); });
+  return n;
+}
+function abrirRoteiro(){
+  st.roteiro=st.roteiro||{};
+  rotIdx=0;
+  abrirModal('🧭 Roteiro da planta','','');
+  desenharRoteiro();
+}
+function desenharRoteiro(){
+  if(rotIdx>=ROTEIRO.length){
+    var naos=ROTEIRO.filter(function(r){ return st.roteiro[r.k]==='nao'; }).map(function(r){ return r.t; });
+    $('mTit').textContent='🧭 Roteiro concluído';
+    $('mCorpo').innerHTML='<div class="msg ok">✓ Você passou por todas as famílias da planta.'+
+      (naos.length?'<br>Marcadas como NÃO TEM: <b>'+esc(naos.join(', '))+'</b>.':'')+'</div>'+
+      '<div class="msg info">Agora preencha as medidas dos produtos adicionados. Na hora de enviar, a <b>revisão</b> confere tudo de novo.</div>';
+    $('mPe').innerHTML='<button class="btn b-verde" type="button" id="mFechar">OK, PREENCHER AS MEDIDAS</button>';
+    $('mFechar').onclick=fecharModal;
+    salvarLocal();
+    return;
+  }
+  var r=ROTEIRO[rotIdx], ja=produtosDoGrupo(r.grupo);
+  $('mTit').textContent='🧭 Roteiro da planta';
+  var h='<div class="rotPg">PASSO '+(rotIdx+1)+' DE '+ROTEIRO.length+' — '+esc(r.t)+'</div>'+
+    '<p class="rotPerg">'+r.ico+' '+esc(r.p)+'</p>'+
+    (ja?'<p class="rotJa">✓ Já tem '+ja+' produto(s) desta família na lista.</p>':'');
+  if(r.grupo==='Outros') h+='<button class="esc" type="button" data-rotav="1"><b>➕ ITEM AVULSO</b><span>digitar o nome e a quantidade</span></button>';
+  h+=CATALOGO.filter(function(c2){ return c2.grupo===r.grupo && !c2.oculto && c2.id!=='avulso'; }).map(function(c2){
+    return '<button class="esc" type="button" data-rotadd="'+esc(c2.id)+'"><b>➕ '+esc(c2.nome)+'</b><span>toque para colocar na lista — as medidas você preenche depois</span></button>';
+  }).join('');
+  $('mCorpo').innerHTML=h;
+  $('mPe').innerHTML=(rotIdx>0?'<button class="btn b-branco" type="button" id="rotAnt" style="margin-right:auto">‹ VOLTAR</button>':'')+
+    '<button class="btn b-branco" type="button" id="rotNao">✘ NÃO TEM</button>'+
+    '<button class="btn b-verde" type="button" id="rotProx">'+(ja?'✔ TEM — PRÓXIMO ›':'PULAR ›')+'</button>';
+  var ba=$('rotAnt'); if(ba) ba.onclick=function(){ rotIdx--; desenharRoteiro(); };
+  $('rotNao').onclick=function(){ st.roteiro[ROTEIRO[rotIdx].k]='nao'; rotIdx++; salvarLocal(); desenharRoteiro(); };
+  $('rotProx').onclick=function(){ if(produtosDoGrupo(ROTEIRO[rotIdx].grupo)) st.roteiro[ROTEIRO[rotIdx].k]='tem'; rotIdx++; salvarLocal(); desenharRoteiro(); };
+}
+
+/* botões ➕ da revisão e do roteiro (dentro do modal) */
+$('mCorpo').addEventListener('click', function(e){
+  var t=e.target.closest('[data-addq],[data-rotadd],[data-rotav]'); if(!t) return;
+  if(t.dataset.addq!==undefined){
+    var q=prompt('Quantidade de '+t.dataset.addq+':','1'); if(q===null) return;
+    if(!addAvulso(t.dataset.addq, q)) return toast('Quantidade inválida.','erro');
+    toast('➕ '+up(t.dataset.addq)+' entrou na lista (no 1º ambiente — dá para ajustar depois).','ok');
+    desenharRevisao(); return;
+  }
+  if(t.dataset.rotadd!==undefined){
+    var cat=produtoCat(t.dataset.rotadd); if(!cat) return;
+    var perf=PERFIS[cat.perfil];
+    if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
+    st.ambientes[0].produtos.push({ pid: st.seq++, prodId:cat.id, vals: valsIniciais(perf), emb: copia(perf.emb||{}) });
+    st.roteiro[ROTEIRO[rotIdx].k]='tem';
+    desenharAmbientes(); mudou();
+    toast('➕ '+cat.nome+' entrou no 1º ambiente.','ok');
+    desenharRoteiro(); return;
+  }
+  if(t.dataset.rotav!==undefined){
+    var n=prompt('Nome do item:'); if(n===null) return;
+    var q2=prompt('Quantidade de '+up(n)+':','1'); if(q2===null) return;
+    if(!addAvulso(n,q2)) return toast('Preencha o nome e uma quantidade maior que zero.','erro');
+    st.roteiro.outros='tem';
+    toast('➕ '+up(n)+' entrou na lista.','ok');
+    desenharRoteiro(); return;
+  }
+});
+
+/* ================================================================
    ENVIAR PARA A CENTRAL (checklist do evento + guia por ambiente)
    ================================================================ */
 function listaEnvio(){
@@ -1505,7 +1821,7 @@ function areasEnvio(){
     return { nome: up(a.nome), itens: its, total: Math.round(tot*100)/100, area: Math.round((a.area||0)*100)/100, origem:'material' };
   }).filter(function(a){ return a.itens.length; });
 }
-function abrirEnvio(){
+function escolherEvento(){
   var lista=listaEnvio();
   if(!lista.length) return toast('Nada para enviar.','erro');
   if(!nuvem) return toast('Sem conexão com a Central.','erro');
@@ -1664,7 +1980,16 @@ function mandarProCaminhao(eventoId, cgEscolha, lista){
    ================================================================ */
 function preencherMeta(){ $('mEvento').value=st.evento||''; $('mData').value=st.data||''; $('mResp').value=st.resp||''; $('mLocal').value=st.local||''; $('mOs').value=st.os||''; }
 st = carregarLocal() || novoEstado();
-st.excluidos=st.excluidos||[]; st.envios=st.envios||[];
+st.excluidos=st.excluidos||[]; st.envios=st.envios||[]; st.roteiro=st.roteiro||{};
+$('bRoteiro').addEventListener('click', abrirRoteiro);
+/* regras "itens que andam juntos" salvas pelo coordenador (valem em todos os aparelhos) */
+if(nuvem) nuvem.from('config').select('valor').eq('chave','quant_regras_juntos').then(function(r){
+  var v=(((r||{}).data||[])[0]||{}).valor; if(!v) return;
+  try{
+    var rs = typeof v==='string' ? JSON.parse(v) : v;
+    if(rs && rs.length){ REGRAS=rs; try{ localStorage.setItem(CHAVE_REGRAS, JSON.stringify(rs)); }catch(e){} }
+  }catch(e){}
+}).catch(function(){});
 if(!st.ambientes.length) st.ambientes.push(novoAmbiente());
 preencherMeta();
 desenharAmbientes();
@@ -1686,7 +2011,10 @@ document.addEventListener('change', function(e){
   guardarDigitada(t.value);
 });
 window.__quant = { st:function(){ return st; }, calc:calcularTudo, perfis:PERFIS, catalogo:CATALOGO, listaEnvio:listaEnvio, areasEnvio:areasEnvio,
-  motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar } };
+  motor:{ galpao:calcGalpao, aluminio:calcAluminio, carpete:calcCarpete, pantografico:calcPantografico, tenda:calcTenda, TENDA_DEFS:TENDA_DEFS, praticavel:calcPraticavel, telescopico:calcTelescopico, piso:calcPisoElevado, deck:calcDeck, forracao:calcForracao, lista:calcLista, consolidar:consolidar },
+  guarda:{ bip:bip, familias:resumoFamilias, regras:{ padrao:REGRAS_PADRAO, atuais:regrasAtuais, parse:parseRegras, texto:textoRegras, avisos:avisosRegras, salvar:salvarRegras },
+    sugestoes:sugestoesHistorico, setHist:function(h){ histEventos=h; }, roteiro:ROTEIRO, abrirRoteiro:abrirRoteiro, desenharRoteiro:desenharRoteiro,
+    abrirRevisao:abrirEnvio, desenharRevisao:desenharRevisao, escolherEvento:escolherEvento, addAvulso:addAvulso } };
 })();
 </script>
 </body>
