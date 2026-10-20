@@ -129,7 +129,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 20/10 C</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 20/10 D</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -692,7 +692,8 @@ function desenhar() {
 
   h += '<div class="aviso"><span>ℹ️</span><div><b>Conte o que desceu deste caminhão.</b> ' +
       (temSaidaConf ? 'A lista é o que <b>saiu conferido do galpão</b>. ' : 'A lista é o checklist do caminhão. ') +
-      'Em cada item, <b>conte as peças e digite quanto chegou</b> — o que foi enviado só aparece depois que você digita, para a contagem ser de verdade. ' +
+      'Em cada item está a quantidade que <b>DEVIA CHEGAR</b> — conte as peças e <b>digite quanto realmente chegou</b>. ' +
+      'Se não bater, o app pede para contar de novo antes de aceitar. ' +
       'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.' +
       (qtdTerc() ? ' O material <b>🔗 terceirizado</b> (de fornecedor) está num quadro separado, confira ele também.' : '') +
       '</div></div>' +
@@ -918,13 +919,13 @@ function htmlItemEdit(b, i) {
         thumbPeca(b.nome, 54) +
         '<span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(b.nome) + '</b>' +
           (b.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
+          '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">DEVIA CHEGAR: <span style="font-size:20px">' + fmt(b.previsto) + '</span> ' + esc(b.unidade) + '</span>' +
           (temQ
-            ? '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">DEVIA CHEGAR: <span style="font-size:20px">' + fmt(b.previsto) + '</span> ' + esc(b.unidade) + '</span>' +
-              '<span style="display:block;font-weight:800;color:' + (bateu ? 'var(--verde)' : 'var(--laranja)') + '">' +
+            ? '<span style="display:block;font-weight:800;color:' + (bateu ? 'var(--verde)' : 'var(--laranja)') + '">' +
                 (bateu ? '✔ Bateu — chegou ' + fmt(b.qtd) : '✘ Chegou ' + fmt(b.qtd) + ' — diferença ' + (num(b.qtd) > num(b.previsto) ? '+' : '') + fmt(num(b.qtd) - num(b.previsto))) + '</span>'
             : (pend
-              ? '<span style="display:block;font-weight:800;color:var(--laranja);font-size:13px">🔁 Você contou ' + fmt(b.pend) + ' e NÃO BATEU com o enviado. CONTE DE NOVO para confirmar.</span>'
-              : '<span style="display:block;font-weight:700;color:var(--txt-3);font-size:13px">🔒 Conte as peças e digite — o que foi enviado aparece depois</span>')) +
+              ? '<span style="display:block;font-weight:800;color:var(--laranja);font-size:13px">🔁 Você contou ' + fmt(b.pend) + ' e NÃO BATEU. CONTE DE NOVO para confirmar.</span>'
+              : '<span style="display:block;font-weight:700;color:var(--txt-3);font-size:13px">Conte as peças e digite quanto REALMENTE chegou</span>')) +
         '</span>' +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
