@@ -101,6 +101,10 @@
   .painel.solo .col.on .equipe{font-size:16.5px}
   .painel.solo .col.on .dia{font-size:18px}
 
+  /* ---------- 🏭 tarefas dos setores (só aparece sozinha no rodízio) ---------- */
+  .painel:not(.solo) .col.setores{display:none}
+  .col.setores h2{color:var(--roxo)}
+  .col.setores .card{border-left-color:var(--roxo)}
   /* ---------- 📊 resultado (só aparece sozinha no rodízio) ---------- */
   .painel:not(.solo) .col.resul{display:none}
   .col.resul h2{color:var(--verde)}
@@ -157,7 +161,7 @@
 <div class="topo">
   <h1>OPERAÇÕES DO GALPÃO<small id="data-longa"></small></h1>
   <div class="dir">
-    <div class="bolas" id="bolas"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="bolas" id="bolas"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div>
       <div class="relogio" id="hora">--:--</div>
       <div class="atua" id="atualizado"></div>
@@ -171,7 +175,8 @@
   <div class="col carga" data-col="1"><h2>🚚 Carregamento <span class="n" id="n-carga">–</span></h2><div class="rolo" id="c-carga"></div></div>
   <div class="col descarga" data-col="2"><h2>↩️ Descarregamento <span class="n" id="n-descarga">–</span></h2><div class="rolo" id="c-descarga"></div></div>
   <div class="col tarefa" data-col="3"><h2>📝 Tarefas <span class="n" id="n-tarefa">–</span></h2><div class="rolo" id="c-tarefa"></div></div>
-  <div class="col resul" data-col="4"><h2>📊 Resultado da equipe <span class="n" id="n-resul">–</span></h2><div class="resul-box" id="c-resul"></div></div>
+  <div class="col setores" data-col="4"><h2>🏭 Tarefas dos setores <span class="n" id="n-set">–</span></h2><div class="rolo" id="c-set"><div class="vazio">Carregando…</div></div></div>
+  <div class="col resul" data-col="5"><h2>📊 Resultado da equipe <span class="n" id="n-resul">–</span></h2><div class="resul-box" id="c-resul"></div></div>
 </div>
 <div class="fita" id="fita" hidden><span class="rolinho" id="fita-texto"></span></div>
 
@@ -192,6 +197,11 @@
     return fetch(recurso, opcoes);
   }
   var cli = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { global: { fetch: fetchLimpo } });
+  /* 🏭 Gestão de Serviços (lonas, serralheria, manutenção, lavagem) — Supabase próprio dela */
+  var GS_URL = "https://bnhosipzlwyrhjyfjjcc.supabase.co";
+  var GS_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJuaG9zaXB6bHd5cmhqeWZqamNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwODk2ODgsImV4cCI6MjEwNzY2NTY4OH0.hOLK4KShExrq3gzLhXwGmiAAmaHz2qYHT9SMgVRemjU";
+  var cliGS = null;
+  try { cliGS = supabase.createClient(GS_URL, GS_ANON, { global: { fetch: fetchLimpo } }); } catch (e) { }
 
   /* manual gravado sem o patio-manual.sql: os campos vêm dentro do "obs" */
   function abrirPacote(d) {
@@ -270,7 +280,8 @@
         .gte("data", hojeISO(-30)).lte("data", hojeISO(7))).catch(function () { return []; }),
       presencaMes().catch(function () { return []; }),
       lista(cli.from("itens_carregamento").select("carregamento_id,produto_id,quantidade")).catch(function () { return []; }),
-      lista(cli.from("carga_encarregado").select("*").gte("em", hojeISO(-15))).catch(function () { return []; })
+      lista(cli.from("carga_encarregado").select("*").gte("em", hojeISO(-15))).catch(function () { return []; }),
+      (cliGS ? lista(cliGS.from("gestao_servicos").select("id,dados")) : Promise.resolve([])).catch(function () { return []; })
     ]).then(function (rr) {
       (rr[7] || []).forEach(function (t) {
         if (t && t.obs && /§FIM§\d{4}-\d{2}-\d{2}§/.test(t.obs)) {
@@ -278,7 +289,7 @@
           t.obs = t.obs.replace(/\s*§FIM§\d{4}-\d{2}-\d{2}§/g, "").trim() || null;
         }
       });
-      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8], planos: rr[9], sep: rr[10] };
+      D = { eventos: rr[0], cgs: rr[1], confs: rr[2], cams: rr[3], colabs: rr[4], pres: rr[5], dems: rr[6], tarefas: rr[7], presMes: rr[8], planos: rr[9], sep: rr[10], gs: rr[11] };
       desenhar();
       $("erro").hidden = true;
       $("atualizado").textContent = "atualizado às " + new Date().toLocaleTimeString("pt-BR").slice(0, 5);
@@ -524,6 +535,39 @@
     $("c-tarefa").innerHTML = hTar || '<div class="vazio">Nenhuma tarefa passada para a equipe.</div>';
     $("n-tarefa").textContent = totHoje ? feitasHoje + "/" + totHoje + " hoje" : (tAtras.length ? tAtras.length + " atrasada(s)" : "0");
 
+    /* ---- 🏭 TAREFAS DOS SETORES (Gestão de Serviços) ---- */
+    (function () {
+      var itens = (D.gs || []).map(function (r) { return (r && r.dados) || {}; })
+        .filter(function (x) { return x.tipo === "TAREFA" && !x.excluido; });
+      function prazoDe(x) { return x.prazo ? String(x.prazo).slice(0, 10) : ""; }
+      var pend = itens.filter(function (x) { return !x.feita; });
+      var feitasHj = itens.filter(function (x) { return x.feita && String(x.feitaEm || "").slice(0, 10) === hoje; });
+      function cardSet(x, atrasada) {
+        return '<div class="card' + (x.feita ? " feita" : atrasada ? " ruim" : "") + '">' +
+          '<b class="tit">' + (x.feita ? "✓ " : "") + esc(x.texto || "(sem nome)") + "</b>" +
+          (atrasada ? '<span class="chip ruim">ATRASADA · era para ' + fmtData(prazoDe(x)) + "</span>" : "") +
+          (!atrasada && prazoDe(x) ? '<span class="chip' + (prazoDe(x) === hoje ? " pend" : "") + '">📅 ' + (prazoDe(x) === hoje ? "HOJE" : fmtData(prazoDe(x))) + "</span>" : "") +
+          (x.origemId ? '<span class="chip">🏭 do sistema de serviços</span>' : "") +
+          (x.resp ? '<div class="equipe">👷 <b>' + esc(x.resp) + "</b></div>" : "") +
+          "</div>";
+      }
+      var atras = pend.filter(function (x) { return prazoDe(x) && prazoDe(x) < hoje; })
+        .sort(function (a, b) { return prazoDe(a).localeCompare(prazoDe(b)); });
+      var comPrazo = pend.filter(function (x) { return prazoDe(x) && prazoDe(x) >= hoje; })
+        .sort(function (a, b) { return prazoDe(a).localeCompare(prazoDe(b)); });
+      var semPrazo = pend.filter(function (x) { return !prazoDe(x); });
+      var hSet = "";
+      if (atras.length) {
+        hSet += '<div class="dia hoje">⏰ ATRASADAS</div>' + atras.map(function (x) { return cardSet(x, true); }).join("");
+        avisos.push("🏭 " + atras.length + " tarefa(s) dos setores atrasada(s): " + atras.slice(0, 3).map(function (x) { return x.texto; }).join(", "));
+      }
+      if (comPrazo.length) hSet += '<div class="dia">📅 COM PRAZO</div>' + comPrazo.map(function (x) { return cardSet(x, false); }).join("");
+      if (semPrazo.length) hSet += '<div class="dia">SEM PRAZO</div>' + semPrazo.map(function (x) { return cardSet(x, false); }).join("");
+      if (feitasHj.length) hSet += '<div class="dia">✓ FEITAS HOJE</div>' + feitasHj.map(function (x) { return cardSet(x, false); }).join("");
+      $("c-set").innerHTML = hSet || '<div class="vazio">Nenhuma tarefa dos setores.<br>Lonas · Serralheria · Manutenção · Lavagem</div>';
+      $("n-set").textContent = pend.length ? pend.length + " pendente(s)" : "0";
+    })();
+
     /* (o aviso "fulano em 2 lugares" saiu: o pessoal descarrega um caminhão de cada vez,
        então estar em várias cargas/descargas/tarefas no mesmo dia é normal) */
     /* ---- 📊 RESULTADO DA EQUIPE ---- */
@@ -593,8 +637,8 @@
 
   /* ---------------- rodízio das telas ---------------- */
   var painel = $("painel");
-  var etapa = 0;   /* 0..3 = uma coluna por vez · 4 = resultado · 5 = as quatro juntas */
-  var GRADE = 5;
+  var etapa = 0;   /* 0..3 = uma coluna por vez · 4 = setores · 5 = resultado · 6 = as quatro juntas */
+  var GRADE = 6;
   function aplicar() {
     var cols = painel.querySelectorAll(".col");
     if (etapa < GRADE) {
@@ -681,6 +725,16 @@
         });
       });
     canalTv.subscribe();
+  } catch (e) { /* sem tempo real: segue no relógio */ }
+  try {
+    if (cliGS) {
+      var gsTimer = null;
+      cliGS.channel('tv-gs')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'gestao_servicos' }, function () {
+          clearTimeout(gsTimer); gsTimer = setTimeout(carregar, 2000);
+        })
+        .subscribe();
+    }
   } catch (e) { /* sem tempo real: segue no relógio */ }
 
   /* ---------- ⛶ tela cheia ----------
