@@ -129,7 +129,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 20/10 D</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 20/10 F</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -223,7 +223,7 @@ function motivoErro(e) {
 var tela = document.getElementById('tela');
 var token = (location.hash || '').replace('#', '').trim();
 
-var evento = null, itensBase = [], aba = 'chegada', jaFeitas = { chegada: {}, sobra: null, volta: null };
+var evento = null, itensBase = [], aba = 'chegada', jaFeitas = { chegada: {}, sobra: null, voltas: [] };
 
 /* ---------- 📴 FILA OFFLINE: sem sinal, a conferência fica guardada
    no celular e é enviada sozinha quando a internet voltar ---------- */
@@ -259,7 +259,7 @@ function entraNaFila(reg) {
     itens: reg.itens, observacao: reg.observacao, avaliacao: reg.avaliacao || null, tipo: reg.tipo,
     carregamento_id: reg.carregamento_id, qtd_avarias: reg.qtd_avarias || 0 };
   if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = marca; delete rascPorCg[reg.carregamento_id]; }
-  else if (reg.tipo === 'embarque_volta') jaFeitas.volta = marca;
+  else if (reg.tipo === 'embarque_volta') jaFeitas.voltas.push(marca);
   else jaFeitas.sobra = marca;
   bannerFila();
   return true;
@@ -294,7 +294,10 @@ function enviaFila() {
       f.shift(); gravaFila(f);
       if (item.token === token) {
         if (item.reg.tipo === 'chegada') jaFeitas.chegada[item.reg.carregamento_id] = novo;
-        else if (item.reg.tipo === 'embarque_volta') jaFeitas.volta = novo;
+        else if (item.reg.tipo === 'embarque_volta') {
+          jaFeitas.voltas = jaFeitas.voltas.filter(function (x) { return !(x.pendenteEnvio && x.finalizada_em === item.reg.finalizada_em); });
+          jaFeitas.voltas.push(novo);
+        }
         else if (item.reg.tipo === 'sobra') jaFeitas.sobra = novo;
         desenhar();
       }
@@ -321,25 +324,19 @@ var fotoPeca = {};          /* 63: foto da ficha do estoque, por nome */
 var faltasEnviadas = [];    /* 64: faltas já avisadas pela montagem */
 var saiuPorCg = {};         /* 62: o que SAIU CONFERIDO do galpão, por caminhão */
 var saiuEmPorCg = {};       /* 74: hora que a saída foi finalizada (caminhão a caminho) */
-var retGalpaoPid = {}, retTem = false;   /* 75: o que o galpão contou no RETORNO, por produto */
-var voltaBase = null;       /* 75: rascunho do embarque de volta */
+var retConf = {};           /* 75: conferência de RETORNO feita na empresa, por carregamento de retorno */
+var todasCargas = [];       /* todos os carregamentos do evento (inclui os de retorno) */
+var voltaBase = null, voltaNova = false;   /* 75: rascunho do embarque de volta */
 /* 76: voz — fala "vinte e oito" e o campo preenche */
 var SR_ = window.SpeechRecognition || window.webkitSpeechRecognition, VOZ_OK = !!SR_, recAtivo = null;
 
-/* 72: a contagem só vale quando é CONFIRMADA (e divergência exige contar 2 vezes) */
+/* CHEGADA ÀS CEGAS: o produtor conta e digita; o que saiu da empresa só aparece depois de enviar */
 function commitContagem(i, v) {
   var b = itensBase[i];
   if (!b || v === '' || v === undefined || v === null) return;
   delete b.dig;
-  if (aba !== 'chegada' || b.extra) { b.qtd = v; return desenharLista(); }
-  if (b.q1 === undefined) b.q1 = v;          /* a 1ª contagem fica registrada */
-  if (b.pend === undefined) {
-    if (num(v) === num(b.previsto)) b.qtd = v;          /* bateu de primeira */
-    else { b.pend = v; b.qtd = ''; }                    /* não bateu: pede recontagem */
-  } else {
-    if (num(v) === num(b.pend) || num(v) === num(b.previsto)) { b.qtd = v; delete b.pend; }   /* confirmou */
-    else { b.pend = v; b.qtd = ''; }                    /* deu um 3º número: conta de novo */
-  }
+  if (aba === 'chegada' && !b.extra && b.q1 === undefined) b.q1 = v;   /* a 1ª contagem fica registrada */
+  b.qtd = v;
   desenharLista();
 }
 function ouvirItem(i, btn) {
@@ -458,12 +455,13 @@ function carregar() {
         faltasEnviadas = [];
         (rr[2].data || []).forEach(function (c) {
           if (c.tipo === 'sobra') jaFeitas.sobra = c;
-          else if (c.tipo === 'embarque_volta') jaFeitas.volta = c;
+          else if (c.tipo === 'embarque_volta') jaFeitas.voltas.push(c);
           else if (c.tipo === 'falta_montagem') faltasEnviadas.push(c);
           else jaFeitas.chegada[c.carregamento_id] = c;
         });
         /* só os carregamentos de SAÍDA (o que vai para o evento) */
-        cargas = (rr[1].data || []).filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
+        todasCargas = rr[1].data || [];
+        cargas = todasCargas.filter(function (c) { return (c.sentido || 'saida') === 'saida'; });
         var cgIds = cargas.map(function (c) { return c.id; });
         if (!cgIds.length) { planoPorCg = {}; tercPorCg = {}; sobraBase = montar(produtosEv, {}, false, {}); return desenhar(); }
         return Promise.all([
@@ -501,8 +499,7 @@ function carregarTerceirizado() {
       /* 75: retorno contado no galpão (para o cruzamento com o embarque de volta) */
       var retornos = (r.data || []).filter(function (c) { return c.tipo === 'retorno' && c.finalizada_em; });
       var ehRetorno = {};
-      retornos.forEach(function (c) { ehRetorno[c.id] = true; });
-      retTem = retornos.length > 0;
+      retornos.forEach(function (c) { ehRetorno[c.id] = c; retConf[c.carregamento_id] = { conf: c, itens: {} }; });
       if (!saidas.length && !retornos.length) return;
       var cgDe = {}, finalizadaDe = {};
       saidas.forEach(function (c) {
@@ -519,7 +516,8 @@ function carregarTerceirizado() {
           produtosEv.forEach(function (p) { if (p.terceirizado) terc100[p.id] = true; });
           (r2.data || []).forEach(function (i) {
             if (ehRetorno[i.conferencia_id]) {
-              retGalpaoPid[i.produto_id] = (retGalpaoPid[i.produto_id] || 0) + num(i.quantidade);
+              var rcf = retConf[ehRetorno[i.conferencia_id].carregamento_id].itens;
+              rcf[i.produto_id] = (rcf[i.produto_id] || 0) + num(i.quantidade);
               return;
             }
             var t = num(i.qtd_terceirizada);
@@ -576,7 +574,7 @@ function desenhar() {
   var h = '<div class="abas">' +
       '<button class="aba' + (aba === 'chegada' ? ' on' : '') + '" data-aba="chegada">🚚 Chegada</button>' +
       '<button class="aba' + (aba === 'volta' ? ' on' : '') + '" data-aba="volta">🔙 Volta' +
-        (jaFeitas.volta ? ' ✓' : '') + '</button>' +
+        (jaFeitas.voltas.length ? ' ✓' + (jaFeitas.voltas.length > 1 ? jaFeitas.voltas.length : '') : '') + '</button>' +
       '<button class="aba' + (aba === 'sobra' ? ' on' : '') + '" data-aba="sobra">📦 Sobra' +
         (jaFeitas.sobra ? ' ✓' : '') + '</button>' +
     '</div>' +
@@ -692,8 +690,8 @@ function desenhar() {
 
   h += '<div class="aviso"><span>ℹ️</span><div><b>Conte o que desceu deste caminhão.</b> ' +
       (temSaidaConf ? 'A lista é o que <b>saiu conferido do galpão</b>. ' : 'A lista é o checklist do caminhão. ') +
-      'Em cada item está a quantidade que <b>DEVIA CHEGAR</b> — conte as peças e <b>digite quanto realmente chegou</b>. ' +
-      'Se não bater, o app pede para contar de novo antes de aceitar. ' +
+      '<b>🙈 Conferência às cegas:</b> conte as peças de cada item e <b>digite quanto chegou</b>. ' +
+      'Ao FINALIZAR o app compara com o que saiu da empresa: o que não bater <b>apita</b> e volta marcado para contar de novo. ' +
       'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.' +
       (qtdTerc() ? ' O material <b>🔗 terceirizado</b> (de fornecedor) está num quadro separado, confira ele também.' : '') +
       '</div></div>' +
@@ -734,7 +732,7 @@ function telaSobra() {
       (itensF.map(function (i) { return htmlItemFeito(i, false); }).join('') ||
         '<p class="peq mut">Nenhuma sobra declarada.</p>') +
       (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
-      '</div></div>';
+      '</div></div>' + (feita.id ? blocoEmpresa(feita, 'A sobra está') : '');
   }
   itensBase = sobraBase;
   var nomes = {};
@@ -767,46 +765,55 @@ function telaSobra() {
 
 /* 🔙 75: embarque de volta — o que SOBE no caminhão na desmontagem.
    Depois que o galpão conta o retorno, aparece o cruzamento (o que sumiu na estrada). */
+/* o que o produtor declarou (embarque de volta / sobra) × o que o CONFERENTE contou na empresa */
+function blocoEmpresa(decl, rotulo) {
+  var cg = todasCargas.filter(function (c) { return c.sentido === 'retorno' && c.conf_produtor_id === decl.id; })[0];
+  var rc = cg ? retConf[cg.id] : null;
+  if (!rc) {
+    return '<div class="aviso"><span>⏳</span><div><b>' + rotulo + ' aguardando a conferência na empresa.</b> ' +
+      'Quando o caminhão chegar, o conferente confere às cegas. Se não bater com o que você declarou, o alarme toca na hora e aparece aqui.</div></div>';
+  }
+  var nomePid = {};
+  produtosEv.forEach(function (p) { nomePid[p.id] = chaveN(p.nome); });
+  var chegou = {};
+  Object.keys(rc.itens).forEach(function (pid) { var k = nomePid[pid]; if (k) chegou[k] = (chegou[k] || 0) + rc.itens[pid]; });
+  var decla = {}, nomes = {};
+  (decl.itens || []).forEach(function (i) { if (num(i.qtd) > 0) { var k = chaveN(i.nome); decla[k] = (decla[k] || 0) + num(i.qtd); nomes[k] = i.nome; } });
+  Object.keys(chegou).forEach(function (k) { if (!nomes[k]) nomes[k] = k; });
+  var linhas = '', ruins = 0;
+  Object.keys(nomes).sort().forEach(function (k) {
+    var dq = decla[k] || 0, cq = chegou[k] || 0, dif = cq - dq;
+    if (!dq && !cq) return;
+    if (dif) ruins++;
+    linhas += '<div class="item"><span class="item__n"><b>' + esc(nomes[k]) + '</b>' +
+      '<span class="peq mut">você declarou ' + fmt(dq) + ' · chegou na empresa ' + fmt(cq) + '</span></span>' +
+      '<b style="color:' + (dif < 0 ? '#C62828' : (dif > 0 ? 'var(--azul)' : 'var(--verde)')) + '">' +
+      (dif === 0 ? '✔ bateu' : (dif < 0 ? '✘ faltam ' + fmt(-dif) : '+' + fmt(dif) + ' a mais')) + '</b></div>';
+  });
+  return '<div class="cartao"><div class="cartao__topo"><h3>🏭 Conferido na empresa · Carreg. ' + (cg.numero || '') + '</h3></div><div class="cartao__corpo">' +
+    (ruins
+      ? '<div class="aviso" style="background:#FDECEC;color:#8E1B1B"><span>🚨</span><div><b>' + ruins + ' item(ns) não bateram</b> com o que você declarou — o coordenador já foi avisado.</div></div>'
+      : '<div class="aviso ok"><span>✅</span><div>Tudo que você declarou chegou na empresa.</div></div>') +
+    linhas + '</div></div>';
+}
+
+/* 🔙 75: embarque de volta — o que SOBE em cada caminhão na desmontagem.
+   Na empresa o conferente confere às cegas e liga o caminhão a este embarque. */
 function telaVolta() {
-  var feita = jaFeitas.volta;
-  if (feita) {
-    var itensF = (feita.itens || []).filter(function (i) { return num(i.qtd) > 0; });
-    var h = '<div class="aviso ok"><span>✅</span><div><b>Embarque de volta enviado.</b><br>' +
-      'Em ' + fmtData(feita.finalizada_em) + (feita.responsavel ? ' por ' + esc(feita.responsavel) : '') + '.</div></div>';
-    if (retTem) {
-      var retNome = {};
-      produtosEv.forEach(function (p) {
-        if (retGalpaoPid[p.id] !== undefined) {
-          var k = chaveN(p.nome);
-          retNome[k] = (retNome[k] || 0) + retGalpaoPid[p.id];
-        }
-      });
-      var linhas = '', sumiu = 0;
-      itensF.forEach(function (i) {
-        var cheg = retNome[chaveN(i.nome)]; if (cheg === undefined) cheg = 0;
-        var dif = cheg - num(i.qtd);
-        if (dif < 0) sumiu++;
-        linhas += '<div class="item"><span class="item__n"><b>' + esc(i.nome) + '</b>' +
-          '<span class="peq mut">embarcou ' + fmt(i.qtd) + ' · chegou no galpão ' + fmt(cheg) + '</span></span>' +
-          '<b style="color:' + (dif < 0 ? '#C62828' : (dif > 0 ? 'var(--azul)' : 'var(--verde)')) + '">' +
-          (dif === 0 ? '✔ bateu' : (dif < 0 ? '✘ sumiram ' + fmt(-dif) + ' na estrada' : '+' + fmt(dif) + ' a mais')) + '</b></div>';
-      });
-      h += '<div class="cartao"><div class="cartao__topo"><h3>🛣️ Embarque × chegada no galpão</h3></div><div class="cartao__corpo">' +
-        (sumiu
-          ? '<div class="aviso" style="background:#FDECEC;color:#8E1B1B"><span>🚨</span><div><b>' + sumiu +
-            ' item(ns) chegaram no galpão com MENOS do que embarcou</b> — diferença perdida na estrada da volta.</div></div>'
-          : '<div class="aviso ok"><span>✅</span><div>Tudo que embarcou chegou no galpão.</div></div>') +
-        linhas + '</div></div>';
-    } else {
-      h += '<div class="aviso"><span>⏳</span><div>Quando o galpão contar o <b>RETORNO</b>, aparece aqui o cruzamento: ' +
-        'o que você embarcou × o que chegou lá. Diferença = perdeu na estrada da volta.</div></div>';
-    }
-    h += '<div class="cartao"><div class="cartao__topo"><h3>🔙 O que você embarcou</h3>' +
-      '<span class="selo">enviada</span></div><div class="cartao__corpo">' +
-      (itensF.map(function (i) { return htmlItemFeito(i, false); }).join('') ||
-        '<p class="peq mut">Nada declarado.</p>') +
-      (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
-      '</div></div>';
+  var lista = jaFeitas.voltas || [];
+  if (lista.length && !voltaNova) {
+    var h = '<div class="aviso ok"><span>✅</span><div><b>' + lista.length + ' embarque(s) de volta enviado(s).</b><br>' +
+      'Subiu mais material em outro caminhão? Faça um novo embarque.</div></div>' +
+      '<button class="btn btn--laranja" id="btn-nova-volta" style="margin-bottom:12px">➕ NOVO EMBARQUE (outro caminhão)</button>';
+    lista.slice().reverse().forEach(function (feita, k) {
+      var itensF = (feita.itens || []).filter(function (i) { return num(i.qtd) > 0; });
+      h += '<div class="cartao"><div class="cartao__topo"><h3>🔙 Embarque ' + (lista.length - k) + '</h3>' +
+        '<span class="selo">' + (feita.pendenteEnvio ? 'no celular' : 'enviado') + '</span></div><div class="cartao__corpo">' +
+        '<p class="peq mut" style="margin:0 0 6px">' + fmtData(feita.finalizada_em) + (feita.responsavel ? ' · ' + esc(feita.responsavel) : '') + '</p>' +
+        (itensF.map(function (i) { return htmlItemFeito(i, false); }).join('') || '<p class="peq mut">Nada declarado.</p>') +
+        (feita.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(feita.observacao) + '</p>' : '') +
+        '</div></div>' + (feita.id ? blocoEmpresa(feita, 'Este embarque está') : '');
+    });
     return h;
   }
   if (!voltaBase) voltaBase = montar(produtosEv, {}, false, tercEv);
@@ -911,25 +918,22 @@ function htmlItemEdit(b, i) {
      O "devia chegar" só aparece DEPOIS que ele digita (conferência de verdade, não um toque de confirmar). */
   if (aba === 'chegada' && !b.extra) {
     var temQ = b.qtd !== '' && b.qtd !== undefined && b.qtd !== null;
-    var bateu = temQ && num(b.qtd) === num(b.previsto);
-    var pend = !temQ && b.pend !== undefined;   /* 72: não bateu na 1ª — esperando a recontagem */
-    var cor = temQ ? (bateu ? 'var(--verde)' : 'var(--laranja)') : (pend ? 'var(--laranja)' : '#D7DEE8');
-    var h2 = '<div class="item" style="border-left:5px solid ' + cor + ';border-radius:8px;padding-left:10px">' +
+    var recont = !!b.recontar;   /* não bateu no FINALIZAR: conte de novo (sem mostrar o número) */
+    var cor = temQ ? 'var(--azul)' : (recont ? 'var(--laranja)' : '#D7DEE8');
+    var h2 = '<div class="item" style="border-left:5px solid ' + cor + ';border-radius:8px;padding-left:10px' + (recont ? ';background:#FFF6EC' : '') + '">' +
       '<div style="display:flex;gap:10px;align-items:center">' +
         thumbPeca(b.nome, 54) +
         '<span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(b.nome) + '</b>' +
           (b.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
-          '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">DEVIA CHEGAR: <span style="font-size:20px">' + fmt(b.previsto) + '</span> ' + esc(b.unidade) + '</span>' +
-          (temQ
-            ? '<span style="display:block;font-weight:800;color:' + (bateu ? 'var(--verde)' : 'var(--laranja)') + '">' +
-                (bateu ? '✔ Bateu — chegou ' + fmt(b.qtd) : '✘ Chegou ' + fmt(b.qtd) + ' — diferença ' + (num(b.qtd) > num(b.previsto) ? '+' : '') + fmt(num(b.qtd) - num(b.previsto))) + '</span>'
-            : (pend
-              ? '<span style="display:block;font-weight:800;color:var(--laranja);font-size:13px">🔁 Você contou ' + fmt(b.pend) + ' e NÃO BATEU. CONTE DE NOVO para confirmar.</span>'
-              : '<span style="display:block;font-weight:700;color:var(--txt-3);font-size:13px">Conte as peças e digite quanto REALMENTE chegou</span>')) +
+          (recont && !temQ
+            ? '<span style="display:block;font-weight:900;color:var(--laranja);font-size:14px">🔁 NÃO BATEU com o que saiu da empresa — CONTE DE NOVO</span>'
+            : temQ
+              ? '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">✔ ' + (recont ? 'Recontado' : 'Contado') + ': <span style="font-size:20px">' + fmt(b.qtd) + '</span> ' + esc(b.unidade) + '</span>'
+              : '<span style="display:block;font-weight:700;color:var(--txt-3);font-size:13px">🙈 Conferência às cegas — conte as peças e digite quanto chegou</span>') +
         '</span>' +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
-        '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="' + (pend ? 'Conte de novo' : 'Quantos chegaram?') + '" value="' + esc(temQ ? b.qtd : (b.dig || '')) + '" style="flex:2;min-width:140px;min-height:54px;font-size:22px;font-weight:800;text-align:center;border:2px solid ' + (temQ ? (bateu ? 'var(--verde)' : 'var(--laranja)') : (pend ? 'var(--laranja)' : 'var(--azul)')) + ';border-radius:10px">' +
+        '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="' + (recont && !temQ ? 'Conte de novo' : 'Quantos chegaram?') + '" value="' + esc(temQ ? b.qtd : (b.dig || '')) + '" style="flex:2;min-width:140px;min-height:54px;font-size:22px;font-weight:800;text-align:center;border:2px solid ' + (temQ ? 'var(--azul)' : (recont ? 'var(--laranja)' : 'var(--azul)')) + ';border-radius:10px">' +
         '<button class="btn js-contou" data-i="' + i + '" style="flex:1;min-height:54px;background:var(--azul);color:#fff;font-weight:900">✔ CONTEI</button>' +
         (VOZ_OK ? '<button class="btn js-mic" data-i="' + i + '" title="Falar a quantidade" style="min-height:54px;max-width:64px;background:#fff;border:2px solid var(--azul);color:var(--azul);font-weight:900">🎤</button>' : '') +
         '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '">⚠️ Avaria</button>' +
@@ -1024,7 +1028,9 @@ function ligarTudo() {
     if (p) document.getElementById('add-un').value = p.unidade || 'UN';
     if (p && p.terceirizado) document.getElementById('add-terc').checked = true;
   });
-  if ((aba === 'sobra' && !jaFeitas.sobra) || (aba === 'volta' && !jaFeitas.volta)) desenharLista();
+  if ((aba === 'sobra' && !jaFeitas.sobra) || (aba === 'volta' && (voltaNova || !jaFeitas.voltas.length))) desenharLista();
+  var bNv = document.getElementById('btn-nova-volta');
+  if (bNv) bNv.addEventListener('click', function () { voltaNova = true; voltaBase = null; desenhar(); window.scrollTo(0, 0); });
 
   /* 71: foto da carga */
   var fcIn = document.getElementById('fc-in');
@@ -1245,6 +1251,25 @@ function enviar() {
   if (aba === 'chegada' && m.algum === 0 &&
       !confirm('Nenhuma quantidade foi informada. Finalizar mesmo assim?')) return;
   if (aba === 'chegada') {
+    /* 🔔 compara com o que SAIU da empresa só agora, no FINALIZAR (às cegas até aqui) */
+    var rc = rascPorCg[cargaSel] || [];
+    var div = itensBase.filter(function (b) { return !b.extra && num(b.qtd) !== num(b.previsto); });
+    if (div.length && !rc._recontou) {
+      div.forEach(function (b) { b.recontar = true; b.qtd = ''; delete b.dig; });
+      rc._recontou = true;
+      desenharLista();
+      var pri = document.querySelector('.js-q[data-i="' + itensBase.indexOf(div[0]) + '"]');
+      if (pri && pri.scrollIntoView) pri.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      alert('🔔 ' + div.length + ' item(ns) NÃO BATERAM com o que saiu da empresa:\n' +
+        div.slice(0, 8).map(function (b) { return '• ' + b.nome; }).join('\n') + (div.length > 8 ? '\n…' : '') +
+        '\n\nConte DE NOVO esses itens (estão marcados em laranja) e toque em FINALIZAR.');
+      return;
+    }
+    if (div.length) {
+      if (!confirm('🔔 Depois da recontagem, ' + div.length + ' item(ns) AINDA NÃO BATEM com o que saiu da empresa:\n' +
+          div.slice(0, 8).map(function (b) { return '• ' + b.nome; }).join('\n') + (div.length > 8 ? '\n…' : '') +
+          '\n\nEnviar assim? O coordenador recebe o ALARME da divergência para o evento na hora.')) return;
+    }
     envioPendente = m.reg;
     abrirAvaliacao();
     return;
@@ -1399,8 +1424,10 @@ function gravar(reg, bt) {
       bt.disabled = false; bt.textContent = rotulo;
       fecharAvaliacao();
       envioPendente = null;
-      if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = novo; delete rascPorCg[reg.carregamento_id]; }
-      else if (reg.tipo === 'embarque_volta') { jaFeitas.volta = novo; voltaBase = null; }
+      if (reg.tipo === 'chegada') {
+        jaFeitas.chegada[reg.carregamento_id] = novo; delete rascPorCg[reg.carregamento_id];
+      }
+      else if (reg.tipo === 'embarque_volta') { jaFeitas.voltas.push(novo); voltaBase = null; voltaNova = false; }
       else if (reg.tipo === 'falta_montagem') {
         faltasEnviadas.unshift(novo);
         fecharFalta();
