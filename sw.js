@@ -2,7 +2,7 @@
    - páginas (.html): busca na internet primeiro; sem sinal, abre a última cópia
    - bibliotecas (cdn): usa a cópia guardada e atualiza por trás
    - banco (supabase): NUNCA guarda — sempre ao vivo */
-var VERSAO = 'gtp-v3-10';
+var VERSAO = 'gtp-v4-0';
 var CASCA = ['./', './index.html', './tv.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
 
 self.addEventListener('install', function (e) {
@@ -40,4 +40,35 @@ self.addEventListener('fetch', function (e) {
       return m || rede;
     }));
   }
+});
+
+/* 🔔 PUSH: alerta no celular/computador mesmo com o app fechado */
+self.addEventListener('push', function (e) {
+  var d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (x) { d = { corpo: e.data ? e.data.text() : '' }; }
+  var div = d.tipo === 'divergencia';
+  e.waitUntil(self.registration.showNotification(d.titulo || 'Central de Conferência', {
+    body: d.corpo || '',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    requireInteraction: div,          /* divergência fica na tela até tocar */
+    icon: 'icone-192.png',
+    badge: 'icone-192.png',
+    vibrate: div ? [400, 150, 400, 150, 400] : [200],
+    data: { url: d.url || './' }
+  }));
+});
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  var url = (e.notification.data && e.notification.data.url) || './';
+  var div = url.indexOf('#divergencias') >= 0;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (ls) {
+    for (var i = 0; i < ls.length; i++) {
+      if ('focus' in ls[i]) {
+        if (div) ls[i].postMessage({ abrir: 'divergencias' });
+        return ls[i].focus();
+      }
+    }
+    return self.clients.openWindow ? self.clients.openWindow(url) : null;
+  }));
 });
