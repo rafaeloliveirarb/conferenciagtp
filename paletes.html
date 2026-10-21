@@ -136,7 +136,8 @@ input:disabled,select:disabled{background:#f3f4f7;color:#777}
 .outro{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .outro input{width:86px;flex:1 1 70px}.outro select{width:auto;flex:1 1 130px}
 .comp .ctit h3{margin:0}
-.mais{margin-bottom:12px}.mais summary{cursor:pointer;font-size:14px;list-style-position:inside}
+.mais{margin-bottom:12px}
+.faltam{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}.faltam .chip{background:var(--pendbg);border-color:#f3c27f;color:#7a3d06;font-weight:700}.mais summary{cursor:pointer;font-size:14px;list-style-position:inside}
 .ref{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;background:#fbfcfe}
 @media (max-width:760px){.row{grid-template-columns:1fr 1fr}.row .org{grid-column:1/-1}}
 /* tabelas */
@@ -199,7 +200,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v4</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v5</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -1023,17 +1024,38 @@ function tirarRef(i){ const p=P[cur]; p.refs.splice(i,1); salvar(p,true); render
 function setRef(i,k,v,re){ const p=P[cur]; p.refs[i][k]=v; salvar(p,true); if(re||k==='o'){ const y=window.scrollY; render(); window.scrollTo(0,y); } else renderAssist(); }
 
 /* ---------- passo 4: ficha preliminar / planta ---------- */
+/* resumo em linguagem simples: uma linha por pergunta (perfil = 1 linha, não 4 campos) */
+function nomePerfilP(p,c){ const i=perfilAtual(p,c); if(i!==''&&i!=='OUTRO') return PERFIS[+i][4]; const pf=perfilDe(p,c); return pf.tipo&&pf.b!=null&&pf.h!=null?nomePerfil(pf):''; }
+function origemDe(p,ks){
+  const fs=ks.map(k=>FMAP[k]).filter(f=>f&&ativo(p,f));
+  if(!fs.length) return 'INF';
+  if(fs.some(f=>vazioCampo(p,f))) return 'PEND';
+  const os=fs.map(f=>origemEfetiva(p,f));
+  return os.every(o=>o==='OBS')?'OBS':os.includes('PAD')?'PAD':'INF';
+}
+function resumoDados(p){
+  const R=[]; const v=k=>vRaw(p,k); const n=k=>vNum(p,k);
+  const add=(rot,val,ks)=>R.push({rot,val,o:origemDe(p,ks),k:ks[0]});
+  add('Comprimento', n('C')==null?'':mm(n('C'))+' mm',['C']);
+  add('Largura', n('L')==null?'':mm(n('L'))+' mm',['L']);
+  add('Altura', n('H')==null?'':mm(n('H'))+' mm',['H']);
+  const pk=c=>['_tipo','_b','_h','_t'].map(x=>c+x);
+  if(!p.sep && (perfisIguais(p) || perfilAtual(p,'long')==='')) add('Perfil da estrutura', nomePerfilP(p,'long'), [...pk('long'),...pk('trav'),...pk('pes')]);
+  else { add('Perfil das longarinas',nomePerfilP(p,'long'),pk('long')); add('Perfil das travessas',nomePerfilP(p,'trav'),pk('trav')); add('Perfil dos pés',nomePerfilP(p,'pes'),pk('pes')); }
+  add('Longarinas', v('long_n')?v('long_n')+' un':'',['long_n']);
+  add('Travessas', v('trav_n')?v('trav_n')+' un · '+(v('trav_mont')==='SOBRE'?'por cima':'entre as longarinas'):'',['trav_n','trav_mont']);
+  add('Pés em cada longarina', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
+  const pe=alturaPe(p); if(pe!=null) R.push({rot:'Altura do pé',val:mm(pe)+' mm',o:'CALC'});
+  add('Base no chão', v('base_tem')==='SIM'?'sim'+(nomePerfilP(p,'base')?' · '+nomePerfilP(p,'base'):''):v('base_tem')==='NAO'?'não':'',v('base_tem')==='SIM'?['base_tem',...pk('base')]:['base_tem']);
+  add('Tampo', {NENHUM:'não',CHAPA:'chapa de aço',MADEIRA:'madeira',TELA:'tela'}[v('tampo_tipo')]||'' + '', ['tampo_tipo','tampo_t']);
+  if(['CHAPA','MADEIRA'].includes(v('tampo_tipo'))&&n('tampo_t')!=null) R[R.length-1].val+=' · '+mm(n('tampo_t'))+' mm';
+  add('Reforços', v('ref_tem')==='SIM'?(p.refs||[]).length+' cadastrado(s)':v('ref_tem')==='NAO'?'não':'',['ref_tem']);
+  if(v('ref_tem')==='SIM' && refsPend(p).length) R[R.length-1].o='PEND';
+  return R;
+}
+const ORIG_TXT={OBS:'👁 vi na foto',INF:'✍ informado',PAD:'⚙ padrão',CALC:'🧮 calculado',PEND:'⏳ falta'};
 function tabelaOrigens(p){
-  const lin=FIELDS.filter(f=>ativo(p,f)).map(f=>{
-    const o=origemEfetiva(p,f); const v=vRaw(p,f.k);
-    let val = v===''?'—': f.tipo==='sel' ? (f.opts.find(x=>x[0]===v)||[,v])[1] : mm(+v)+' '+f.un;
-    const ft = o==='OBS' ? p.fotos.findIndex(x=>x.id===p.m[f.k].f)+1 : 0;
-    return `<tr><td>${esc(COMP[f.comp].nome)}</td><td>${esc(rotulo(p,f))}</td><td>${esc(val)}</td><td><span class="tg ${o}">${o==='OBS'?'👁 Observado'+(ft>0?' (foto '+ft+')':''):o==='INF'?'✍ Informado':o==='PAD'?'⚙ Padrão (não conferido)':'⏳ Pendente'}</span></td></tr>`;
-  });
-  const pe=alturaPe(p);
-  lin.push(`<tr><td>Pés / blocos</td><td>Altura do pé (abertura do garfo)</td><td>${pe==null?'—':mm(pe)+' mm'}</td><td><span class="tg ${pe==null?'PEND':'CALC'}">${pe==null?'⏳ Pendente':'🧮 Calculado'}</span></td></tr>`);
-  (p.refs||[]).forEach((r,i)=>lin.push(`<tr><td>Reforços</td><td>R${i+1} — ${esc(r.desc||'?')}</td><td>${r.tipo?esc(TIPOS[r.tipo].curto)+' '+esc(r.b)+'×'+esc(r.h)+(r.tipo!=='MAD'?'×'+esc(r.t):''):'—'} · ${esc(r.comp||'?')} mm · ${esc(r.qtd||'?')} un</td><td><span class="tg ${r.o==='OBS'?'OBS':'INF'}">${r.o==='OBS'?'👁 Observado':'✍ Informado'}</span></td></tr>`));
-  return `<table class="t"><tr><th>Peça</th><th>Informação</th><th>Valor</th><th>Origem</th></tr>${lin.join('')}</table>`;
+  return `<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th></tr>${resumoDados(p).map(r=>`<tr><td>${esc(r.rot)}</td><td>${r.val?esc(r.val):'—'}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td></tr>`).join('')}</table>`;
 }
 function cabecalhoImpresso(p,titulo){
   return `<div class="print-only" style="border-bottom:3px solid var(--lar);margin-bottom:8px;padding-bottom:6px"><b style="color:var(--azul)">GRUPO TENDAS</b> <b style="color:var(--lar)">PLENART</b> · ${titulo} · <b>${esc(p.codigo)}</b> — ${esc(p.nome)} · ${dataBR(Date.now())}</div>`;
@@ -1070,23 +1092,14 @@ function passoPlanta(p,A){
     ${lib.ok?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(lib.resp)} em ${dataBR(lib.em)} · capacidade nominal ${nf(+lib.capacidade)} kg${lib.empilha?' · empilhamento máx. '+esc(lib.empilha):''}${lib.obs?' · '+esc(lib.obs):''}</div>`:'<div class="aviso e">✖ NÃO LIBERADO PARA FABRICAÇÃO — faltam as conferências de dimensões, capacidade de carga, estabilidade e segurança.</div>'}`;
 }
 function fichaPreliminar(p,A){
+  const R=resumoDados(p); const falta=R.filter(r=>r.o==='PEND'); const tem=R.filter(r=>r.o!=='PEND');
   return `${cabecalhoImpresso(p,'FICHA PRELIMINAR')}
-    <div class="aviso a"><b>FICHA PRELIMINAR — não é projeto.</b> Ainda faltam informações para desenhar o palete sem inventar peça ou medida.
-    Abaixo está o que já se sabe, de onde veio cada dado e o que falta.</div>
-    <div class="linha noprint" style="justify-content:flex-end"><button class="btn mini c" onclick="window.print()">🖨 Imprimir ficha</button></div>
-    <h2 class="sec">Identificação</h2>
-    <table class="t"><tr><td style="width:200px">Código</td><td><b>${esc(p.codigo)}</b></td></tr><tr><td>Nome</td><td>${esc(p.nome||'—')}</td></tr><tr><td>Uso</td><td>${esc(p.uso||'—')}</td></tr>
-      <tr><td>Situação nas fotos</td><td>${p.estado==='CARREGADO'?'Com material em cima'+(p.carga&&p.carga.desc?' ('+esc(p.carga.desc)+')':''):p.estado==='VAZIO'?'Vazio':'⏳ não informado'}</td></tr>
-      <tr><td>Fotos</td><td>${(p.fotos||[]).length} — ${Object.entries(VISTAS).map(([k,t])=>{const n=(p.fotos||[]).filter(f=>f.vista===k).length;return n?t+': '+n:''}).filter(Boolean).join(' · ')||'nenhuma vista marcada'}</td></tr></table>
-    ${A.erros.length?`<h2 class="sec" style="color:var(--err)">Problemas a corrigir</h2><ul>${A.erros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
-    <h2 class="sec">Medidas que faltam (${A.pend.length+A.refFaltas.length})</h2>
-    ${A.pend.length+A.refFaltas.length?`<ul>${A.pend.map(f=>`<li><b>${esc(COMP[f.comp].nome)}</b> — ${esc(rotulo(p,f))}</li>`).join('')}${A.refFaltas.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
-    <h2 class="sec">Fotos que ajudariam (opcional)</h2>
-    ${A.fotosPed.length?`<ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
-    <h2 class="sec">O que já se sabe</h2>
-    ${tabelaOrigens(p)}
-    ${p.estado==='CARREGADO'&&p.carga&&(p.carga.comp||p.carga.larg)?`<p style="font-size:13px;color:var(--mut)">📦 Material armazenado (referência, não é medida do palete): ${esc(p.carga.desc||'')} ${esc(p.carga.comp||'?')} × ${esc(p.carga.larg||'?')} × ${esc(p.carga.alt||'?')} mm${p.carga.peso?' · ~'+esc(p.carga.peso)+' kg':''}</p>`:''}
-    <div class="linha noprint" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('medidas')">← Completar medidas</button><button class="btn c" onclick="irPasso('fotos')">📷 Mandar fotos</button></div>`;
+    <div class="aviso a" style="margin-top:0"><b>Ficha preliminar</b> — ainda não é o projeto. ${!p.estado?'Falta dizer se o palete está vazio ou carregado (passo 1). ':''}${falta.length?'Falta'+(falta.length>1?'m':'')+' <b>'+falta.length+'</b>:':''}</div>
+    ${falta.length?`<div class="faltam">${falta.map(r=>`<span class="chip" onclick="irCampo('${r.k}')">⏳ ${esc(r.rot)}</span>`).join('')}</div>`:''}
+    ${A.erros.length?`<div class="aviso e">✖ ${A.erros.map(esc).join('<br>✖ ')}</div>`:''}
+    <div class="linha noprint" style="margin:12px 0"><button class="btn" onclick="irPasso('${p.estado?'medidas':'ident'}')">✏ Preencher agora</button><button class="btn c mini" onclick="window.print()">🖨 Imprimir ficha</button></div>
+    ${tem.length?`<h2 class="sec">O que já tem</h2>${`<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th></tr>${tem.map(r=>`<tr><td>${esc(r.rot)}</td><td>${esc(r.val)}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td></tr>`).join('')}</table>`}`:''}
+    ${p.estado==='CARREGADO'&&p.carga&&(p.carga.comp||p.carga.larg)?`<p style="font-size:13px;color:var(--mut)">📦 Carga (só referência, não é medida do palete): ${esc(p.carga.desc||'')} ${p.carga.comp?mm(+p.carga.comp):'?'} × ${p.carga.larg?mm(+p.carga.larg):'?'} × ${p.carga.alt?mm(+p.carga.alt):'?'} mm</p>`:''}`;
 }
 function confirmarPlanta(){
   const p=P[cur]; const A=analisar(p); if(!A.pronto) return;
