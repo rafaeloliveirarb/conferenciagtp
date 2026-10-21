@@ -121,6 +121,7 @@ input:disabled,select:disabled{background:#f3f4f7;color:#777}
 .o.pend{cursor:default}
 .org select{font-size:12px;padding:3px 6px;border-radius:8px;border:1px solid var(--line);max-width:150px}
 .tg{display:inline-block;font-size:11px;font-weight:800;padding:2px 7px;border-radius:12px}
+.tg.PAD{background:#eef1f5;color:#475569}
 .tg.OBS{background:var(--obsbg);color:var(--obs)}.tg.INF{background:var(--infbg);color:var(--inf)}
 .tg.PEND{background:var(--pendbg);color:var(--pend)}.tg.CALC{background:var(--calcbg);color:var(--calc)}
 .mlinha{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
@@ -135,6 +136,7 @@ input:disabled,select:disabled{background:#f3f4f7;color:#777}
 .outro{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .outro input{width:86px;flex:1 1 70px}.outro select{width:auto;flex:1 1 130px}
 .comp .ctit h3{margin:0}
+.mais{margin-bottom:12px}.mais summary{cursor:pointer;font-size:14px;list-style-position:inside}
 .ref{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;background:#fbfcfe}
 @media (max-width:760px){.row{grid-template-columns:1fr 1fr}.row .org{grid-column:1/-1}}
 /* tabelas */
@@ -175,6 +177,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
   .passos button{white-space:nowrap;flex:none}
   .seg button{min-width:0}
   .btn{padding:10px 12px}
+  table.t{display:block;overflow-x:auto;white-space:nowrap}
 }
 @page{size:A4 landscape;margin:8mm}
 @media print{
@@ -196,7 +199,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes</h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v4</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -385,7 +388,7 @@ function novoPalete(){
   let un='mm'; try{ un=localStorage.getItem('paletes_un')||'mm'; }catch(e){}
   return { id:uid(), codigo:'PL-'+String(n).padStart(4,'0'), nome:'', uso:'', materiais:[], qtdFab:1, un,
     estado:'', carga:{ desc:'', comp:'', larg:'', alt:'', peso:'', mostrar:false }, obs:'',
-    fotos:[], m:{}, refs:[], planta:null, lib:{ dim:false, cap:false, est:false, seg:false, capacidade:'', empilha:'', resp:'', obs:'', ok:false, em:0 },
+    fotos:[], m:{ base_tem:{v:'NAO',o:'PAD'}, tampo_tipo:{v:'NENHUM',o:'PAD'}, ref_tem:{v:'NAO',o:'PAD'} }, refs:[], planta:null, lib:{ dim:false, cap:false, est:false, seg:false, capacidade:'', empilha:'', resp:'', obs:'', ok:false, em:0 },
     criado:Date.now(), atualizado:Date.now(), por:quem() };
 }
 const vRaw = (p,k) => (p.m && p.m[k]) ? p.m[k].v : '';
@@ -471,7 +474,6 @@ function analisar(p){
     if(perto(C,cc)||perto(C,cl)||perto(L,cl)||perto(L,cc)) avisos.push('Uma medida do palete está igual à do material armazenado. Confira se foi medida a ESTRUTURA do palete, não a carga.');
     if(C!=null && L!=null && cc>0 && cl>0 && (Math.max(cc,cl)>C+5 || Math.min(cc,cl)>L+5)) avisos.push('A carga informada é maior que o palete (fica em balanço). Avalie na conferência de estabilidade.');
   }
-  if(p.estado==='CARREGADO' && (p.fotos||[]).length && !(p.fotos||[]).some(f=>(f.vis||[]).includes('carga'))) avisos.push('Palete carregado: marque em quais fotos aparece o 📦 material armazenado, para separar o que é carga do que é estrutura.');
   // fotos pedidas
   const temVista=v=>(p.fotos||[]).some(f=>f.vista===v);
   if(!temVista('FRENTE')) fotosPed.push({v:'FRENTE', txt:'Foto da FRENTE — de frente para a abertura do garfo, palete inteiro no quadro.'});
@@ -494,7 +496,7 @@ function analisar(p){
   if(p.lib && p.lib.ok && plantaOk) st='LIBERADO';
   else if(plantaOk && pronto) st='PLANTA';
   else if(pronto) st='PRONTO';
-  else if((p.fotos||[]).length || Object.keys(p.m||{}).length) st='PRELIMINAR';
+  else if((p.fotos||[]).length || Object.values(p.m||{}).some(x=>x.o!=='PAD')) st='PRELIMINAR';
   return { pend, refFaltas, erros, avisos, fotosPed, semMarca, pronto, pct: total?Math.round(feitos/total*100):0, st, hashAtual, plantaOk };
 }
 const ST_NOME = { RASCUNHO:'RASCUNHO', PRELIMINAR:'FICHA PRELIMINAR', PRONTO:'PRONTO P/ PLANTA', PLANTA:'PLANTA GERADA', LIBERADO:'LIBERADO P/ FABRICAÇÃO' };
@@ -502,8 +504,6 @@ const ST_NOME = { RASCUNHO:'RASCUNHO', PRELIMINAR:'FICHA PRELIMINAR', PRONTO:'PR
 function proximoPasso(p,A){
   if(!p.nome) return ['Dê um nome ao palete e diga se ele está vazio ou carregado','ident'];
   if(!p.estado) return ['Diga se o palete da foto está VAZIO ou CARREGADO','ident'];
-  if(!(p.fotos||[]).length) return ['Tire ou anexe as fotos do palete','fotos'];
-  if(A.semMarca.length) return ['Marque o que aparece em '+(A.semMarca.length===1?'1 foto':A.semMarca.length+' fotos')+' (longarina, pé, travessa…)','fotos'];
   if(A.pend.length||A.refFaltas.length){ const n=contaFaltas(A,null); return [passo==='medidas'?'Preencha os campos em laranja — falta'+(n>1?'m ':' ')+n+' informaç'+(n>1?'ões':'ão'):'Faltam '+n+' informações do palete','medidas']; }
   if(A.erros.length) return ['Corrija '+A.erros.length+' problema(s) nas medidas','medidas'];
   if(!A.plantaOk) return ['Confira as medidas e gere a planta técnica','planta'];
@@ -683,7 +683,7 @@ function telaConfig(){
 /* =================== EDITOR =================== */
 function telaEditor(){
   const p=P[cur]; const A=analisar(p); const trav=travado(p);
-  const PASSOS=[['ident','1 · Identificação', !!(p.nome&&p.estado)],['fotos','2 · Fotos', (p.fotos||[]).length>0 && !A.semMarca.length],['medidas','3 · Medidas', A.pronto],['planta', A.pronto?'4 · Planta técnica':'4 · Ficha preliminar', A.plantaOk],['lib','5 · Liberação', !!(p.lib&&p.lib.ok&&A.plantaOk)]];
+  const PASSOS=[['ident','1 · Identificação', !!(p.nome&&p.estado)],['fotos','2 · Fotos (opcional)', (p.fotos||[]).length>0],['medidas','3 · Medidas', A.pronto],['planta', A.pronto?'4 · Planta técnica':'4 · Ficha preliminar', A.plantaOk],['lib','5 · Liberação', !!(p.lib&&p.lib.ok&&A.plantaOk)]];
   let corpo='';
   if(passo==='ident') corpo=passoIdent(p,trav);
   else if(passo==='fotos') corpo=passoFotos(p,A,trav);
@@ -713,7 +713,9 @@ function renderAssist(){
 const CURTO={C:'comprimento',L:'largura',H:'altura',n:'quantidade',tipo:'perfil',b:'perfil',h:'perfil',t:'perfil',mont:'montagem',base_tem:'tem base?',tampo_tipo:'tem tampo?',tampo_t:'espessura',ref_tem:'tem reforço?'};
 function curto(k){ return CURTO[k] || CURTO[k.split('_').pop()] || k; }
 function contaFaltas(A,comps){ /* conta perguntas, não campos internos (perfil = 1) */
-  const g=new Set(); A.pend.forEach(f=>{ if(!comps||comps.includes(f.comp)) g.add(f.comp+':'+curto(f.k)); });
+  const g=new Set(); A.pend.forEach(f=>{ if(!comps||comps.includes(f.comp)){
+    const perfilEstr = (['long','trav','pes'].includes(f.comp) && curto(f.k)==='perfil') || f.k==='trav_mont';   // um perfil só para a estrutura
+    g.add(perfilEstr ? 'estr:perfil' : f.comp+':'+curto(f.k)); } });
   return g.size + (A.refFaltas.length && (!comps||comps.includes('ref')) ? 1 : 0);
 }
 function pendResumo(A){
@@ -729,9 +731,9 @@ function htmlAssist(p,A){
     <div class="prox"><span style="flex:1">👉 ${esc(txt)}</span>${passo!==alvo?`<button class="btn mini" onclick="irPasso('${alvo}')">Ir</button>`:''}</div>
     ${A.erros.length?`<div class="aviso e" style="margin-bottom:0">✖ ${A.erros.map(esc).join('<br>✖ ')}</div>`:''}
     ${A.avisos.length?`<details><summary style="color:var(--warn)">⚠ ${A.avisos.length} aviso(s)</summary><ul>${A.avisos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
-    ${A.fotosPed.length&&passo!=='fotos'?`<details><summary>📷 Fotos que ajudam (${A.fotosPed.length})</summary><ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul></details>`:''}`;
+`;
 }
-function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const c=(FMAP[k]||{}).comp; const e=$('in_'+k)||$('in_'+c+'_tipo')||$('card_'+c); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
+function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const c=(FMAP[k]||{}).comp; const e=$('in_'+k)||$('in_'+c+'_tipo')||$('card_'+c)||(['long','trav','pes'].includes(c)?$('card_estr'):null); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
 function duplicar(){
   const o=P[cur]; const p=JSON.parse(JSON.stringify(o)); const n=novoPalete();
   Object.assign(p,{ id:n.id, codigo:n.codigo, nome:(o.nome||'')+' (cópia)', planta:null, lib:n.lib, criado:Date.now(), fotos:[] });
@@ -771,7 +773,7 @@ function passoIdent(p,trav){
         <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" ${c.mostrar?'checked':''} ${dis} onchange="setCarga('mostrar',this.checked)"> Mostrar a carga tracejada na planta (posicionamento / acondicionamento)</label>
       </div>`:''}
     <label class="f" style="margin-top:14px">Observações<textarea ${dis} onchange="setP('obs',this.value)">${esc(p.obs)}</textarea></label>
-    <div class="linha" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="irPasso('fotos')">Próximo: fotos →</button></div>`;
+    <div class="linha" style="margin-top:14px;justify-content:flex-end"><button class="btn c" onclick="irPasso('fotos')">📷 Fotos (opcional)</button><button class="btn" onclick="irPasso('medidas')">Próximo: medidas →</button></div>`;
 }
 function setP(k,v,rerender){ const p=P[cur]; p[k]=v; salvar(p,true); if(rerender||k==='nome') render(); else renderAssist(); }
 function setCarga(k,v){ const p=P[cur]; p.carga=p.carga||{}; p.carga[k]=v; salvar(p,true); renderAssist(); }
@@ -780,14 +782,13 @@ function togMat(k){ const p=P[cur]; p.materiais=p.materiais||[]; const i=p.mater
 /* ---------- passo 2: fotos ---------- */
 function passoFotos(p,A,trav){
   const fotos=p.fotos||[];
-  return `<div class="aviso i">Tire as fotos <b>da frente, da lateral, de cima</b> e dos <b>detalhes</b>. Em cada foto, marque o que aparece nela.
-    É isso que decide o que pode ser <b>👁 observado</b>: uma peça só conta como observada se alguma foto marcada mostrar essa peça. Para valer como medida observada (mm), a foto também precisa ter <b>📏 trena ou referência</b> visível.</div>
-    ${A.fotosPed.length?`<div class="pedidas" style="margin:10px 0">${A.fotosPed.map(x=>`<div class="pedida">📷 <span style="flex:1">${esc(x.txt)}</span>${trav?'':`<label class="btn mini lar" style="cursor:pointer">Tirar<input type="file" accept="image/*" capture="environment" hidden onchange="addFotos(this,'${x.v}')"></label>`}</div>`).join('')}</div>`:'<div class="aviso ok">✔ Tenho as vistas básicas. Mande mais detalhes se alguma medida continuar pendente.</div>'}
+  return `<div class="aviso i" style="margin-top:0">📷 <b>Fotos são opcionais.</b> Tire quantas quiser — servem para conferir e para guardar junto do projeto. Se já sabe as medidas, pode pular para <a onclick="irPasso('medidas')" style="cursor:pointer;text-decoration:underline;font-weight:700">Medidas</a>.</div>
     ${trav?'':`<div class="linha" style="margin-top:8px">
       <label class="btn" style="cursor:pointer">📷 Tirar foto<input type="file" accept="image/*" capture="environment" hidden onchange="addFotos(this,'')"></label>
-      <label class="btn c" style="cursor:pointer">🖼 Galeria (várias)<input type="file" accept="image/*" multiple hidden onchange="addFotos(this,'')"></label>
+      <label class="btn c" style="cursor:pointer">🖼 Galeria<input type="file" accept="image/*" multiple hidden onchange="addFotos(this,'')"></label>
       <span id="upInfo" style="font-size:13px;color:var(--mut)"></span></div>`}
-    <div class="fotos">${fotos.map((f,i)=>cardFoto(p,f,i,trav)).join('')||'<div class="vazio" style="grid-column:1/-1">Nenhuma foto ainda.</div>'}</div>
+    ${A.fotosPed.length&&!trav?`<details style="margin-top:10px;font-size:14px"><summary style="cursor:pointer;color:var(--mut);font-weight:700">💡 Sugestões de foto (se quiser)</summary><ul style="margin:6px 0;padding-left:20px;color:var(--mut)">${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul></details>`:''}
+    <div class="fotos">${fotos.map((f,i)=>cardFoto(p,f,i,trav)).join('')||'<div class="vazio" style="grid-column:1/-1">Nenhuma foto. Tudo bem — pode seguir.</div>'}</div>
     <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('ident')">← Identificação</button><button class="btn" onclick="irPasso('medidas')">Próximo: medidas →</button></div>`;
 }
 function cardFoto(p,f,i,trav){
@@ -798,9 +799,8 @@ function cardFoto(p,f,i,trav){
       <div class="linha" style="justify-content:space-between"><span class="nf">FOTO ${i+1}</span>
         <select ${trav?'disabled':''} onchange="setFoto('${f.id}','vista',this.value)" style="border:1px solid var(--line);border-radius:8px;padding:5px">
           <option value="">— que vista é? —</option>${Object.entries(VISTAS).map(([k,t])=>`<option value="${k}" ${f.vista===k?'selected':''}>${t}</option>`).join('')}</select></div>
-      <div style="font-size:12px;font-weight:700;color:var(--mut)">O que aparece nesta foto:</div>
+      <div style="font-size:12px;font-weight:700;color:var(--mut)">O que aparece? <span style="font-weight:500">(opcional)</span></div>
       <div class="vis">${VIS.filter(([k])=>k!=='carga'||p.estado==='CARREGADO').map(([k,t])=>`<span class="chip ${k} ${vis.includes(k)?'on':''}" onclick="${trav?'':`togVis('${f.id}','${k}')`}">${t}</span>`).join('')}</div>
-      ${!vis.length?'<div style="font-size:12px;color:var(--warn);font-weight:700">⚠ marque o que aparece</div>':''}
       <input placeholder="anotação (ex.: travessa do meio escondida pela carga)" value="${esc(f.obs)}" ${trav?'disabled':''} onchange="setFoto('${f.id}','obs',this.value)" style="border:1px solid var(--line);border-radius:8px;padding:7px;font-size:13px">
       ${trav?'':`<button class="btn mini c" onclick="tirarFoto('${f.id}')">🗑 Tirar foto</button>`}
     </div></div>`;
@@ -905,36 +905,69 @@ function cardMed(p,A,c,titulo,dica,corpo,comps,dis){
   return `<div class="card comp" id="card_${c}"><div class="ctit"><h3>${titulo}</h3><span id="selo_${c}" data-comps="${(comps||[c]).join(',')}" class="tg ${falta?'PEND':'OBS'}" style="${falta?'':'background:var(--okbg);color:var(--ok)'}">${falta?'⏳ falta '+falta:'✔ ok'}</span><span style="margin-left:auto"></span>${origemGrupo(p,comps||[c],dis)}</div>
     ${dica?`<p class="sub">${dica}</p>`:''}${corpo}</div>`;
 }
+let maisAberto=false;
+/* base, tampo e reforço começam como "não tem" (padrão visível, pode trocar em Mais opções) */
+function garantirPadroes(p){
+  let mudou=false; p.m=p.m||{};
+  [['base_tem','NAO'],['tampo_tipo','NENHUM'],['ref_tem','NAO']].forEach(([k,v])=>{ if(!p.m[k]){ p.m[k]={v,o:'PAD'}; mudou=true; } });
+  if(mudou) salvar(p,true);
+}
+function perfisIguais(p){ const a=perfilAtual(p,'long'); return a!=='' && a!=='OUTRO' && perfilAtual(p,'trav')===a && perfilAtual(p,'pes')===a; }
+function selEstrutura(p,dis){
+  const sep = p.sep || (perfilAtual(p,'long')!=='' && !perfisIguais(p));
+  const cur = sep ? 'SEP' : perfilAtual(p,'long');
+  const grupos=Object.keys(GRUPO_TIPO).map(t=>`<optgroup label="${GRUPO_TIPO[t]}">${PERFIS.map((x,i)=>x[0]===t?`<option value="${i}" ${cur===String(i)?'selected':''}>${esc(x[4])}</option>`:'').join('')}</optgroup>`).join('');
+  return `<select id="in_long_tipo" class="${cur===''?'vz':''}" ${dis} onchange="setEstrutura(this.value)"><option value="">— escolha o perfil —</option>${grupos}
+    <option value="SEP" ${cur==='SEP'?'selected':''}>Perfis diferentes / outro tamanho…</option></select>`;
+}
+function setEstrutura(v){
+  const p=P[cur];
+  if(v==='SEP'){ p.sep=true; maisAberto=true; salvar(p,true); return reMedidas(); }
+  p.sep=false; ['long','trav','pes'].forEach(c=>{ p.outro=p.outro||{}; p.outro[c]=false; });
+  const x= v==='' ? null : PERFIS[+v];
+  ['long','trav','pes'].forEach(c=>{ const o=(p.og&&p.og.long)||'INF';
+    [['_tipo',0],['_b',1],['_h',2],['_t',3]].forEach(([suf,i])=>{ const k=c+suf; if(!x || (suf==='_t'&&x[0]==='MAD')) delete p.m[k]; else p.m[k]={v:String(x[i]),o}; }); });
+  if(x) p.m.trav_mont={v: x[0]==='MAD'?'SOBRE':'ENTRE', o:'PAD'};
+  salvar(p,true); reMedidas();
+}
+function resumoExtras(p){
+  const b=vRaw(p,'base_tem'), t=vRaw(p,'tampo_tipo'), r=vRaw(p,'ref_tem'), m=vRaw(p,'trav_mont');
+  return [ m==='SOBRE'?'travessa por cima':'travessa entre longarinas', b==='SIM'?'com base':'sem base', t==='NENHUM'||!t?'sem tampo':'tampo de '+({CHAPA:'chapa',MADEIRA:'madeira',TELA:'tela'}[t]), r==='SIM'?'com reforços':'sem reforços' ].join(' · ');
+}
 function passoMedidas(p,A,trav){
+  if(!trav) garantirPadroes(p);
   const dis=trav?'disabled':'';
   const pe=alturaPe(p);
   const carg=p.estado==='CARREGADO';
-  return `<div class="aviso i" style="margin-top:0">Preencha só o que você sabe. O que não aparece na foto e você não souber, deixa em branco — fica <b>pendente</b> e o sistema não inventa.</div>
-    ${cardMed(p,A,'geral','📐 Tamanho do palete', carg?'Medida da <b>estrutura</b>, sem o material que está em cima.':'Medidas por fora da estrutura.',
+  const sep = p.sep || (perfilAtual(p,'long')!=='' && !perfisIguais(p));
+  return `${cardMed(p,A,'geral','📐 Tamanho do palete', carg?'Só a <b>estrutura</b>, sem o material que está em cima.':'',
       `<div class="q" style="margin:0 0 8px">${chipsUn(p,trav)}</div><div class="mlinha">${campoNum(p,'C','Comprimento',dis)}${campoNum(p,'L','Largura',dis)}${campoNum(p,'H','Altura',dis)}</div>
        <div class="q" id="conv_mm" style="color:var(--mut);font-weight:500">${convMM(p)}</div>`,null,dis)}
-    ${cardMed(p,A,'long','═ Longarinas','As vigas que correm no comprido.',
-      `<div class="mlinha">${campoNum(p,'long_n','Quantas?',dis)}<label class="mf grande"><span>Perfil <small style="font-weight:500">(medidas de perfil sempre em mm)</small></span>${selPerfil(p,'long',dis)}</label></div>`,null,dis)}
-    ${cardMed(p,A,'trav','║ Travessas','As peças no sentido da largura (conte as das pontas).',
-      `<div class="mlinha">${campoNum(p,'trav_n','Quantas?',dis)}<label class="mf grande"><span>Perfil</span>${selPerfil(p,'trav',dis)}</label></div>
-       <div class="q"><span>Montagem:</span>${chipsOp(p,'trav_mont',[['ENTRE','entre as longarinas'],['SOBRE','por cima das longarinas']],trav)}</div>`,null,dis)}
-    ${cardMed(p,A,'pes','▮ Pés','Os apoios que formam a abertura do garfo.',
-      `<div class="mlinha">${campoNum(p,'pes_n','Quantos em cada longarina?',dis)}<label class="mf grande"><span>Perfil</span>${selPerfil(p,'pes',dis)}</label></div>
-       <div class="q" style="color:var(--mut)">🧮 Altura do pé: <b id="pe_alt" style="color:var(--tx)">${pe==null?'—':mm(pe)+' mm'}</b> (calculada pela altura total)</div>`,null,dis)}
-    ${cardMed(p,A,'extras','➕ Mais alguma coisa?','',
-      `<div class="q"><span>Base no chão (barras por baixo dos pés)?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
-       ${vRaw(p,'base_tem')==='SIM'?`<div class="q"><span>Perfil da base:</span>${selPerfil(p,'base',dis)}</div>`:''}
-       <div class="q"><span>Tampo por cima?</span>${chipsOp(p,'tampo_tipo',[['NENHUM','Não'],['CHAPA','Chapa de aço'],['MADEIRA','Madeira'],['TELA','Tela']],trav)}</div>
-       ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="q">${campoNum(p,'tampo_t','Espessura do tampo',dis)}</div>`:''}
-       <div class="q"><span>Reforços (diagonal, canto…)?</span>${chipsOp(p,'ref_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
-       ${vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}`,['base','tampo','ref'],dis)}
-    <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('fotos')">← Fotos</button><button class="btn" onclick="irPasso('planta')">${A.pronto?'Próximo: planta técnica →':'Ver ficha preliminar →'}</button></div>`;
+    ${cardMed(p,A,'estr','🧱 Estrutura','',
+      `<label class="mf grande" style="margin-bottom:10px"><span>Perfil (metalon, cantoneira, madeira…)</span>${selEstrutura(p,dis)}</label>
+       <div class="mlinha">${campoNum(p,'long_n','Longarinas',dis)}${campoNum(p,'trav_n','Travessas',dis)}${campoNum(p,'pes_n','Pés em cada longarina',dis)}</div>
+       <div class="q" style="color:var(--mut);font-weight:500">🧮 Altura do pé: <b id="pe_alt" style="color:var(--tx);margin-left:4px">${pe==null?'—':mm(pe)+' mm'}</b></div>`,['long','trav','pes'],dis)}
+    <details class="card mais" ${maisAberto?'open':''} ontoggle="maisAberto=this.open">
+      <summary><b>⚙ Mais opções</b> <span style="color:var(--mut);font-weight:500">— ${esc(resumoExtras(p))}</span></summary>
+      ${sep?`<div class="q"><span>Perfil das longarinas:</span>${selPerfil(p,'long',dis)}</div>
+        <div class="q"><span>Perfil das travessas:</span>${selPerfil(p,'trav',dis)}</div>
+        <div class="q"><span>Perfil dos pés:</span>${selPerfil(p,'pes',dis)}</div>`:''}
+      <div class="q"><span>Travessa:</span>${chipsOp(p,'trav_mont',[['ENTRE','entre as longarinas'],['SOBRE','por cima']],trav)}</div>
+      <div class="q"><span>Base no chão?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
+      ${vRaw(p,'base_tem')==='SIM'?`<div class="q"><span>Perfil da base:</span>${selPerfil(p,'base',dis)}</div>`:''}
+      <div class="q"><span>Tampo?</span>${chipsOp(p,'tampo_tipo',[['NENHUM','Não'],['CHAPA','Chapa'],['MADEIRA','Madeira'],['TELA','Tela']],trav)}</div>
+      ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="q">${campoNum(p,'tampo_t','Espessura do tampo',dis)}</div>`:''}
+      <div class="q"><span>Reforços?</span>${chipsOp(p,'ref_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
+      ${vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}
+      <p style="font-size:12px;color:var(--mut);margin:10px 0 0">Se a peça não aparece na foto e você não sabe, deixe como está: o sistema não inventa peça.</p>
+    </details>
+    <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('fotos')">← Fotos</button><button class="btn" onclick="irPasso('planta')">Próximo: planta →</button></div>`;
 }
 function reMedidas(){ const y=window.scrollY; const ae=document.activeElement&&document.activeElement.id; render(); window.scrollTo(0,y); }
 function setVal(k,v,re){
   const p=P[cur]; p.m=p.m||{}; const f=FMAP[k]; p.og=p.og||{};
   if(v===''||v==null) delete p.m[k];
-  else { const x=p.m[k]||{o:p.og[f.comp]||'INF'}; x.v= f.tipo==='sel'?v:String(v).replace(',','.'); if(x.o==='OBS'&&!x.f){ const pm=fotosQueMostram(p,f.comp,false); if(pm.length) x.f=pm[0].id; } p.m[k]=x; }
+  else { const x=p.m[k]||{o:p.og[f.comp]||'INF'}; if(x.o==='PAD') x.o='INF'; x.v= f.tipo==='sel'?v:String(v).replace(',','.'); if(x.o==='OBS'&&!x.f){ const pm=fotosQueMostram(p,f.comp,false); if(pm.length) x.f=pm[0].id; } p.m[k]=x; }
   salvar(p,true);
   if(re) reMedidas(); else { const e=$('in_'+k); if(e) e.classList.toggle('vz', v===''); renderAssist(); refrescarCards(); }
 }
@@ -995,7 +1028,7 @@ function tabelaOrigens(p){
     const o=origemEfetiva(p,f); const v=vRaw(p,f.k);
     let val = v===''?'—': f.tipo==='sel' ? (f.opts.find(x=>x[0]===v)||[,v])[1] : mm(+v)+' '+f.un;
     const ft = o==='OBS' ? p.fotos.findIndex(x=>x.id===p.m[f.k].f)+1 : 0;
-    return `<tr><td>${esc(COMP[f.comp].nome)}</td><td>${esc(rotulo(p,f))}</td><td>${esc(val)}</td><td><span class="tg ${o}">${o==='OBS'?'👁 Observado'+(ft>0?' (foto '+ft+')':''):o==='INF'?'✍ Informado':'⏳ Pendente'}</span></td></tr>`;
+    return `<tr><td>${esc(COMP[f.comp].nome)}</td><td>${esc(rotulo(p,f))}</td><td>${esc(val)}</td><td><span class="tg ${o}">${o==='OBS'?'👁 Observado'+(ft>0?' (foto '+ft+')':''):o==='INF'?'✍ Informado':o==='PAD'?'⚙ Padrão (não conferido)':'⏳ Pendente'}</span></td></tr>`;
   });
   const pe=alturaPe(p);
   lin.push(`<tr><td>Pés / blocos</td><td>Altura do pé (abertura do garfo)</td><td>${pe==null?'—':mm(pe)+' mm'}</td><td><span class="tg ${pe==null?'PEND':'CALC'}">${pe==null?'⏳ Pendente':'🧮 Calculado'}</span></td></tr>`);
@@ -1012,6 +1045,7 @@ function passoPlanta(p,A){
   const stale = p.planta && !A.plantaOk;
   if(!A.plantaOk){
     return `${stale?`<div class="aviso a">⚠ As medidas mudaram depois da planta Rev. ${p.planta.rev}. Confira de novo para gerar a Rev. ${p.planta.rev+1}${p.lib&&p.lib.ok?' — a liberação anterior foi cancelada':''}.</div>`:''}
+      ${(()=>{const pad=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='PAD'); return pad.length?`<div class="aviso a">⚙ Confirme o que ficou no padrão: <b>${esc(resumoExtras(p))}</b>. Se não for assim, troque em <a onclick="maisAberto=true;irPasso('medidas')" style="cursor:pointer;text-decoration:underline">Medidas → Mais opções</a>.</div>`:'';})()}
       <div class="aviso i"><b>Tudo preenchido.</b> Antes de gerar a planta, confira o resumo: as medidas abaixo são da <b>estrutura do palete</b>${p.estado==='CARREGADO'?' (não do material que estava em cima)':''}.</div>
       ${tabelaOrigens(p)}
       <div class="aviso ${FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length?'a':'ok'}">${(()=>{const n=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length;return n?`${n} medida(s) foram informadas e não lidas em foto. Ao confirmar, você assume que elas estão certas.`:'Todas as medidas foram lidas nas fotos.';})()}</div>
@@ -1047,7 +1081,7 @@ function fichaPreliminar(p,A){
     ${A.erros.length?`<h2 class="sec" style="color:var(--err)">Problemas a corrigir</h2><ul>${A.erros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
     <h2 class="sec">Medidas que faltam (${A.pend.length+A.refFaltas.length})</h2>
     ${A.pend.length+A.refFaltas.length?`<ul>${A.pend.map(f=>`<li><b>${esc(COMP[f.comp].nome)}</b> — ${esc(rotulo(p,f))}</li>`).join('')}${A.refFaltas.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
-    <h2 class="sec">Fotos solicitadas (${A.fotosPed.length})</h2>
+    <h2 class="sec">Fotos que ajudariam (opcional)</h2>
     ${A.fotosPed.length?`<ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
     <h2 class="sec">O que já se sabe</h2>
     ${tabelaOrigens(p)}
