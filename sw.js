@@ -2,8 +2,8 @@
    - páginas (.html): busca na internet primeiro; sem sinal, abre a última cópia
    - bibliotecas (cdn): usa a cópia guardada e atualiza por trás
    - banco (supabase): NUNCA guarda — sempre ao vivo */
-var VERSAO = 'gtp-v4-0-paletes-3';
-var CASCA = ['./', './index.html', './tv.html', './paletes.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
+var VERSAO = 'gtp-v4-1';
+var CASCA = ['./', './index.html', './tv.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(VERSAO).then(function (c) { return c.addAll(CASCA).catch(function () { }); }));
