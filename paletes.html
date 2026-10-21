@@ -123,6 +123,16 @@ input:disabled,select:disabled{background:#f3f4f7;color:#777}
 .tg{display:inline-block;font-size:11px;font-weight:800;padding:2px 7px;border-radius:12px}
 .tg.OBS{background:var(--obsbg);color:var(--obs)}.tg.INF{background:var(--infbg);color:var(--inf)}
 .tg.PEND{background:var(--pendbg);color:var(--pend)}.tg.CALC{background:var(--calcbg);color:var(--calc)}
+.mlinha{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.mf{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mut);flex:1 1 120px;min-width:110px}
+.mf.grande{flex:2 1 220px}
+.mf input,.mf select,.q select,.outro input,.outro select{border:1px solid var(--line);border-radius:9px;padding:10px;background:#fff;font-weight:600;color:var(--tx);width:100%;font-size:15px}
+.vz{border-color:#f3b55f!important;background:#fffaf2!important}
+.q{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:14px;font-weight:600}
+.q .mf{max-width:220px}
+.outro{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.outro input{width:86px;flex:1 1 70px}.outro select{width:auto;flex:1 1 130px}
+.comp .ctit h3{margin:0}
 .ref{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;background:#fbfcfe}
 @media (max-width:760px){.row{grid-template-columns:1fr 1fr}.row .org{grid-column:1/-1}}
 /* tabelas */
@@ -446,8 +456,6 @@ function analisar(p){
     if(C!=null && L!=null && cc>0 && cl>0 && (Math.max(cc,cl)>C+5 || Math.min(cc,cl)>L+5)) avisos.push('A carga informada é maior que o palete (fica em balanço). Avalie na conferência de estabilidade.');
   }
   if(p.estado==='CARREGADO' && (p.fotos||[]).length && !(p.fotos||[]).some(f=>(f.vis||[]).includes('carga'))) avisos.push('Palete carregado: marque em quais fotos aparece o 📦 material armazenado, para separar o que é carga do que é estrutura.');
-  // observado sem foto
-  FIELDS.forEach(f=>{ if(ativo(p,f) && !vazioCampo(p,f) && (p.m[f.k].o==='OBS') && origemEfetiva(p,f)!=='OBS') avisos.push('"'+rotulo(p,f)+'" estava como observado, mas nenhuma foto marcada mostra essa peça'+(f.tipo==='num'?' com trena':'')+' — passou a contar como informado.'); });
   // fotos pedidas
   const temVista=v=>(p.fotos||[]).some(f=>f.vista===v);
   if(!temVista('FRENTE')) fotosPed.push({v:'FRENTE', txt:'Foto da FRENTE — de frente para a abertura do garfo, palete inteiro no quadro.'});
@@ -457,11 +465,11 @@ function analisar(p){
   if(vRaw(p,'ref_tem')==='SIM' && refFaltas.length) compsPend.push('ref');
   compsPend.forEach(c=>{
     if(c==='geral') return;
+    if(c==='tampo' && vRaw(p,'tampo_tipo')==='') return;   // pergunta de um toque — não precisa de foto
+    if(c==='ref' && vRaw(p,'ref_tem')!=='SIM') return;
     if(c==='base' && vRaw(p,'base_tem')==='' ) { if(!fotosQueMostram(p,'base',false).length && !temVista('INFERIOR')) fotosPed.push({v:'INFERIOR', txt:'Foto POR BAIXO / INCLINADA — para saber se existe base inferior.'}); return; }
     if(!fotosQueMostram(p,c,false).length) fotosPed.push({v:'DETALHE', txt:'Detalhe de '+COMP[c].nome.toUpperCase()+' — '+DICA_FOTO[c]+'.'});
-    else if(pend.some(f=>f.comp===c && f.tipo==='num') && !fotosQueMostram(p,c,true).length) fotosPed.push({v:'DETALHE', txt:'Detalhe de '+COMP[c].nome.toUpperCase()+' com TRENA encostada — para ler seção e espessura (ou informe a medida à mão).'});
   });
-  if(pend.some(f=>f.comp==='geral') && !fotosQueMostram(p,'geral',true).length) fotosPed.push({v:'GERAL', txt:'Foto com a TRENA esticada no comprimento e na largura da estrutura (ou informe a medida à mão).'});
   const semMarca=(p.fotos||[]).filter(f=>!(f.vis||[]).length);
   const pronto = pend.length===0 && refFaltas.length===0 && erros.length===0 && !!p.estado;
   const hashAtual = hashMedidas(p);
@@ -480,7 +488,7 @@ function proximoPasso(p,A){
   if(!p.estado) return ['Diga se o palete da foto está VAZIO ou CARREGADO','ident'];
   if(!(p.fotos||[]).length) return ['Tire ou anexe as fotos do palete','fotos'];
   if(A.semMarca.length) return ['Marque o que aparece em '+(A.semMarca.length===1?'1 foto':A.semMarca.length+' fotos')+' (longarina, pé, travessa…)','fotos'];
-  if(A.pend.length||A.refFaltas.length) return ['Faltam '+(A.pend.length+A.refFaltas.length)+' medidas — preencha o que souber e peça as fotos que faltam','medidas'];
+  if(A.pend.length||A.refFaltas.length){ const n=contaFaltas(A,null); return [passo==='medidas'?'Preencha os campos em laranja — falta'+(n>1?'m ':' ')+n+' informaç'+(n>1?'ões':'ão'):'Faltam '+n+' informações do palete','medidas']; }
   if(A.erros.length) return ['Corrija '+A.erros.length+' problema(s) nas medidas','medidas'];
   if(!A.plantaOk) return ['Confira as medidas e gere a planta técnica','planta'];
   if(!(p.lib&&p.lib.ok)) return ['Faça as 4 conferências para liberar a fabricação','lib'];
@@ -686,20 +694,28 @@ function renderAssist(){
   const e=$('assist'); if(e) e.innerHTML=htmlAssist(p,A);
   const b=$('stBadge'); if(b){ b.className='badge st-'+A.st; b.textContent=ST_NOME[A.st]; }
 }
+const CURTO={C:'comprimento',L:'largura',H:'altura',n:'quantidade',tipo:'perfil',b:'perfil',h:'perfil',t:'perfil',mont:'montagem',base_tem:'tem base?',tampo_tipo:'tem tampo?',tampo_t:'espessura',ref_tem:'tem reforço?'};
+function curto(k){ return CURTO[k] || CURTO[k.split('_').pop()] || k; }
+function contaFaltas(A,comps){ /* conta perguntas, não campos internos (perfil = 1) */
+  const g=new Set(); A.pend.forEach(f=>{ if(!comps||comps.includes(f.comp)) g.add(f.comp+':'+curto(f.k)); });
+  return g.size + (A.refFaltas.length && (!comps||comps.includes('ref')) ? 1 : 0);
+}
+function pendResumo(A){
+  const g={}; A.pend.forEach(f=>{ (g[f.comp]=g[f.comp]||{k:f.k,s:new Set()}).s.add(curto(f.k)); });
+  const r=Object.entries(g).map(([c,x])=>({c, k:x.k, txt:COMP[c].nome.replace(' / blocos','').replace(' / piso','')+' ('+[...x.s].join(', ')+')'}));
+  if(A.refFaltas.length) r.push({c:'ref',k:'ref_tem',txt:'Reforços (completar a lista)'});
+  return r;
+}
 function htmlAssist(p,A){
   const [txt,alvo]=proximoPasso(p,A);
-  const nObs=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='OBS').length;
-  const nInf=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length + (p.refs||[]).length;
   const nPen=A.pend.length+A.refFaltas.length;
   return `<div class="cab"><b>🤖 Assistente</b><div class="barra" title="${A.pct}% das informações"><i style="width:${A.pct}%"></i></div><b style="color:var(--lar)">${A.pct}%</b></div>
-    <div class="prox"><span style="flex:1">👉 <b>Próximo passo:</b> ${esc(txt)}</span>${passo!==alvo?`<button class="btn mini" onclick="irPasso('${alvo}')">Ir</button>`:''}</div>
-    <div class="leg"><span class="tg OBS">👁 ${nObs} observadas na foto</span><span class="tg INF">✍ ${nInf} informadas</span><span class="tg PEND">⏳ ${nPen} pendentes</span>${A.erros.length?`<span class="tg" style="background:var(--errbg);color:var(--err)">✖ ${A.erros.length} erro(s)</span>`:''}${A.avisos.length?`<span class="tg" style="background:var(--warnbg);color:var(--warn)">⚠ ${A.avisos.length} aviso(s)</span>`:''}</div>
-    ${A.erros.length?`<details open><summary style="color:var(--err)">✖ Problemas nas medidas</summary><ul>${A.erros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
-    ${A.avisos.length?`<details open><summary style="color:var(--warn)">⚠ Avisos</summary><ul>${A.avisos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
-    ${A.fotosPed.length?`<details ${passo==='fotos'||passo==='medidas'?'open':''}><summary>📷 Fotos que eu preciso (${A.fotosPed.length})</summary><ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul></details>`:''}
-    ${nPen?`<details ${passo==='medidas'?'open':''}><summary>⏳ Medidas que faltam (${nPen})</summary><ul>${A.pend.map(f=>`<li><a onclick="irCampo('${f.k}')">${esc(COMP[f.comp].nome)} — ${esc(rotulo(p,f))}</a></li>`).join('')}${A.refFaltas.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}`;
+    <div class="prox"><span style="flex:1">👉 ${esc(txt)}</span>${passo!==alvo?`<button class="btn mini" onclick="irPasso('${alvo}')">Ir</button>`:''}</div>
+    ${A.erros.length?`<div class="aviso e" style="margin-bottom:0">✖ ${A.erros.map(esc).join('<br>✖ ')}</div>`:''}
+    ${A.avisos.length?`<details><summary style="color:var(--warn)">⚠ ${A.avisos.length} aviso(s)</summary><ul>${A.avisos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
+    ${A.fotosPed.length&&passo!=='fotos'?`<details><summary>📷 Fotos que ajudam (${A.fotosPed.length})</summary><ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul></details>`:''}`;
 }
-function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const e=$('in_'+k); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
+function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const c=(FMAP[k]||{}).comp; const e=$('in_'+k)||$('in_'+c+'_tipo')||$('card_'+c); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
 function duplicar(){
   const o=P[cur]; const p=JSON.parse(JSON.stringify(o)); const n=novoPalete();
   Object.assign(p,{ id:n.id, codigo:n.codigo, nome:(o.nome||'')+' (cópia)', planta:null, lib:n.lib, criado:Date.now(), fotos:[] });
@@ -817,56 +833,119 @@ function tirarFoto(fid){
 function verFoto(fid){ const p=P[cur]; const f=p.fotos.find(x=>x.id===fid); if(!f) return; const d=document.createElement('div'); d.className='lb'; d.innerHTML=`<img src="${esc(f.url)}">`; d.onclick=()=>d.remove(); document.body.appendChild(d); }
 
 /* ---------- passo 3: medidas ---------- */
+/* perfis comerciais prontos: [tipo, largura vista de cima, altura, espessura, nome] */
+const PERFIS=[
+  ['TUBO',20,20,1.2,'Metalon 20×20 · parede 1,2'],['TUBO',30,30,1.5,'Metalon 30×30 · parede 1,5'],['TUBO',30,30,2,'Metalon 30×30 · parede 2,0'],
+  ['TUBO',40,40,1.5,'Metalon 40×40 · parede 1,5'],['TUBO',40,40,2,'Metalon 40×40 · parede 2,0'],['TUBO',50,50,2,'Metalon 50×50 · parede 2,0'],
+  ['TUBO',30,50,1.5,'Metalon 50×30 em pé · parede 1,5'],['TUBO',30,50,2,'Metalon 50×30 em pé · parede 2,0'],['TUBO',50,30,2,'Metalon 50×30 deitado · parede 2,0'],
+  ['TUBO',40,60,2,'Metalon 60×40 em pé · parede 2,0'],['TUBO',30,70,2,'Metalon 70×30 em pé · parede 2,0'],['TUBO',50,100,2,'Metalon 100×50 em pé · parede 2,0'],
+  ['CANT',25.4,25.4,3.2,'Cantoneira 1" × 1/8"'],['CANT',31.75,31.75,3.2,'Cantoneira 1.1/4" × 1/8"'],['CANT',38.1,38.1,3.2,'Cantoneira 1.1/2" × 1/8"'],
+  ['CANT',38.1,38.1,4.76,'Cantoneira 1.1/2" × 3/16"'],['CANT',50.8,50.8,3.2,'Cantoneira 2" × 1/8"'],['CANT',50.8,50.8,4.76,'Cantoneira 2" × 3/16"'],
+  ['U',25,50,2,'Perfil U 50×25 · 2,0'],['U',40,75,2.65,'Perfil U 75×40 · 2,65'],['U',40,100,2.65,'Perfil U 100×40 · 2,65'],
+  ['MAD',100,25,0,'Tábua 2,5×10 cm (deitada)'],['MAD',150,25,0,'Tábua 2,5×15 cm (deitada)'],['MAD',50,50,0,'Caibro 5×5 cm'],
+  ['MAD',50,70,0,'Caibro 5×7 cm (em pé)'],['MAD',70,70,0,'Viga 7×7 cm'],['MAD',100,100,0,'Bloco / taco 10×10 cm']
+];
+const GRUPO_TIPO={TUBO:'Metalon (tubo)',CANT:'Cantoneira',U:'Perfil U',MAD:'Madeira'};
+function perfilAtual(p,c){
+  const t=tipoDe(p,c), b=vNum(p,c+'_b'), h=vNum(p,c+'_h'), e=t==='MAD'?0:vNum(p,c+'_t');
+  if(p.outro&&p.outro[c]) return 'OUTRO';
+  if(!t && b==null && h==null) return '';
+  const i=PERFIS.findIndex(x=>x[0]===t && Math.abs(x[1]-b)<.01 && Math.abs(x[2]-h)<.01 && (t==='MAD'||Math.abs(x[3]-(e||0))<.01));
+  return i>=0?String(i):'OUTRO';
+}
+function selPerfil(p,c,dis){
+  const cur=perfilAtual(p,c);
+  const grupos=Object.keys(GRUPO_TIPO).map(t=>`<optgroup label="${GRUPO_TIPO[t]}">${PERFIS.map((x,i)=>x[0]===t?`<option value="${i}" ${cur===String(i)?'selected':''}>${esc(x[4])}</option>`:'').join('')}</optgroup>`).join('');
+  let h=`<select id="in_${c}_tipo" class="${cur===''?'vz':''}" ${dis} onchange="setPerfil('${c}',this.value)"><option value="">— escolha o perfil —</option>${c!=='long'&&vRaw(p,'long_tipo')?'<option value="IGUAL">= igual à longarina</option>':''}${grupos}<option value="OUTRO" ${cur==='OUTRO'?'selected':''}>Outro — digitar as medidas</option></select>`;
+  if(cur==='OUTRO'){
+    const tp=tipoDe(p,c);
+    h+=`<div class="outro"><select ${dis} onchange="setVal('${c}_tipo',this.value,true)"><option value="">tipo…</option>${Object.keys(TIPOS).map(k=>`<option value="${k}" ${tp===k?'selected':''}>${GRUPO_TIPO[k]}</option>`).join('')}</select>
+      ${['b','h','t'].filter(x=>x!=='t'||tp!=='MAD').map(x=>`<input id="in_${c}_${x}" class="${vRaw(p,c+'_'+x)===''?'vz':''}" type="number" inputmode="decimal" step="any" min="0" placeholder="${{b:'largura',h:'altura',t:'parede'}[x]}" value="${esc(vRaw(p,c+'_'+x))}" ${dis} onchange="setVal('${c}_${x}',this.value)">`).join('<span>×</span>')}<span class="un">mm</span></div>`;
+  }
+  return h;
+}
+function campoNum(p,k,rot,dis,extra){
+  return `<label class="mf"><span>${rot}</span><span class="campo"><input id="in_${k}" class="${vRaw(p,k)===''?'vz':''}" type="number" inputmode="decimal" step="${FMAP[k].tipo==='int'?1:'any'}" min="0" value="${esc(vRaw(p,k))}" ${dis} ${extra||''} onchange="setVal('${k}',this.value)"><span class="un">${FMAP[k].un}</span></span></label>`;
+}
+function chipsOp(p,k,ops,dis){
+  const v=vRaw(p,k);
+  return `<div class="chips">${ops.map(([val,t])=>`<span class="chip ${v===val?'on':''}" onclick="${dis?'':`setVal('${k}','${val}',true)`}">${t}</span>`).join('')}</div>`;
+}
+function origemGrupo(p,comps,dis){
+  const fs=FIELDS.filter(f=>comps.includes(f.comp)&&ativo(p,f)&&!vazioCampo(p,f));
+  const o = !fs.length ? '' : fs.every(f=>origemEfetiva(p,f)==='OBS') ? 'OBS' : fs.some(f=>origemEfetiva(p,f)==='OBS') ? 'MIX' : 'INF';
+  const pode = comps.some(c=>fotosQueMostram(p,c,false).length);
+  const lista=comps.join(',');
+  return `<div class="org" title="De onde veio a informação">
+    <button class="o obs ${o==='OBS'||o==='MIX'?'on':''} ${pode&&!dis?'':'dis'}" ${pode&&!dis?`onclick="setOrigemGrupo('${lista}','OBS')"`:'disabled'} title="${pode?'Vi na foto':'Nenhuma foto marcada mostra essa peça'}">👁 vi na foto</button>
+    <button class="o inf ${o==='INF'?'on':''} ${dis?'dis':''}" ${dis?'disabled':`onclick="setOrigemGrupo('${lista}','INF')"`}>✍ eu informei</button></div>`;
+}
+function cardMed(p,A,c,titulo,dica,corpo,comps,dis){
+  const falta=contaFaltas(A,comps||[c]);
+  return `<div class="card comp" id="card_${c}"><div class="ctit"><h3>${titulo}</h3><span id="selo_${c}" data-comps="${(comps||[c]).join(',')}" class="tg ${falta?'PEND':'OBS'}" style="${falta?'':'background:var(--okbg);color:var(--ok)'}">${falta?'⏳ falta '+falta:'✔ ok'}</span><span style="margin-left:auto"></span>${origemGrupo(p,comps||[c],dis)}</div>
+    ${dica?`<p class="sub">${dica}</p>`:''}${corpo}</div>`;
+}
 function passoMedidas(p,A,trav){
-  const comps=['geral','long','trav','pes','base','tampo','ref'];
-  return `<div class="aviso i">Cada medida mostra de onde veio: <span class="tg OBS">👁 Observado</span> lido na foto · <span class="tg INF">✍ Informado</span> por você · <span class="tg CALC">🧮 Calculado</span> pelo sistema · <span class="tg PEND">⏳ Pendente</span>.
-    O assistente <b>não preenche nada sozinho</b> — o que não aparece na foto e não foi informado continua pendente.</div>
-    ${comps.map(c=>{
-      const fs=FIELDS.filter(f=>f.comp===c && ativo(p,f));
-      const fv=fotosQueMostram(p,c,false), ft=fotosQueMostram(p,c,true);
-      const visTxt = c==='geral' ? (ft.length?'📏 com trena em '+ft.length+' foto(s)':'sem foto com trena') : (fv.length?'aparece em '+fv.length+' foto(s)'+(ft.length?' · 📏 trena em '+ft.length:''):'<span style="color:var(--warn)">não aparece em nenhuma foto marcada</span>');
-      return `<div class="card comp"><div class="ctit"><h3>${COMP[c].ic} ${COMP[c].nome}</h3><span class="vist">· ${visTxt}</span></div><p class="sub">${COMP[c].dica}</p>
-        ${fs.map(f=>linhaCampo(p,f,trav)).join('')}
-        ${c==='pes'?linhaPe(p):''}
-        ${c==='ref' && vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}
-      </div>`;}).join('')}
+  const dis=trav?'disabled':'';
+  const pe=alturaPe(p);
+  const carg=p.estado==='CARREGADO';
+  return `<div class="aviso i" style="margin-top:0">Preencha só o que você sabe. O que não aparece na foto e você não souber, deixa em branco — fica <b>pendente</b> e o sistema não inventa.</div>
+    ${cardMed(p,A,'geral','📐 Tamanho do palete', carg?'Medida da <b>estrutura</b>, sem o material que está em cima.':'Medidas por fora da estrutura.',
+      `<div class="mlinha">${campoNum(p,'C','Comprimento',dis)}${campoNum(p,'L','Largura',dis)}${campoNum(p,'H','Altura',dis)}</div>`,null,dis)}
+    ${cardMed(p,A,'long','═ Longarinas','As vigas que correm no comprido.',
+      `<div class="mlinha">${campoNum(p,'long_n','Quantas?',dis)}<label class="mf grande"><span>Perfil</span>${selPerfil(p,'long',dis)}</label></div>`,null,dis)}
+    ${cardMed(p,A,'trav','║ Travessas','As peças no sentido da largura (conte as das pontas).',
+      `<div class="mlinha">${campoNum(p,'trav_n','Quantas?',dis)}<label class="mf grande"><span>Perfil</span>${selPerfil(p,'trav',dis)}</label></div>
+       <div class="q"><span>Montagem:</span>${chipsOp(p,'trav_mont',[['ENTRE','entre as longarinas'],['SOBRE','por cima das longarinas']],trav)}</div>`,null,dis)}
+    ${cardMed(p,A,'pes','▮ Pés','Os apoios que formam a abertura do garfo.',
+      `<div class="mlinha">${campoNum(p,'pes_n','Quantos em cada longarina?',dis)}<label class="mf grande"><span>Perfil</span>${selPerfil(p,'pes',dis)}</label></div>
+       <div class="q" style="color:var(--mut)">🧮 Altura do pé: <b id="pe_alt" style="color:var(--tx)">${pe==null?'—':mm(pe)+' mm'}</b> (calculada pela altura total)</div>`,null,dis)}
+    ${cardMed(p,A,'extras','➕ Mais alguma coisa?','',
+      `<div class="q"><span>Base no chão (barras por baixo dos pés)?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
+       ${vRaw(p,'base_tem')==='SIM'?`<div class="q"><span>Perfil da base:</span>${selPerfil(p,'base',dis)}</div>`:''}
+       <div class="q"><span>Tampo por cima?</span>${chipsOp(p,'tampo_tipo',[['NENHUM','Não'],['CHAPA','Chapa de aço'],['MADEIRA','Madeira'],['TELA','Tela']],trav)}</div>
+       ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="q">${campoNum(p,'tampo_t','Espessura do tampo',dis)}</div>`:''}
+       <div class="q"><span>Reforços (diagonal, canto…)?</span>${chipsOp(p,'ref_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
+       ${vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}`,['base','tampo','ref'],dis)}
     <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('fotos')">← Fotos</button><button class="btn" onclick="irPasso('planta')">${A.pronto?'Próximo: planta técnica →':'Ver ficha preliminar →'}</button></div>`;
 }
-function linhaPe(p){
-  const pe=alturaPe(p);
-  return `<div class="row" id="row_pecalc"><div class="rl">Altura do pé (abertura do garfo)<small>altura total − longarina − travessa por cima − base − tampo</small></div><div class="campo"><b>${pe==null?'—':mm(pe)}</b><span class="un">mm</span></div><div class="org"><span class="o calc">🧮 Calculado</span>${pe==null?'<span style="font-size:12px;color:var(--mut)">aguardando as outras medidas</span>':''}</div></div>`;
-}
-function linhaCampo(p,f,trav){
-  const v=vRaw(p,f.k); const o=origemEfetiva(p,f); const dis=trav?'disabled':'';
-  const permit=fotosQueMostram(p,f.comp,f.tipo==='num');
-  let inp;
-  if(f.tipo==='sel') inp=`<select id="in_${f.k}" ${dis} onchange="setCampo('${f.k}',this.value)"><option value="">— escolha —</option>${f.opts.map(([k,t])=>`<option value="${k}" ${v===k?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
-  else inp=`<input id="in_${f.k}" type="number" inputmode="decimal" step="${f.tipo==='int'?1:'any'}" min="0" value="${esc(v)}" ${dis} onchange="setCampo('${f.k}',this.value)"><span class="un">${f.un}</span>`;
-  const fotoSel = o==='OBS' && permit.length ? `<select ${dis} onchange="setFotoCampo('${f.k}',this.value)" title="em qual foto">${permit.map(ft=>`<option value="${ft.id}" ${p.m[f.k].f===ft.id?'selected':''}>Foto ${p.fotos.indexOf(ft)+1}${ft.vista?' · '+VISTAS[ft.vista]:''}</option>`).join('')}</select>` : '';
-  const obsTitle = permit.length ? 'Lido na foto' : (f.tipo==='num' ? 'Nenhuma foto marcada mostra '+COMP[f.comp].nome.toLowerCase()+' com trena' : 'Nenhuma foto marcada mostra '+COMP[f.comp].nome.toLowerCase());
-  return `<div class="row" id="row_${f.k}"><div class="rl">${esc(rotulo(p,f))}${f.ajuda?`<small>${esc(f.ajuda)}</small>`:''}</div>
-    <div class="campo">${inp}</div>
-    <div class="org">${o==='PEND'?'<span class="o pend on">⏳ Pendente</span>':''}
-      <button class="o obs ${o==='OBS'?'on':''} ${permit.length&&!trav?'':'dis'}" title="${esc(obsTitle)}" ${permit.length&&!trav?`onclick="setOrigem('${f.k}','OBS')"`:'disabled'}>👁 Observado</button>
-      <button class="o inf ${o==='INF'?'on':''} ${trav?'dis':''}" ${trav?'disabled':`onclick="setOrigem('${f.k}','INF')"`}>✍ Informado</button>${fotoSel}</div></div>`;
-}
-function setCampo(k,v){
-  const p=P[cur]; p.m=p.m||{}; const f=FMAP[k];
-  if(v===''){ delete p.m[k]; }
-  else { const x=p.m[k]||{o:'INF'}; x.v= f.tipo==='sel'?v:String(v).replace(',','.'); p.m[k]=x; }
+function reMedidas(){ const y=window.scrollY; const ae=document.activeElement&&document.activeElement.id; render(); window.scrollTo(0,y); }
+function setVal(k,v,re){
+  const p=P[cur]; p.m=p.m||{}; const f=FMAP[k]; p.og=p.og||{};
+  if(v===''||v==null) delete p.m[k];
+  else { const x=p.m[k]||{o:p.og[f.comp]||'INF'}; x.v= f.tipo==='sel'?v:String(v).replace(',','.'); if(x.o==='OBS'&&!x.f){ const pm=fotosQueMostram(p,f.comp,false); if(pm.length) x.f=pm[0].id; } p.m[k]=x; }
   salvar(p,true);
-  // seleções mudam rótulos e campos ativos → redesenha o passo; número só a linha
-  if(f.tipo==='sel'){ const y=window.scrollY; render(); window.scrollTo(0,y); }
-  else { const r=$('row_'+k); if(r) r.outerHTML=linhaCampo(p,f,false); const rp=$('row_pecalc'); if(rp) rp.outerHTML=linhaPe(p); renderAssist(); }
+  if(re) reMedidas(); else { const e=$('in_'+k); if(e) e.classList.toggle('vz', v===''); renderAssist(); refrescarCards(); }
 }
-function setOrigem(k,o){
-  const p=P[cur]; p.m=p.m||{}; const x=p.m[k]||{v:''}; x.o=o;
-  if(o==='OBS'){ const perm=fotosQueMostram(p,FMAP[k].comp,FMAP[k].tipo==='num'); if(!perm.length) return; if(!x.f||!perm.some(z=>z.id===x.f)) x.f=perm[0].id; } else delete x.f;
-  p.m[k]=x; salvar(p,true);
-  const r=$('row_'+k); if(r) r.outerHTML=linhaCampo(p,FMAP[k],false); renderAssist();
-  if(o==='OBS' && x.v==='') toast('Digite o valor que você leu na foto');
+function refrescarCards(){ /* atualiza só os selos ✔/⏳ e a altura do pé — sem redesenhar a tela (não perde o foco) */
+  const p=P[cur]; const A=analisar(p);
+  document.querySelectorAll('[id^="selo_"]').forEach(el=>{
+    const comps=el.dataset.comps.split(','); const falta=contaFaltas(A,comps);
+    el.className='tg '+(falta?'PEND':'OBS'); el.style.cssText=falta?'':'background:var(--okbg);color:var(--ok)'; el.textContent=falta?'⏳ falta '+falta:'✔ ok';
+  });
+  const pe=alturaPe(p); const e=$('pe_alt'); if(e) e.textContent= pe==null?'—':mm(pe)+' mm';
 }
-function setFotoCampo(k,fid){ const p=P[cur]; p.m[k].f=fid; salvar(p,true); renderAssist(); }
+function setPerfil(c,v){
+  const p=P[cur]; p.m=p.m||{}; p.outro=p.outro||{};
+  const ks=['_tipo','_b','_h','_t'].map(x=>c+x);
+  if(v==='OUTRO'){ p.outro[c]=true; salvar(p,true); return reMedidas(); }
+  p.outro[c]=false;
+  let vals=null;
+  if(v==='IGUAL') vals=[vRaw(p,'long_tipo'),vRaw(p,'long_b'),vRaw(p,'long_h'),vRaw(p,'long_t')];
+  else if(v!=='') { const x=PERFIS[+v]; vals=[x[0],String(x[1]),String(x[2]),x[0]==='MAD'?'':String(x[3])]; }
+  const o=(p.og&&p.og[c])||'INF';
+  ks.forEach((k,i)=>{ if(!vals||vals[i]===''||vals[i]==null) delete p.m[k]; else p.m[k]={v:vals[i],o}; });
+  if(c==='trav' && vals && !vRaw(p,'trav_mont')) p.m.trav_mont={v: vals[0]==='MAD'?'SOBRE':'ENTRE', o:'INF'};
+  salvar(p,true); reMedidas();
+}
+function setOrigemGrupo(lista,o){
+  const p=P[cur]; const comps=lista.split(','); p.og=p.og||{};
+  comps.forEach(c=>{ p.og[c]=o;
+    FIELDS.filter(f=>f.comp===c&&p.m[f.k]).forEach(f=>{ const x=p.m[f.k]; x.o=o; if(o==='OBS'){ const pm=fotosQueMostram(p,c,f.tipo==='num'); const pm2=pm.length?pm:fotosQueMostram(p,c,false); x.f=pm2.length?pm2[0].id:undefined; } else delete x.f; });
+  });
+  salvar(p,true); reMedidas();
+  if(o==='OBS') toast('👁 Marcado como visto na foto. Medida em mm só vale como "vista" se a foto tiver trena.');
+}
 function htmlRefs(p,trav){
   const dis=trav?'disabled':'';
   const temFotoRef=fotosQueMostram(p,'ref',false).length>0;
