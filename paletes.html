@@ -201,7 +201,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v6</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v7</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -739,7 +739,7 @@ function htmlAssist(p,A){
     ${A.avisos.length?`<details><summary style="color:var(--warn)">⚠ ${A.avisos.length} aviso(s)</summary><ul>${A.avisos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
 `;
 }
-function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const c=(FMAP[k]||{}).comp; const e=$('in_'+k)||$('in_'+c+'_tipo')||$('card_'+c)||(['long','trav','pes'].includes(c)?$('card_estr'):null); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
+function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const c=(FMAP[k]||{}).comp; const e=$('in_'+k)||$('in_'+c+'_tipo')||$('card_'+c)||(['long','trav','pes'].includes(c)?$('card_estr'):null)||(['base','tampo','ref'].includes(c)?document.querySelector('.mais'):null); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
 function duplicar(){
   const o=P[cur]; const p=JSON.parse(JSON.stringify(o)); const n=novoPalete();
   Object.assign(p,{ id:n.id, codigo:n.codigo, nome:(o.nome||'')+' (cópia)', planta:null, lib:n.lib, criado:Date.now(), fotos:[] });
@@ -1050,7 +1050,7 @@ function resumoDados(p){
   add('Longarinas', v('long_n')?v('long_n')+' un':'',['long_n']);
   add('Travessas', v('trav_n')?v('trav_n')+' un · '+(v('trav_mont')==='SOBRE'?'por cima':'entre as longarinas'):'',['trav_n','trav_mont']);
   add('Pés em cada longarina', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
-  const pe=alturaPe(p); if(pe!=null) R.push({rot:'Altura do pé',val:mm(pe)+' mm',o:'CALC'});
+  const pe=alturaPe(p); if(pe!=null) R.push({rot:'Altura do pé',val:mm(pe)+' mm (calculada pela altura total)',o:'CALC',k:'H'});
   add('Base no chão', v('base_tem')==='SIM'?'sim'+(nomePerfilP(p,'base')?' · '+nomePerfilP(p,'base'):''):v('base_tem')==='NAO'?'não':'',v('base_tem')==='SIM'?['base_tem',...pk('base')]:['base_tem']);
   add('Tampo', {NENHUM:'não',CHAPA:'chapa de aço',MADEIRA:'madeira',TELA:'tela'}[v('tampo_tipo')]||'' + '', ['tampo_tipo','tampo_t']);
   if(['CHAPA','MADEIRA'].includes(v('tampo_tipo'))&&n('tampo_t')!=null) R[R.length-1].val+=' · '+mm(n('tampo_t'))+' mm';
@@ -1060,7 +1060,18 @@ function resumoDados(p){
 }
 const ORIG_TXT={OBS:'👁 vi na foto',INF:'✍ informado',PAD:'⚙ padrão',CALC:'🧮 calculado',PEND:'⏳ falta'};
 function tabelaOrigens(p){
-  return `<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th></tr>${resumoDados(p).map(r=>`<tr><td>${esc(r.rot)}</td><td>${r.val?esc(r.val):'—'}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td></tr>`).join('')}</table>`;
+  return `<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th><th class="noprint"></th></tr>${resumoDados(p).map(r=>`<tr><td>${esc(r.rot)}</td><td>${r.val?esc(r.val):'—'}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td><td class="noprint n"><button class="btn mini c" onclick="editarCampo('${r.k}')">✏ Editar</button></td></tr>`).join('')}</table>`;
+}
+/* ✏ editar a partir da planta/ficha: se já estava liberado, avisa que a liberação cai */
+function editarCampo(k){
+  const p=P[cur];
+  if(travado(p)){
+    if(!confirm('Este palete está LIBERADO para fabricação.\n\nPara editar, a liberação é cancelada e a planta ganha uma nova revisão. Continuar?')) return;
+    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p,true);
+  }
+  const c=(FMAP[k]||{}).comp;
+  if(['base','tampo','ref'].includes(c) || k==='trav_mont') maisAberto=true;
+  passo='medidas'; render(); irCampo(k);
 }
 function cabecalhoImpresso(p,titulo){
   return `<div class="print-only" style="border-bottom:3px solid var(--lar);margin-bottom:8px;padding-bottom:6px"><b style="color:var(--azul)">GRUPO TENDAS</b> <b style="color:var(--lar)">PLENART</b> · ${titulo} · <b>${esc(p.codigo)}</b> — ${esc(p.nome)} · ${dataBR(Date.now())}</div>`;
@@ -1081,7 +1092,7 @@ function passoPlanta(p,A){
   const ver=verificacao(M, +lib.capacidade);
   return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">
       <span style="font-size:13.5px;color:var(--mut)">Planta Rev. ${p.planta.rev} · gerada em ${dataBR(p.planta.em)} por ${esc(p.planta.por||'—')}</span>
-      <span class="linha"><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
+      <span class="linha"><button class="btn lar mini" onclick="editarCampo('C')">✏ Editar medidas</button><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
     ${!(lib.ok)?'<div class="aviso a noprint">Esta planta ainda <b>não está liberada para fabricação</b>. Faça as conferências no passo 5.</div>':''}
     <div class="folha" id="folha">${desenharPlanta(p,M)}</div>
     <div class="quebra">${cabecalhoImpresso(p,'LISTA DE MATERIAIS E CORTE')}</div>
@@ -1103,7 +1114,7 @@ function fichaPreliminar(p,A){
     ${falta.length?`<div class="faltam">${falta.map(r=>`<span class="chip" onclick="irCampo('${r.k}')">⏳ ${esc(r.rot)}</span>`).join('')}</div>`:''}
     ${A.erros.length?`<div class="aviso e">✖ ${A.erros.map(esc).join('<br>✖ ')}</div>`:''}
     <div class="linha noprint" style="margin:12px 0"><button class="btn" onclick="irPasso('${p.estado?'medidas':'ident'}')">✏ Preencher agora</button><button class="btn c mini" onclick="window.print()">🖨 Imprimir ficha</button></div>
-    ${tem.length?`<h2 class="sec">O que já tem</h2>${`<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th></tr>${tem.map(r=>`<tr><td>${esc(r.rot)}</td><td>${esc(r.val)}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td></tr>`).join('')}</table>`}`:''}
+    ${tem.length?`<h2 class="sec">O que já tem</h2>${`<table class="t"><tr><th>Informação</th><th>Valor</th><th>Origem</th><th class="noprint"></th></tr>${tem.map(r=>`<tr><td>${esc(r.rot)}</td><td>${esc(r.val)}</td><td><span class="tg ${r.o}">${ORIG_TXT[r.o]}</span></td><td class="noprint n"><button class="btn mini c" onclick="editarCampo('${r.k}')">✏ Editar</button></td></tr>`).join('')}</table>`}`:''}
     ${p.estado==='CARREGADO'&&p.carga&&(p.carga.comp||p.carga.larg)?`<p style="font-size:13px;color:var(--mut)">📦 Carga (só referência, não é medida do palete): ${esc(p.carga.desc||'')} ${p.carga.comp?mm(+p.carga.comp):'?'} × ${p.carga.larg?mm(+p.carga.larg):'?'} × ${p.carga.alt?mm(+p.carga.alt):'?'} mm</p>`:''}`;
 }
 function confirmarPlanta(){
