@@ -131,6 +131,7 @@ input:disabled,select:disabled{background:#f3f4f7;color:#777}
 .vz{border-color:#f3b55f!important;background:#fffaf2!important}
 .q{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:14px;font-weight:600}
 .q .mf{max-width:220px}
+.unsel{border:1px solid var(--line);border-radius:9px;padding:9px 6px;background:#eef1fd;font-weight:800;color:var(--azul);flex:none;width:auto!important;cursor:pointer}
 .un-sel{display:inline-flex;gap:6px;align-items:center;font-size:13px;font-weight:700;color:var(--mut)}
 .un-sel .chip{padding:4px 12px;font-weight:800}
 .outro{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
@@ -200,7 +201,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v5</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v6</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -311,9 +312,13 @@ function pedirQuem(forcar){
    Tudo é guardado em mm por dentro; a unidade só muda o que se digita e se vê. */
 const FAT={mm:1,cm:10,m:1000};
 function unP(p){ return (p&&FAT[p.un])?p.un:'mm'; }
-function paraTela(p,vmm){ if(vmm===''||vmm==null) return ''; const n=Number(vmm); if(isNaN(n)) return ''; return String(Math.round(n/FAT[unP(p)]*10000)/10000); }
-function paraMM(p,v){ if(v===''||v==null) return ''; const n=Number(String(v).replace(',','.')); if(isNaN(n)) return ''; return String(Math.round(n*FAT[unP(p)]*100)/100); }
-function convMM(p){ if(unP(p)==='mm'||['C','L','H'].every(k=>vNum(p,k)==null)) return ''; return '= '+['C','L','H'].map(k=>vNum(p,k)==null?'—':mm(vNum(p,k))).join(' × ')+' mm'; }
+/* cada campo tem a sua unidade (ex.: comprimento em m, altura em cm) */
+function unK(p,key){ return (p&&p.uns&&FAT[p.uns[key]])?p.uns[key]:unP(p); }
+function paraTela(p,vmm,key){ if(vmm===''||vmm==null) return ''; const n=Number(vmm); if(isNaN(n)) return ''; return String(Math.round(n/FAT[unK(p,key)]*10000)/10000); }
+function paraMM(p,v,key){ if(v===''||v==null) return ''; const n=Number(String(v).replace(',','.')); if(isNaN(n)) return ''; return String(Math.round(n*FAT[unK(p,key)]*100)/100); }
+function selUn(p,key,dis){ const u=unK(p,key); return `<select class="unsel" title="unidade" ${dis} onchange="setUnK('${key}',this.value)">${['mm','cm','m'].map(x=>`<option ${x===u?'selected':''}>${x}</option>`).join('')}</select>`; }
+function setUnK(key,u){ const p=P[cur]; p.uns=p.uns||{}; p.uns[key]=u; try{localStorage.setItem('paletes_un',u);}catch(e){} salvar(p,true); const y=window.scrollY; render(); window.scrollTo(0,y); }
+function convMM(p){ if(['C','L','H'].every(k=>unK(p,k)==='mm')||['C','L','H'].every(k=>vNum(p,k)==null)) return ''; return '= '+['C','L','H'].map(k=>vNum(p,k)==null?'—':mm(vNum(p,k))).join(' × ')+' mm'; }
 function chipsUn(p,dis){
   return `<span class="un-sel">Unidade: ${['mm','cm','m'].map(u=>`<span class="chip ${unP(p)===u?'on':''}" onclick="${dis?'':`setUn('${u}')`}">${u}</span>`).join('')}</span>`;
 }
@@ -763,12 +768,12 @@ function passoIdent(p,trav){
         <li>Nas fotos, marque separado o que é <b>📦 material armazenado</b> e o que é <b>estrutura</b> do palete.</li>
         <li>Só conta como <b>observado</b> o que aparece de verdade na foto. Travessa, reforço ou espessura escondidos ficam <b>pendentes</b> até você informar ou mandar outra foto.</li>
         <li>A medida do material <b>não</b> é a medida do palete. Ela fica guardada só como referência, abaixo.</li></ul></div>
-      <div class="card" style="margin-top:10px"><h3>📦 Material armazenado (só referência)</h3><div style="margin-bottom:8px">${chipsUn(p,trav)}</div><p class="sub">Essas medidas NÃO entram na planta como palete. Servem para conferir estabilidade e, se você quiser, mostrar o acondicionamento.</p>
+      <div class="card" style="margin-top:10px"><h3>📦 Material armazenado (só referência)</h3><p class="sub">Essas medidas NÃO entram na planta como palete. Servem para conferir estabilidade e, se você quiser, mostrar o acondicionamento.</p>
         <div class="grade g3">
           <label class="f">O que é<input value="${esc(c.desc)}" ${dis} placeholder="Ex.: placas de piso" onchange="setCarga('desc',this.value)"></label>
-          <label class="f">Comprimento da carga (${unP(p)})<input type="number" step="any" value="${esc(paraTela(p,c.comp))}" ${dis} onchange="setCarga('comp',paraMM(P[cur],this.value))"></label>
-          <label class="f">Largura da carga (${unP(p)})<input type="number" step="any" value="${esc(paraTela(p,c.larg))}" ${dis} onchange="setCarga('larg',paraMM(P[cur],this.value))"></label>
-          <label class="f">Altura da carga (${unP(p)})<input type="number" step="any" value="${esc(paraTela(p,c.alt))}" ${dis} onchange="setCarga('alt',paraMM(P[cur],this.value))"></label>
+          <label class="f">Comprimento da carga<span class="campo"><input type="number" step="any" value="${esc(paraTela(p,c.comp,'carga_comp'))}" ${dis} onchange="setCarga('comp',paraMM(P[cur],this.value,'carga_comp'))">${selUn(p,'carga_comp',dis)}</span></label>
+          <label class="f">Largura da carga<span class="campo"><input type="number" step="any" value="${esc(paraTela(p,c.larg,'carga_larg'))}" ${dis} onchange="setCarga('larg',paraMM(P[cur],this.value,'carga_larg'))">${selUn(p,'carga_larg',dis)}</span></label>
+          <label class="f">Altura da carga<span class="campo"><input type="number" step="any" value="${esc(paraTela(p,c.alt,'carga_alt'))}" ${dis} onchange="setCarga('alt',paraMM(P[cur],this.value,'carga_alt'))">${selUn(p,'carga_alt',dis)}</span></label>
           <label class="f">Peso aproximado da carga (kg)<input type="number" value="${esc(c.peso)}" ${dis} onchange="setCarga('peso',this.value)"></label>
         </div>
         <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" ${c.mostrar?'checked':''} ${dis} onchange="setCarga('mostrar',this.checked)"> Mostrar a carga tracejada na planta (posicionamento / acondicionamento)</label>
@@ -884,9 +889,9 @@ function selPerfil(p,c,dis){
 const COM_UN=['C','L','H'];
 function campoNum(p,k,rot,dis,extra){
   const cu=COM_UN.includes(k);
-  const val= cu ? paraTela(p,vRaw(p,k)) : vRaw(p,k);
-  const ch = cu ? `setVal('${k}',paraMM(P[cur],this.value))` : `setVal('${k}',this.value)`;
-  return `<label class="mf"><span>${rot}</span><span class="campo"><input id="in_${k}" class="${vRaw(p,k)===''?'vz':''}" type="number" inputmode="decimal" step="${FMAP[k].tipo==='int'?1:'any'}" min="0" value="${esc(val)}" ${dis} ${extra||''} onchange="${ch}"><span class="un">${cu?unP(p):FMAP[k].un}</span></span></label>`;
+  const val= cu ? paraTela(p,vRaw(p,k),k) : vRaw(p,k);
+  const ch = cu ? `setVal('${k}',paraMM(P[cur],this.value,'${k}'))` : `setVal('${k}',this.value)`;
+  return `<label class="mf"><span>${rot}</span><span class="campo"><input id="in_${k}" class="${vRaw(p,k)===''?'vz':''}" type="number" inputmode="decimal" step="${FMAP[k].tipo==='int'?1:'any'}" min="0" value="${esc(val)}" ${dis} ${extra||''} onchange="${ch}">${cu?selUn(p,k,dis):`<span class="un">${FMAP[k].un}</span>`}</span></label>`;
 }
 function chipsOp(p,k,ops,dis){
   const v=vRaw(p,k);
@@ -942,7 +947,7 @@ function passoMedidas(p,A,trav){
   const carg=p.estado==='CARREGADO';
   const sep = p.sep || (perfilAtual(p,'long')!=='' && !perfisIguais(p));
   return `${cardMed(p,A,'geral','📐 Tamanho do palete', carg?'Só a <b>estrutura</b>, sem o material que está em cima.':'',
-      `<div class="q" style="margin:0 0 8px">${chipsUn(p,trav)}</div><div class="mlinha">${campoNum(p,'C','Comprimento',dis)}${campoNum(p,'L','Largura',dis)}${campoNum(p,'H','Altura',dis)}</div>
+      `<div class="mlinha">${campoNum(p,'C','Comprimento',dis)}${campoNum(p,'L','Largura',dis)}${campoNum(p,'H','Altura',dis)}</div>
        <div class="q" id="conv_mm" style="color:var(--mut);font-weight:500">${convMM(p)}</div>`,null,dis)}
     ${cardMed(p,A,'estr','🧱 Estrutura','',
       `<label class="mf grande" style="margin-bottom:10px"><span>Perfil (metalon, cantoneira, madeira…)</span>${selEstrutura(p,dis)}</label>
@@ -1013,7 +1018,7 @@ function htmlRefs(p,trav){
       <label class="f">Seção A (mm)<input type="number" value="${esc(r.b)}" ${dis} onchange="setRef(${i},'b',this.value)"></label>
       <label class="f">Seção B (mm)<input type="number" value="${esc(r.h)}" ${dis} onchange="setRef(${i},'h',this.value)"></label>
       ${r.tipo!=='MAD'?`<label class="f">Espessura (mm)<input type="number" step="any" value="${esc(r.t)}" ${dis} onchange="setRef(${i},'t',this.value)"></label>`:''}
-      <label class="f">Comprimento de corte (${unP(p)})<input type="number" step="any" value="${esc(paraTela(p,r.comp))}" ${dis} onchange="setRef(${i},'comp',paraMM(P[cur],this.value))"></label>
+      <label class="f">Comprimento de corte<span class="campo"><input type="number" step="any" value="${esc(paraTela(p,r.comp,'ref_comp'))}" ${dis} onchange="setRef(${i},'comp',paraMM(P[cur],this.value,'ref_comp'))">${selUn(p,'ref_comp',dis)}</span></label>
       <label class="f">Qtd por palete<input type="number" value="${esc(r.qtd)}" ${dis} onchange="setRef(${i},'qtd',this.value)"></label>
     </div></div>`).join('')}
     ${trav?'':`<button class="btn mini" style="margin-top:8px" onclick="addRef()">➕ Adicionar reforço</button>`}
