@@ -159,6 +159,10 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 .lib label.ck.on{border-color:var(--ok);background:#f4fbf6}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1b2033;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:90vw}
 #toast.on{opacity:1}
+.painelPeca{position:fixed;right:16px;top:70px;width:380px;max-width:calc(100vw - 32px);max-height:calc(100vh - 90px);overflow:auto;z-index:85;background:#fff;border:2px solid var(--lar);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:14px}
+.painelPeca .mf{min-width:0}
+@media (max-width:640px){.painelPeca{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:60vh}}
+@media print{.painelPeca{display:none!important}}
 .lb{position:fixed;inset:0;background:rgba(10,14,30,.88);z-index:90;display:flex;align-items:center;justify-content:center;padding:20px}
 .lb img{max-width:100%;max-height:100%;border-radius:8px}
 .modal{position:fixed;inset:0;background:rgba(10,14,30,.55);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
@@ -202,7 +206,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v10</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v12</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -1189,22 +1193,17 @@ function passoPlanta(p,A){
   if(!A.pronto) return fichaPreliminar(p,A);
   const M=modelo(p);
   const lib=p.lib||{};
-  const stale = p.planta && !A.plantaOk;
-  if(!A.plantaOk){
-    return `${stale?`<div class="aviso a">⚠ As medidas mudaram depois da planta Rev. ${p.planta.rev}. Confira de novo para gerar a Rev. ${p.planta.rev+1}${p.lib&&p.lib.ok?' — a liberação anterior foi cancelada':''}.</div>`:''}
-      ${(()=>{const pad=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='PAD'); return pad.length?`<div class="aviso a">⚙ Confirme o que ficou no padrão: <b>${esc(resumoExtras(p))}</b>. Se não for assim, troque em <a onclick="maisAberto=true;irPasso('medidas')" style="cursor:pointer;text-decoration:underline">Medidas → Mais opções</a>.</div>`:'';})()}
-      <div class="aviso i"><b>Tudo preenchido.</b> Antes de gerar a planta, confira o resumo: as medidas abaixo são da <b>estrutura do palete</b>${p.estado==='CARREGADO'?' (não do material que estava em cima)':''}.</div>
-      ${tabelaOrigens(p)}
-      <div class="aviso ${FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length?'a':'ok'}">${(()=>{const n=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length;return n?`${n} medida(s) foram informadas e não lidas em foto. Ao confirmar, você assume que elas estão certas.`:'Todas as medidas foram lidas nas fotos.';})()}</div>
-      <div class="linha" style="justify-content:flex-end;margin-top:10px"><button class="btn v" onclick="confirmarPlanta()">✅ Conferi as medidas — gerar planta técnica</button></div>`;
-  }
+  const pad=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='PAD').length;
+  const faixa = A.plantaOk ? `<span style="font-size:13.5px;color:var(--mut)">Planta Rev. ${p.planta.rev} · gerada em ${dataBR(p.planta.em)} por ${esc(p.planta.por||'—')}</span>`
+    : `<div class="aviso a" style="flex:1 1 100%;margin:0">${p.planta?`⚠ Você mudou o palete depois da Rev. ${p.planta.rev}${p.lib&&p.lib.ok?' (a liberação foi cancelada)':''}. `:''}Isto é uma <b>prévia</b>. ${pad?`Confira o padrão: <b>${esc(resumoExtras(p))}</b>. `:''}Quando estiver certo, toque em <b>Conferi</b>.
+        <div style="margin-top:8px"><button class="btn v" onclick="confirmarPlanta()">✅ Conferi as medidas — gerar planta${p.planta?' Rev. '+(p.planta.rev+1):''}</button></div></div>`;
   const ver=verificacao(M, +lib.capacidade);
-  return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">
-      <span style="font-size:13.5px;color:var(--mut)">Planta Rev. ${p.planta.rev} · gerada em ${dataBR(p.planta.em)} por ${esc(p.planta.por||'—')}</span>
-      <span class="linha"><button class="btn lar mini" onclick="editarCampo('C')">✏ Editar medidas</button><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
-    ${!(lib.ok)?'<div class="aviso a noprint">Esta planta ainda <b>não está liberada para fabricação</b>. Faça as conferências no passo 5.</div>':''}
+  return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">${faixa}
+      <span class="linha"><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
+    ${A.plantaOk&&!(lib.ok)?'<div class="aviso a noprint">Esta planta ainda <b>não está liberada para fabricação</b>. Faça as conferências no passo 5.</div>':''}
+    <div class="aviso i noprint" style="margin:0 0 8px">👆 <b>Toque numa peça do desenho</b> (placa, pé, longarina, travessa…) ou numa <b style="color:#1d4ed8">medida azul</b> para mudar perfil, espessura, quantidade e tamanho.</div>
+    <div class="folha" id="folha" onclick="cliqueDesenho(event)">${desenharPlanta(p,M)}</div>
     ${campoNotas(p,travado(p))}
-    <div class="folha" id="folha">${desenharPlanta(p,M)}</div>
     <div class="quebra">${cabecalhoImpresso(p,'LISTA DE MATERIAIS E CORTE')}</div>
     <h2 class="sec">Lista de peças e comprimentos de corte</h2>
     ${tabelaPecas(M)}
@@ -1215,8 +1214,61 @@ function passoPlanta(p,A){
     ${ver?`<h2 class="sec">Verificação indicativa da longarina</h2>${htmlVerif(ver,M,+lib.capacidade)}`:''}
     ${p.obs?`<h2 class="sec">Observações gerais</h2><p>${esc(p.obs)}</p>`:''}
     <h2 class="sec">Liberação</h2>
-    ${lib.ok?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(lib.resp)} em ${dataBR(lib.em)} · capacidade nominal ${nf(+lib.capacidade)} kg${lib.empilha?' · empilhamento máx. '+esc(lib.empilha):''}${lib.obs?' · '+esc(lib.obs):''}</div>`:'<div class="aviso e">✖ NÃO LIBERADO PARA FABRICAÇÃO — faltam as conferências de dimensões, capacidade de carga, estabilidade e segurança.</div>'}`;
+    ${lib.ok&&A.plantaOk?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(lib.resp)} em ${dataBR(lib.em)} · capacidade nominal ${nf(+lib.capacidade)} kg${lib.empilha?' · empilhamento máx. '+esc(lib.empilha):''}${lib.obs?' · '+esc(lib.obs):''}</div>`:'<div class="aviso e">✖ NÃO LIBERADO PARA FABRICAÇÃO — faltam as conferências de dimensões, capacidade de carga, estabilidade e segurança.</div>'}`;
 }
+
+/* ===== editar clicando na peça do desenho ===== */
+let pecaAberta=null;
+function cliqueDesenho(ev){ const el=ev.target.closest&&ev.target.closest('[data-p]'); if(el) abrirPeca(el.dataset.p); }
+const PECA_TIT={tampo:'Placa / tampo',pes:'Pés',long:'Longarinas',trav:'Travessas',base:'Base inferior',sap:'Sapatas',rc:'Reforço nos cantos',olhal:'Olhais',C:'Comprimento do palete',L:'Largura do palete',H:'Altura do palete'};
+function abrirPeca(k){
+  const p=P[cur];
+  if(travado(p)){
+    if(!confirm('Este palete está LIBERADO para fabricação.\n\nPara mudar uma peça, a liberação é cancelada e a planta ganha uma nova revisão. Continuar?')) return;
+    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p,true); render();
+  }
+  pecaAberta=k; desenharModalPeca();
+}
+function corpoPeca(p,k){
+  const RG=regras(p); const pe=alturaPe(p); const d='';
+  const tit=k==='tampo'&&RG.placa?'Placa':PECA_TIT[k];
+  let h='';
+  if(k==='C'||k==='L'||k==='H') h=`<div class="mlinha">${campoNum(p,k,PECA_TIT[k],d)}</div>${k==='H'?`<p class="sub" style="margin-top:8px">A altura do pé (${pe==null?'—':mm(pe)+' mm'}) é calculada a partir da altura total.</p>`:''}`;
+  else if(k==='tampo') h=`<div class="q" style="margin-top:0"><span>${RG.placa?'Placa':'Tampo'}:</span>${chipsOp(p,'tampo_tipo',RG.placa?[['CHAPA','Chapa de aço'],['MADEIRA','Madeira']]:[['NENHUM','Sem tampo'],['CHAPA','Chapa de aço'],['MADEIRA','Madeira'],['TELA','Tela']],false)}</div>
+      ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="mlinha" style="margin-top:8px">${campoNum(p,'tampo_t','Espessura',d)}</div>`:''}`;
+  else if(k==='pes') h=`<label class="mf grande"><span>Perfil dos pés</span>${selPerfil(p,'pes',d)}</label>
+      <div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n',RG.placa?'Fileiras de pés':'Longarinas (uma fileira de pés em cada)',d)}${campoNum(p,'pes_n',RG.placa?'Pés em cada fileira':'Pés em cada longarina',d)}</div>
+      <div class="mlinha" style="margin-top:8px">${campoNum(p,'H','Altura total do palete',d)}</div>
+      <p class="sub" style="margin-top:8px">🧮 Altura do pé: <b>${pe==null?'—':mm(pe)+' mm'}</b> — muda pela altura total.</p>`;
+  else if(k==='long') h=`<label class="mf grande"><span>Perfil das longarinas</span>${selPerfil(p,'long',d)}</label><div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n','Quantas longarinas',d)}</div>`;
+  else if(k==='trav') h=`<label class="mf grande"><span>Perfil das travessas</span>${selPerfil(p,'trav',d)}</label>
+      <div class="mlinha" style="margin-top:8px">${RG.semTravMeio?'<p class="sub">2 travessas — só nas pontas (pela observação)</p>':campoNum(p,'trav_n','Quantas travessas',d)}</div>
+      <div class="q"><span>Montagem:</span>${chipsOp(p,'trav_mont',[['ENTRE','entre as longarinas'],['SOBRE','por cima']],false)}</div>`;
+  else if(k==='base') h=`<label class="mf grande"><span>Perfil da base</span>${selPerfil(p,'base',d)}</label><div class="q"><span>Tem base?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],false)}</div>`;
+  else if(k==='sap') h=`<div class="mlinha">${campoNum(p,'sap_lado','Lado (quadrada)',d)}${campoNum(p,'sap_t','Espessura da chapa',d)}</div>`;
+  else if(k==='rc') h=`<label class="mf grande"><span>Perfil do reforço</span>${selPerfil(p,'rc',d)}</label><div class="mlinha" style="margin-top:8px">${campoNum(p,'rc_comp','Comprimento de cada reforço',d)}</div>`;
+  else if(k==='olhal') h=`<div class="mlinha">${campoNum(p,'olhal_n','Quantos olhais',d)}</div>`;
+  /* no modal tudo redesenha na hora */
+  h=h.replace(/onchange="setVal\(/g,'onchange="setValPeca(').replace(/onchange="setPerfil\(/g,'onchange="setPerfilPeca(').replace(/onclick="setVal\(/g,'onclick="setValPeca(').replace(/onchange="setUnK\(/g,'onchange="setUnKPeca(');
+  return {tit,h};
+}
+function marcarPeca(){ document.querySelectorAll('#svgPlanta .sel').forEach(e=>e.classList.remove('sel')); if(pecaAberta) document.querySelectorAll('#svgPlanta [data-p="'+pecaAberta+'"]').forEach(e=>e.classList.add('sel')); }
+function desenharModalPeca(){
+  marcarPeca();
+  let m=$('modalPeca'); const p=P[cur];
+  if(!pecaAberta||!p){ if(m) m.remove(); return; }
+  const {tit,h}=corpoPeca(p,pecaAberta);
+  if(!m){ m=document.createElement('div'); m.id='modalPeca'; m.className='painelPeca'; document.body.appendChild(m); }
+  const ae=document.activeElement&&document.activeElement.id;
+ m.innerHTML=`<div class="cx"><div class="linha" style="justify-content:space-between;margin-bottom:10px"><h3 style="margin:0;color:var(--azul)">✏ ${esc(tit)}</h3><button class="btn c mini" onclick="fecharPeca()">✕</button></div>
+    ${h}<div class="linha" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="fecharPeca()">Pronto</button></div></div>`;
+  if(ae&&$(ae)&&m.contains($(ae))) $(ae).focus();
+}
+function fecharPeca(){ pecaAberta=null; desenharModalPeca(); }
+function redesenharComPeca(){ const y=window.scrollY; render(); window.scrollTo(0,y); desenharModalPeca(); }
+function setValPeca(k,v,re){ setVal(k,v,false); redesenharComPeca(); }
+function setPerfilPeca(c,v){ setPerfil(c,v); desenharModalPeca(); }
+function setUnKPeca(key,u){ setUnK(key,u); desenharModalPeca(); }
 function fichaPreliminar(p,A){
   const R=resumoDados(p); const falta=R.filter(r=>r.o==='PEND'); const tem=R.filter(r=>r.o!=='PEND');
   return `${cabecalhoImpresso(p,'FICHA PRELIMINAR')}
@@ -1276,72 +1328,72 @@ function desenharPlanta(p,M){
   const LX=y=>lx+(M.L-y)*s, LXw=(y,w)=>lx+(M.L-y-w)*s;    // lateral: frente do palete à direita
   const SY=(y,w)=>syTop+(M.L-y-w)*s;                        // superior: frente embaixo
   const o=[];
-  const R=(x,y,w,h,cls)=>`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(w,0.05).toFixed(2)}" height="${Math.max(h,0.05).toFixed(2)}" class="${cls}"/>`;
+  const R=(x,y,w,h,cls,pk)=>`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(w,0.05).toFixed(2)}" height="${Math.max(h,0.05).toFixed(2)}" class="${cls}"${pk?` data-p="${pk}"`:''}/>`;
   const T=(x,y,t,a='middle',cls='tx')=>`<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${a}" class="${cls}">${esc(t)}</text>`;
-  const cotaH=(x1,x2,y,yRef,txt)=>{ const d=y<yRef?-1:1; return `<g class="cota"><line x1="${x1}" y1="${yRef+d*0.8}" x2="${x1}" y2="${y+d*1.2}"/><line x1="${x2}" y1="${yRef+d*0.8}" x2="${x2}" y2="${y+d*1.2}"/><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"/><line x1="${x1-0.8}" y1="${y+0.8}" x2="${x1+0.8}" y2="${y-0.8}" class="tk"/><line x1="${x2-0.8}" y1="${y+0.8}" x2="${x2+0.8}" y2="${y-0.8}" class="tk"/></g>${T((x1+x2)/2, y-0.9, txt,'middle','tc')}`; };
-  const cotaV=(y1,y2,x,xRef,txt)=>{ const d=x<xRef?-1:1; return `<g class="cota"><line x1="${xRef+d*0.8}" y1="${y1}" x2="${x+d*1.2}" y2="${y1}"/><line x1="${xRef+d*0.8}" y1="${y2}" x2="${x+d*1.2}" y2="${y2}"/><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><line x1="${x-0.8}" y1="${y1+0.8}" x2="${x+0.8}" y2="${y1-0.8}" class="tk"/><line x1="${x-0.8}" y1="${y2+0.8}" x2="${x+0.8}" y2="${y2-0.8}" class="tk"/></g><text x="${x-0.9}" y="${(y1+y2)/2}" text-anchor="middle" class="tc" transform="rotate(-90 ${x-0.9} ${(y1+y2)/2})">${esc(txt)}</text>`; };
+  const cotaH=(x1,x2,y,yRef,txt,pk)=>{ const d=y<yRef?-1:1; return `<g class="cota"><line x1="${x1}" y1="${yRef+d*0.8}" x2="${x1}" y2="${y+d*1.2}"/><line x1="${x2}" y1="${yRef+d*0.8}" x2="${x2}" y2="${y+d*1.2}"/><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"/><line x1="${x1-0.8}" y1="${y+0.8}" x2="${x1+0.8}" y2="${y-0.8}" class="tk"/><line x1="${x2-0.8}" y1="${y+0.8}" x2="${x2+0.8}" y2="${y-0.8}" class="tk"/></g>${pk?`<text x="${((x1+x2)/2).toFixed(2)}" y="${(y-0.9).toFixed(2)}" text-anchor="middle" class="tc cl" data-p="${pk}">${esc(txt)}</text>`:T((x1+x2)/2, y-0.9, txt,'middle','tc')}`; };
+  const cotaV=(y1,y2,x,xRef,txt,pk)=>{ const d=x<xRef?-1:1; return `<g class="cota"><line x1="${xRef+d*0.8}" y1="${y1}" x2="${x+d*1.2}" y2="${y1}"/><line x1="${xRef+d*0.8}" y1="${y2}" x2="${x+d*1.2}" y2="${y2}"/><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><line x1="${x-0.8}" y1="${y1+0.8}" x2="${x+0.8}" y2="${y1-0.8}" class="tk"/><line x1="${x-0.8}" y1="${y2+0.8}" x2="${x+0.8}" y2="${y2-0.8}" class="tk"/></g><text x="${x-0.9}" y="${(y1+y2)/2}" text-anchor="middle" class="tc${pk?' cl':''}"${pk?` data-p="${pk}"`:''} transform="rotate(-90 ${x-0.9} ${(y1+y2)/2})">${esc(txt)}</text>`; };
   const bal=(x,y,lx2,ly2,t)=>`<line x1="${x}" y1="${y}" x2="${lx2}" y2="${ly2}" class="ld"/><circle cx="${lx2}" cy="${ly2}" r="2.6" class="bl"/>${T(lx2,ly2+0.9,t,'middle','tb')}`;
-  const tubo=(x,y,w,h,pf)=>{ let r=R(x,y,w,h,'pc'); if(pf.tipo==='TUBO'&&pf.t*s>=0.25 && w>2*pf.t*s && h>2*pf.t*s) r+=R(x+pf.t*s,y+pf.t*s,w-2*pf.t*s,h-2*pf.t*s,'oco'); return r; };
+  const tubo=(x,y,w,h,pf,pk)=>{ let r=R(x,y,w,h,'pc',pk); if(pf.tipo==='TUBO'&&pf.t*s>=0.25 && w>2*pf.t*s && h>2*pf.t*s) r+=R(x+pf.t*s,y+pf.t*s,w-2*pf.t*s,h-2*pf.t*s,'oco'); return r; };
 
   const temLong=!M.placa, zPT=M.zPe0+M.hp;
-  const sapF=(xc,yTop,Xf)=>R(Xf(xc-M.sap/2),yTop,M.sap*s,M.sapT*s,'sp');
+  const sapF=(xc,yTop,Xf)=>R(Xf(xc-M.sap/2),yTop,M.sap*s,M.sapT*s,'sp','sap');
   /* ===== VISTA FRONTAL (comprimento × altura) ===== */
-  if(M.base) o.push(R(X(0),Zf(M.hb),M.C*s,M.hb*s,'pc'));
+  if(M.base) o.push(R(X(0),Zf(M.hb),M.C*s,M.hb*s,'pc','base'));
   if(M.sapT>0) M.pesX.forEach(x=>o.push(sapF(x+M.pes.b/2,Zf(M.hb+M.sapT),X)));
-  M.pesX.forEach(x=>o.push(R(X(x),Zf(zPT),M.pes.b*s,M.hp*s,'pc')));
+  M.pesX.forEach(x=>o.push(R(X(x),Zf(zPT),M.pes.b*s,M.hp*s,'pc','pes')));
   if(temLong){
-    o.push(R(X(0),Zf(M.zTopo),M.C*s,M.long.h*s,'pc'));
-    if(M.trav.sobre) M.travX.forEach(x=>o.push(tubo(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,M.trav)));
-    else M.travX.forEach(x=>o.push(R(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,'oculto')));
+    o.push(R(X(0),Zf(M.zTopo),M.C*s,M.long.h*s,'pc','long'));
+    if(M.trav.sobre) M.travX.forEach(x=>o.push(tubo(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,M.trav,'trav')));
+    else M.travX.forEach(x=>o.push(R(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,'oculto','trav')));
   }
-  if(M.tampo.t>0) o.push(R(X(0),Zf(M.zTampo+M.tampo.t),M.C*s,M.tampo.t*s,M.placa?'pc':'tp'));
-  if(M.placa && M.rc && M.rc.comp>0){ const a=M.rc.comp/Math.SQRT2; [[M.pesX[0]+M.pes.b,1],[M.pesX[M.pesX.length-1],-1]].forEach(([x0,d])=>o.push(`<line x1="${X(x0)}" y1="${Zf(zPT-a)}" x2="${X(x0+d*a)}" y2="${Zf(zPT)}" class="rcl" style="stroke-width:${Math.max(.3,M.rc.b*s)}"/>`)); }
-  if(M.rg.olhal){ const ins=Math.min(60,M.C*0.08); [ins,M.C-ins].forEach(x=>o.push(`<circle cx="${X(x)}" cy="${Zf(M.H)-1.4}" r="1.3" class="ol"/>`)); }
+  if(M.tampo.t>0) o.push(R(X(0),Zf(M.zTampo+M.tampo.t),M.C*s,M.tampo.t*s,M.placa?'pc':'tp','tampo'));
+  if(M.placa && M.rc && M.rc.comp>0){ const a=M.rc.comp/Math.SQRT2; [[M.pesX[0]+M.pes.b,1],[M.pesX[M.pesX.length-1],-1]].forEach(([x0,d])=>o.push(`<line x1="${X(x0)}" y1="${Zf(zPT-a)}" x2="${X(x0+d*a)}" y2="${Zf(zPT)}" class="rcl" data-p="rc" style="stroke-width:${Math.max(.3,M.rc.b*s)}"/>`)); }
+  if(M.rg.olhal){ const ins=Math.min(60,M.C*0.08); [ins,M.C-ins].forEach(x=>o.push(`<circle cx="${X(x)}" cy="${Zf(M.H)-1.4}" r="1.3" class="ol" data-p="olhal"/>`)); }
   if(mostrarCarga){ const cc=+cg.comp; const x0=(M.C-cc)/2; const zt=M.H; o.push(R(X(x0),Zf(zt+cAlt),cc*s,cAlt*s,'cg')); o.push(T(X(M.C/2),Zf(zt+cAlt/2)+1,cTxt,'middle','tcg')); if(cAltReal>cAlt){ const yy=Zf(zt+cAlt); o.push(`<path d="M${X(x0)-1} ${yy} l${cc*s*0.45} 0 l1.2 -1.6 l1.2 3.2 l1.2 -1.6 L${X(x0+cc)+1} ${yy}" fill="none" stroke="#f58220" stroke-width=".3"/>`); } }
-  o.push(cotaH(X(0),X(M.C),fyBase+6,fyBase,mm(M.C)));
-  o.push(cotaV(Zf(M.H),Zf(0),fx-6,fx,mm(M.H)));
+  o.push(cotaH(X(0),X(M.C),fyBase+6,fyBase,mm(M.C),'C'));
+  o.push(cotaV(Zf(M.H),Zf(0),fx-6,fx,mm(M.H),'H'));
   const yVao = M.hp*s>=4 ? Zf(M.zPe0+M.hp/2)+1.2 : Zf(0)+3.2;
   if(M.pes.n>=2){ const g0=M.pesX[0]+M.pes.b, g1=M.pesX[1]; o.push(cotaH(X(g0),X(g1),yVao,yVao,mm(g1-g0)+' livre')); }
-  o.push(cotaV(Zf(zPT),Zf(M.zPe0),X(M.C)+6,X(M.C),mm(M.hp)));
+  o.push(cotaV(Zf(zPT),Zf(M.zPe0),X(M.C)+6,X(M.C),mm(M.hp),'H'));
   o.push(T(X(M.C/2), fyTop-cAlt*s-3.2, 'VISTA FRONTAL','middle','tv'));
 
   /* ===== VISTA LATERAL ESQUERDA (largura × altura) ===== */
   M.rowsY.forEach((y,i)=>{
     const cy=y+M.pes.h/2;
-    if(M.base) o.push(R(LXw(cy-M.base.b/2,M.base.b),Zf(M.hb),M.base.b*s,M.hb*s,'pc'));
-    if(M.sapT>0) o.push(R(LXw(cy-M.sap/2,M.sap),Zf(M.hb+M.sapT),M.sap*s,M.sapT*s,'sp'));
-    o.push(R(LXw(y,M.pes.h),Zf(zPT),M.pes.h*s,M.hp*s,'pc'));
-    if(temLong) o.push(tubo(LXw(M.longY[i],M.long.b),Zf(M.zTopo),M.long.b*s,M.long.h*s,M.long));
+    if(M.base) o.push(R(LXw(cy-M.base.b/2,M.base.b),Zf(M.hb),M.base.b*s,M.hb*s,'pc','base'));
+    if(M.sapT>0) o.push(R(LXw(cy-M.sap/2,M.sap),Zf(M.hb+M.sapT),M.sap*s,M.sapT*s,'sp','sap'));
+    o.push(R(LXw(y,M.pes.h),Zf(zPT),M.pes.h*s,M.hp*s,'pc','pes'));
+    if(temLong) o.push(tubo(LXw(M.longY[i],M.long.b),Zf(M.zTopo),M.long.b*s,M.long.h*s,M.long,'long'));
   });
   if(temLong){
-    if(M.trav.sobre) o.push(R(LX(M.L),Zf(M.zTrav+M.trav.h),M.L*s,M.trav.h*s,'pc'));
-    else for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; o.push(R(LXw(y0,y1-y0),Zf(M.zTrav+M.trav.h),(y1-y0)*s,M.trav.h*s,'pc')); }
+    if(M.trav.sobre) o.push(R(LX(M.L),Zf(M.zTrav+M.trav.h),M.L*s,M.trav.h*s,'pc','trav'));
+    else for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; o.push(R(LXw(y0,y1-y0),Zf(M.zTrav+M.trav.h),(y1-y0)*s,M.trav.h*s,'pc','trav')); }
   }
-  if(M.tampo.t>0) o.push(R(LX(M.L),Zf(M.zTampo+M.tampo.t),M.L*s,M.tampo.t*s,M.placa?'pc':'tp'));
+  if(M.tampo.t>0) o.push(R(LX(M.L),Zf(M.zTampo+M.tampo.t),M.L*s,M.tampo.t*s,M.placa?'pc':'tp','tampo'));
   if(mostrarCarga){ const cl=+cg.larg; const y0=(M.L-cl)/2; o.push(R(LXw(y0,cl),Zf(M.H+cAlt),cl*s,cAlt*s,'cg')); }
-  o.push(cotaH(LX(M.L),LX(0),fyBase+6,fyBase,mm(M.L)));
+  o.push(cotaH(LX(M.L),LX(0),fyBase+6,fyBase,mm(M.L),'L'));
   if(M.rowsY.length>=2){ const a=M.rowsY[0]+M.pes.h, b=M.rowsY[1]; if(b>a) o.push(cotaH(LXw(a,b-a),LX(a),yVao,yVao,mm(b-a)+' livre')); }
   o.push(T(LX(M.L/2), fyTop-cAlt*s-3.2, 'VISTA LATERAL ESQUERDA','middle','tv'));
 
   /* ===== VISTA SUPERIOR (comprimento × largura) ===== */
-  if(M.placa) o.push(R(X(0),SY(0,M.L),M.C*s,M.L*s,'tpl'));
-  M.rowsY.forEach(y=>M.pesX.forEach(x=>o.push(R(X(x),SY(y,M.pes.h),M.pes.b*s,M.pes.h*s,'oculto'))));
+  if(M.placa) o.push(R(X(0),SY(0,M.L),M.C*s,M.L*s,'tpl','tampo'));
+  M.rowsY.forEach(y=>M.pesX.forEach(x=>o.push(R(X(x),SY(y,M.pes.h),M.pes.b*s,M.pes.h*s,'oculto','pes'))));
   if(temLong){
     if(M.trav.sobre){
-      M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'oculto')));
-      M.travX.forEach(x=>o.push(R(X(x),SY(0,M.L),M.trav.b*s,M.L*s,'pc')));
+      M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'oculto','long')));
+      M.travX.forEach(x=>o.push(R(X(x),SY(0,M.L),M.trav.b*s,M.L*s,'pc','trav')));
     } else {
-      M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'pc')));
-      for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; M.travX.forEach(x=>o.push(R(X(x),SY(y0,y1-y0),M.trav.b*s,(y1-y0)*s,'pc'))); }
+      M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'pc','long')));
+      for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; M.travX.forEach(x=>o.push(R(X(x),SY(y0,y1-y0),M.trav.b*s,(y1-y0)*s,'pc','trav'))); }
     }
-    if(M.tampo.t>0||M.tampo.tipo==='TELA') o.push(R(X(0),SY(0,M.L),M.C*s,M.L*s,'tpo'));
+    if(M.tampo.t>0||M.tampo.tipo==='TELA') o.push(R(X(0),SY(0,M.L),M.C*s,M.L*s,'tpo','tampo'));
     if(M.rc && M.rc.comp>0){ const a=M.rc.comp/Math.SQRT2, x0=M.trav.sobre?0:M.trav.b, y0=M.long.b;
-      [[x0,y0,1,1],[M.C-x0,y0,-1,1],[x0,M.L-y0,1,-1],[M.C-x0,M.L-y0,-1,-1]].forEach(([xc,yc,dx,dy])=>o.push(`<line x1="${X(xc+dx*a)}" y1="${SY(yc,0)}" x2="${X(xc)}" y2="${SY(yc+dy*a,0)}" class="rcl" style="stroke-width:${Math.max(.3,M.rc.b*s)}"/>`)); }
+      [[x0,y0,1,1],[M.C-x0,y0,-1,1],[x0,M.L-y0,1,-1],[M.C-x0,M.L-y0,-1,-1]].forEach(([xc,yc,dx,dy])=>o.push(`<line x1="${X(xc+dx*a)}" y1="${SY(yc,0)}" x2="${X(xc)}" y2="${SY(yc+dy*a,0)}" class="rcl" data-p="rc" style="stroke-width:${Math.max(.3,M.rc.b*s)}"/>`)); }
   }
-  if(M.rg.olhal){ const ins=Math.min(60,M.C*0.08), insY=Math.min(60,M.L*0.08); [[ins,insY],[M.C-ins,insY],[ins,M.L-insY],[M.C-ins,M.L-insY]].forEach(([x,y])=>o.push(`<circle cx="${X(x)}" cy="${SY(y,0)}" r="1.3" class="ol"/>`)); }
+  if(M.rg.olhal){ const ins=Math.min(60,M.C*0.08), insY=Math.min(60,M.L*0.08); [[ins,insY],[M.C-ins,insY],[ins,M.L-insY],[M.C-ins,M.L-insY]].forEach(([x,y])=>o.push(`<circle cx="${X(x)}" cy="${SY(y,0)}" r="1.3" class="ol" data-p="olhal"/>`)); }
   if(mostrarCarga){ const cc=+cg.comp, cl=+cg.larg; o.push(R(X((M.C-cc)/2),SY((M.L-cl)/2,cl),cc*s,cl*s,'cg')); }
-  o.push(cotaH(X(0),X(M.C),syTop+M.L*s+6,syTop+M.L*s,mm(M.C)));
-  o.push(cotaV(syTop,syTop+M.L*s,fx-6,fx,mm(M.L)));
+  o.push(cotaH(X(0),X(M.C),syTop+M.L*s+6,syTop+M.L*s,mm(M.C),'C'));
+  o.push(cotaV(syTop,syTop+M.L*s,fx-6,fx,mm(M.L),'L'));
   if(temLong && M.trav.n>=2){ const e=M.travX[1]-M.travX[0]; o.push(cotaH(X(M.travX[0]+M.trav.b/2),X(M.travX[1]+M.trav.b/2),syTop-3,syTop,mm(e)+' e/e')); }
   if(!temLong && M.pes.n>=2){ const e=M.pesX[1]-M.pesX[0]; o.push(cotaH(X(M.pesX[0]+M.pes.b/2),X(M.pesX[1]+M.pes.b/2),syTop-3,syTop,mm(e)+' e/e')); }
   if(M.rowsY.length>=2){ const y0=M.rowsY[M.rowsY.length-2], y1=M.rowsY[M.rowsY.length-1]; o.push(cotaV(SY(y1+M.pes.h/2,0),SY(y0+M.pes.h/2,0),X(M.C)+6,X(M.C),mm(y1-y0)+' e/e')); }
@@ -1361,7 +1413,7 @@ function desenharPlanta(p,M){
   if(M.rc && M.rc.comp>0 && temLong){ const a=M.rc.comp/Math.SQRT2/2; o.push(bal(X(M.C-(M.trav.sobre?0:M.trav.b)-a),SY(M.L-M.long.b-a,0),colB,SY(M.L-M.long.b-a,0)+4,'P7')); }
 
   /* ===== carimbo ===== */
-  const lib=p.lib||{}; const liberado=!!lib.ok;
+  const lib=p.lib||{}; const previa=!(p.planta && p.planta.hash===hashMedidas(p)); const liberado=!!lib.ok && !previa;
   const cy=160, ch=26;
   const marca = liberado ? '' : `<text x="${W/2}" y="${HH/2-4}" text-anchor="middle" class="wm" transform="rotate(-18 ${W/2} ${HH/2})">NÃO LIBERADO PARA FABRICAÇÃO</text>`;
   const carimbo=`<rect x="6" y="${cy}" width="${W-12}" height="${ch}" class="cb"/>
@@ -1372,8 +1424,8 @@ function desenharPlanta(p,M){
     <text x="66" y="${cy+17.3}" class="pq">CÓDIGO · QTD</text><text x="66" y="${cy+23.5}" class="cv">${esc(p.codigo)} · ${M.q} un</text>
     <text x="112" y="${cy+17.3}" class="pq">PESO ESTIMADO</text><text x="112" y="${cy+23.5}" class="cv">${nf(M.pesoUn,1)} kg/un</text>
     <text x="162" y="${cy+4.3}" class="pq">ESCALA · UNIDADE</text><text x="162" y="${cy+10.5}" class="cv">1:${String(den).replace('.',',')} · mm</text>
-    <text x="162" y="${cy+17.3}" class="pq">REV. · DATA</text><text x="162" y="${cy+23.5}" class="cv">${p.planta?p.planta.rev:0} · ${dataBR(p.planta?p.planta.em:Date.now())}</text>
-    <text x="212" y="${cy+4.3}" class="pq">SITUAÇÃO</text><text x="212" y="${cy+10.5}" class="cv" style="fill:${liberado?'#15803d':'#b91c1c'}">${liberado?'LIBERADO P/ FABRICAÇÃO':'NÃO LIBERADO'}</text>
+    <text x="162" y="${cy+17.3}" class="pq">REV. · DATA</text><text x="162" y="${cy+23.5}" class="cv">${previa?(p.planta?p.planta.rev+1:0)+' (prévia)':p.planta.rev} · ${dataBR(previa?Date.now():p.planta.em)}</text>
+    <text x="212" y="${cy+4.3}" class="pq">SITUAÇÃO</text><text x="212" y="${cy+10.5}" class="cv" style="fill:${liberado?'#15803d':'#b91c1c'}">${liberado?'LIBERADO P/ FABRICAÇÃO':previa?'PRÉVIA — CONFERIR':'NÃO LIBERADO'}</text>
     <text x="212" y="${cy+17.3}" class="pq">${liberado?'LIBERADO POR':'DESENHADO POR'}</text><text x="212" y="${cy+23.5}" class="cv">${esc(((liberado?lib.resp:(p.planta&&p.planta.por))||'—').slice(0,28))}</text>
     <text x="8" y="${cy-2}" class="pq">Projeção 1º diedro (ABNT). Medidas em mm. Peças P1…P5 e reforços: ver lista de materiais. Linhas tracejadas: peças escondidas${mostrarCarga?' · laranja: carga (referência)':''}.</text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${HH}" id="svgPlanta">
@@ -1400,6 +1452,13 @@ function desenharPlanta(p,M){
       .lgA{font-size:4.3px;font-weight:800;fill:#2b3990}
       .lgB{font-size:5.4px;font-weight:800;fill:#f58220}
       .tpl{fill:#e9edf7;stroke:#1d2b6b;stroke-width:.35}
+      [data-p]{cursor:pointer}
+      rect[data-p]:hover,circle[data-p]:hover{fill:#ffd9b3;stroke:#f58220}
+      line[data-p]:hover{stroke:#f58220}
+      .cl{fill:#1d4ed8;text-decoration:underline}
+      rect.sel,circle.sel{fill:#ffc58f!important;stroke:#f58220!important;stroke-width:.5!important}
+      line.sel{stroke:#f58220!important} text.sel{fill:#f58220!important;font-weight:700}
+      @media print{ rect[data-p]:hover,circle[data-p]:hover{fill:inherit} .cl{fill:#111;text-decoration:none} }
       .sp{fill:#cfd6ea;stroke:#1d2b6b;stroke-width:.25}
       .rcl{stroke:#1d2b6b;stroke-linecap:butt}
       .ol{fill:#fff;stroke:#c2410c;stroke-width:.35}
