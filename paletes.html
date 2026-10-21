@@ -206,7 +206,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v12</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v13</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -244,7 +244,7 @@ const TIPOS = {
   TUBO: { nome:'Tubo retangular/quadrado (metalon)', curto:'Metalon', aco:true,  rot:['lado de cima (largura)','lado em pé (altura)','espessura da parede'] },
   CANT: { nome:'Cantoneira (L)',                    curto:'Cantoneira', aco:true, rot:['aba deitada','aba em pé','espessura da chapa'] },
   U:    { nome:'Perfil U',                          curto:'Perfil U', aco:true,  rot:['aba (largura vista de cima)','alma (altura)','espessura da chapa'] },
-  MAD:  { nome:'Madeira',                           curto:'Madeira', aco:false, rot:['largura (vista de cima)','altura','—'] }
+  MAD:  { nome:'Madeira',                           curto:'Madeira', aco:false, rot:['largura (vista de cima)','espessura / altura','—'] }
 };
 const COMP = {
   geral: { nome:'Medidas gerais',   ic:'📐', dica:'medidas externas da ESTRUTURA do palete (nunca do material que está em cima)' },
@@ -443,6 +443,7 @@ function ativo(p,f){
   const RG=regras(p);
   if(RG.placa && ((f.comp==='long'&&f.k!=='long_n') || f.comp==='trav' || f.comp==='base')) return false;
   if(RG.semTravMeio && f.k==='trav_n') return false;
+  if(p.pesInteiro && f.k==='pes_n') return false;
   if(f.comp==='rc') return RG.cantos && (f.perf!==2 || tipoDe(p,'rc')!=='MAD');
   if(f.comp==='olhal') return RG.olhal;
   if(f.comp==='sap') return RG.sapata;
@@ -503,6 +504,7 @@ function analisar(p){
     if(tp && tp!=='MAD' && t!=null && b!=null && h!=null && (2*t>=Math.min(b,h))) erros.push(COMP[c].nome+': espessura grande demais para a seção '+b+'×'+h+'.');
   });
   const pe=alturaPe(p);
+  if(p.pesInteiro && pe!=null && g('pes_h')!=null && Math.abs(g('pes_h')-pe)>1) avisos.push('Pé em peça inteira: o perfil tem '+mm(g('pes_h'))+' mm de altura, mas a altura calculada do pé é '+mm(pe)+' mm. Ajuste a altura total do palete ou o perfil.');
   if(pe!=null && pe<=0) erros.push('A altura dos pés calculada deu '+mm(pe)+' mm — a soma das peças passa da altura total. Confira altura total e seções.');
   else if(pe!=null && pe<70) avisos.push('Abertura para o garfo só com '+mm(pe)+' mm de altura — garfo de empilhadeira/paleteira costuma precisar de 90 a 100 mm. Confira.');
   const RG=regras(p);
@@ -601,8 +603,10 @@ function modelo(p){
   M.sapT = RG.sapata ? g('sap_t') : 0; M.sap = RG.sapata ? g('sap_lado') : 0;
   M.zPe0 = M.hb + M.sapT;
   M.hp = alturaPe(p);
+  M.pesInteiro=!!p.pesInteiro; M.pesPerfil=Object.assign({},M.pes);
+  if(M.pesInteiro) M.pes=Object.assign({},M.pes,{ b:M.C, h:M.pesPerfil.b, n:1 });   // uma peça corrida por fileira
   const nl=M.long.n;               // no modo placa: fileiras de pés
-  M.pesX=[...Array(M.pes.n).keys()].map(k=> k*(M.C-M.pes.b)/(M.pes.n-1));
+  M.pesX=[...Array(M.pes.n).keys()].map(k=> M.pes.n===1?0: k*(M.C-M.pes.b)/(M.pes.n-1));
   if(M.placa){
     M.rowsY=[...Array(nl).keys()].map(i=> nl===1?(M.L-M.pes.h)/2: i*(M.L-M.pes.h)/(nl-1));
     M.zTampo = M.zPe0+M.hp;
@@ -623,7 +627,8 @@ function modelo(p){
     pecas.push({ id:'P1', nome:'Longarina', perfil:M.long, qtd:nl, corte:M.C, obs:'corte reto 90°' });
     pecas.push({ id:'P2', nome: M.trav.sobre?'Travessa (por cima das longarinas)':'Travessa (entre longarinas)', perfil:M.trav, qtd: M.trav.sobre? M.trav.n : M.trav.n*(nl-1), corte:M.vaoTrav, obs: (RG.semTravMeio?'só nas pontas · ':'')+(M.trav.sobre?'corte reto 90°':'vão livre entre longarinas') });
   }
-  pecas.push({ id:'P3', nome: M.placa?'Pé (soldado direto na placa)':'Pé', perfil:M.pes, qtd: M.nPes, corte:M.hp, obs:'altura calculada' });
+  if(M.pesInteiro) pecas.push({ id:'P3', nome: 'Pé — peça inteira (de ponta a ponta)'+(M.placa?' soldada na placa':''), perfil:M.pesPerfil, qtd: nl, corte:M.C, obs:'1 peça corrida por fileira' });
+  else pecas.push({ id:'P3', nome: M.placa?'Pé (soldado direto na placa)':'Pé', perfil:M.pes, qtd: M.nPes, corte:M.hp, obs:'altura calculada' });
   if(M.base) pecas.push({ id:'P4', nome:'Base inferior', perfil:M.base, qtd:nl, corte:M.C, obs:'corte reto 90°' });
   if(RG.cantos){ M.rc=Object.assign(perfilDe(p,'rc'),{comp:g('rc_comp')}); pecas.push({ id:'P7', nome: M.placa?'Reforço de canto (mão-francesa pé × placa)':'Reforço de canto (diagonal)', perfil:M.rc, qtd:4, corte:M.rc.comp, obs:'pontas a 45°' }); }
   (p.refs||[]).forEach((r,i)=> pecas.push({ id:'R'+(i+1), nome:'Reforço — '+(r.desc||''), perfil:{tipo:r.tipo,b:+r.b,h:+r.h,t:r.tipo==='MAD'?0:+r.t}, qtd:+r.qtd, corte:+r.comp, obs:'informado ('+(r.o==='OBS'?'observado na foto':'usuário')+')' }));
@@ -664,6 +669,7 @@ function planoBarras(cortes, barra, kerf){
 }
 function verificacao(M, Qkg){
   if(!(Qkg>0)) return null;
+  if(M.pesInteiro) return { semCalc:true, motivo:'Pé em peça inteira: a longarina fica apoiada de ponta a ponta, então a conta de vão não se aplica.' };
   if(M.placa) return { semCalc:true, motivo:'Palete de placa com pés: o sistema não faz a conta indicativa (depende da espessura da placa e das soldas).' };
   const vao=(M.C-M.pes.b)/(M.pes.n-1);
   const W=moduloW(M.long);
@@ -675,7 +681,7 @@ function verificacao(M, Qkg){
   return { vao, sig, adm, ok: sig<=adm, fs: adm/sig };
 }
 function hashMedidas(p){
-  const s=JSON.stringify([regras(p), FIELDS.filter(f=>ativo(p,f)).map(f=>[f.k,vRaw(p,f.k)]), (p.refs||[]).map(r=>[r.desc,r.tipo,r.b,r.h,r.t,r.comp,r.qtd]), p.qtdFab, p.carga&&p.carga.mostrar?[p.carga.comp,p.carga.larg,p.carga.alt]:0]);
+  const s=JSON.stringify([regras(p), !!p.pesInteiro, FIELDS.filter(f=>ativo(p,f)).map(f=>[f.k,vRaw(p,f.k)]), (p.refs||[]).map(r=>[r.desc,r.tipo,r.b,r.h,r.t,r.comp,r.qtd]), p.qtdFab, p.carga&&p.carga.mostrar?[p.carga.comp,p.carga.larg,p.carga.alt]:0]);
   let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h+s.charCodeAt(i))|0; } return String(h);
 }
 
@@ -938,11 +944,11 @@ function perfilAtual(p,c){
   const i=PERFIS.findIndex(x=>x[0]===t && Math.abs(x[1]-b)<.01 && Math.abs(x[2]-h)<.01 && (t==='MAD'||Math.abs(x[3]-(e||0))<.01));
   return i>=0?String(i):'OUTRO';
 }
-function selPerfil(p,c,dis){
+function selPerfil(p,c,dis,semOutro){
   const cur=perfilAtual(p,c);
   const grupos=Object.keys(GRUPO_TIPO).map(t=>`<optgroup label="${GRUPO_TIPO[t]}">${PERFIS.map((x,i)=>x[0]===t?`<option value="${i}" ${cur===String(i)?'selected':''}>${esc(x[4])}</option>`:'').join('')}</optgroup>`).join('');
   let h=`<select id="in_${c}_tipo" class="${cur===''?'vz':''}" ${dis} onchange="setPerfil('${c}',this.value)"><option value="">— escolha o perfil —</option>${c!=='long'&&vRaw(p,'long_tipo')?'<option value="IGUAL">= igual à longarina</option>':''}${grupos}<option value="OUTRO" ${cur==='OUTRO'?'selected':''}>Outro — digitar as medidas</option></select>`;
-  if(cur==='OUTRO'){
+  if(cur==='OUTRO' && !semOutro){
     const tp=tipoDe(p,c);
     h+=`<div class="outro"><select ${dis} onchange="setVal('${c}_tipo',this.value,true)"><option value="">tipo…</option>${Object.keys(TIPOS).map(k=>`<option value="${k}" ${tp===k?'selected':''}>${GRUPO_TIPO[k]}</option>`).join('')}</select>
       ${['b','h','t'].filter(x=>x!=='t'||tp!=='MAD').map(x=>`<input id="in_${c}_${x}" class="${vRaw(p,c+'_'+x)===''?'vz':''}" type="number" inputmode="decimal" step="any" min="0" placeholder="${{b:'largura',h:'altura',t:'parede'}[x]}" value="${esc(vRaw(p,c+'_'+x))}" ${dis} onchange="setVal('${c}_${x}',this.value)">`).join('<span>×</span>')}<span class="un">mm</span></div>`;
@@ -1039,7 +1045,8 @@ function passoMedidas(p,A,trav){
       `<div class="q" style="margin:0 0 8px"><span>Placa:</span>${chipsOp(p,'tampo_tipo',[['CHAPA','Chapa de aço'],['MADEIRA','Madeira']],trav)}</div>
        ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="mlinha" style="margin-bottom:10px">${campoNum(p,'tampo_t','Espessura da placa',dis)}</div>`:''}
        <label class="mf grande" style="margin-bottom:10px"><span>Perfil dos pés</span>${selPerfil(p,'pes',dis)}</label>
-       <div class="mlinha">${campoNum(p,'long_n','Fileiras de pés',dis)}${campoNum(p,'pes_n','Pés em cada fileira',dis)}</div>
+       <div class="q" style="margin:0 0 8px"><span>Pés:</span><span class="chips"><span class="chip ${!p.pesInteiro?'on':''}" onclick="${trav?'':'setPesInteiroMed(false)'}">separados</span><span class="chip ${p.pesInteiro?'on':''}" onclick="${trav?'':'setPesInteiroMed(true)'}">peça inteira</span></span></div>
+       <div class="mlinha">${campoNum(p,'long_n','Fileiras de pés',dis)}${p.pesInteiro?'':campoNum(p,'pes_n','Pés em cada fileira',dis)}</div>
        <div class="q" style="color:var(--mut);font-weight:500">🧮 Altura do pé: <b id="pe_alt" style="color:var(--tx);margin-left:4px">${pe==null?'—':mm(pe)+' mm'}</b></div>`,['long','pes','tampo'],dis)
     : cardMed(p,A,'estr','🧱 Estrutura','',
       `<label class="mf grande" style="margin-bottom:10px"><span>Perfil (metalon, cantoneira, madeira…)</span>${selEstrutura(p,dis)}</label>
@@ -1149,14 +1156,14 @@ function resumoDados(p){
     tamp();
     add('Perfil dos pés',nomePerfilP(p,'pes'),pk('pes'));
     add('Fileiras de pés', v('long_n')?v('long_n')+' un':'',['long_n']);
-    add('Pés em cada fileira', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
+    if(p.pesInteiro) add('Pés','peça inteira de ponta a ponta (1 por fileira)',[],'INF'); else add('Pés em cada fileira', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
   } else {
     if(!p.sep && (perfisIguais(p) || perfilAtual(p,'long')==='')) add('Perfil da estrutura', nomePerfilP(p,'long'), [...pk('long'),...pk('trav'),...pk('pes')]);
     else { add('Perfil das longarinas',nomePerfilP(p,'long'),pk('long')); add('Perfil das travessas',nomePerfilP(p,'trav'),pk('trav')); add('Perfil dos pés',nomePerfilP(p,'pes'),pk('pes')); }
     add('Longarinas', v('long_n')?v('long_n')+' un':'',['long_n']);
     if(RG.semTravMeio) add('Travessas','2 · só nas pontas (pela observação) · '+(v('trav_mont')==='SOBRE'?'por cima':'entre as longarinas'),['trav_mont']);
     else add('Travessas', v('trav_n')?v('trav_n')+' un · '+(v('trav_mont')==='SOBRE'?'por cima':'entre as longarinas'):'',['trav_n','trav_mont']);
-    add('Pés em cada longarina', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
+    if(p.pesInteiro) add('Pés','peça inteira de ponta a ponta (1 por longarina)',[],'INF'); else add('Pés em cada longarina', v('pes_n')?v('pes_n')+' un':'',['pes_n']);
   }
   const pe=alturaPe(p); if(pe!=null) R.push({rot:'Altura do pé',val:mm(pe)+' mm (calculada pela altura total)',o:'CALC',k:'H'});
   if(!RG.placa){
@@ -1229,6 +1236,14 @@ function abrirPeca(k){
   }
   pecaAberta=k; desenharModalPeca();
 }
+/* medidas do perfil sempre à mostra no painel: largura × altura × espessura */
+function camposPerfil(p,c,d){
+  const tp=tipoDe(p,c); if(!tp) return '<p class="sub" style="margin-top:6px">Escolha o perfil acima — depois dá para ajustar largura, altura e espessura.</p>';
+  const lab = c==='pes' ? (p.pesInteiro?['largura (vista de cima)','altura do perfil','espessura da parede']:['lado no comprimento','lado na largura','espessura da parede']) : TIPOS[tp].rot;
+  const ks=['b','h','t'].filter(x=>x!=='t'||tp!=='MAD');
+  return `<div class="q" style="margin-top:8px"><span>Tipo:</span>${chipsOp(p,c+'_tipo',Object.keys(TIPOS).map(k=>[k,GRUPO_TIPO[k]]),false)}</div>
+    <div class="mlinha" style="margin-top:6px">${ks.map((x,i)=>`<label class="mf"><span>${esc(lab[['b','h','t'].indexOf(x)])}</span><span class="campo"><input id="in_${c}_${x}" class="${vRaw(p,c+'_'+x)===''?'vz':''}" type="number" inputmode="decimal" step="any" min="0" value="${esc(vRaw(p,c+'_'+x))}" onchange="setVal('${c}_${x}',this.value)"><span class="un">mm</span></span></label>`).join('')}</div>`;
+}
 function corpoPeca(p,k){
   const RG=regras(p); const pe=alturaPe(p); const d='';
   const tit=k==='tampo'&&RG.placa?'Placa':PECA_TIT[k];
@@ -1236,17 +1251,18 @@ function corpoPeca(p,k){
   if(k==='C'||k==='L'||k==='H') h=`<div class="mlinha">${campoNum(p,k,PECA_TIT[k],d)}</div>${k==='H'?`<p class="sub" style="margin-top:8px">A altura do pé (${pe==null?'—':mm(pe)+' mm'}) é calculada a partir da altura total.</p>`:''}`;
   else if(k==='tampo') h=`<div class="q" style="margin-top:0"><span>${RG.placa?'Placa':'Tampo'}:</span>${chipsOp(p,'tampo_tipo',RG.placa?[['CHAPA','Chapa de aço'],['MADEIRA','Madeira']]:[['NENHUM','Sem tampo'],['CHAPA','Chapa de aço'],['MADEIRA','Madeira'],['TELA','Tela']],false)}</div>
       ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="mlinha" style="margin-top:8px">${campoNum(p,'tampo_t','Espessura',d)}</div>`:''}`;
-  else if(k==='pes') h=`<label class="mf grande"><span>Perfil dos pés</span>${selPerfil(p,'pes',d)}</label>
-      <div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n',RG.placa?'Fileiras de pés':'Longarinas (uma fileira de pés em cada)',d)}${campoNum(p,'pes_n',RG.placa?'Pés em cada fileira':'Pés em cada longarina',d)}</div>
+  else if(k==='pes') h=`<div class="q" style="margin-top:0"><span>Pés:</span><span class="chips"><span class="chip ${!p.pesInteiro?'on':''}" onclick="setPesInteiro(false)">separados (blocos)</span><span class="chip ${p.pesInteiro?'on':''}" onclick="setPesInteiro(true)">peça inteira (de ponta a ponta)</span></span></div>
+      <label class="mf grande" style="margin-top:8px"><span>Perfil dos pés</span>${selPerfil(p,'pes',d,true)}</label>${camposPerfil(p,'pes',d)}
+      <div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n',RG.placa?'Fileiras de pés':'Longarinas (uma fileira de pés em cada)',d)}${p.pesInteiro?'':campoNum(p,'pes_n',RG.placa?'Pés em cada fileira':'Pés em cada longarina',d)}</div>
       <div class="mlinha" style="margin-top:8px">${campoNum(p,'H','Altura total do palete',d)}</div>
       <p class="sub" style="margin-top:8px">🧮 Altura do pé: <b>${pe==null?'—':mm(pe)+' mm'}</b> — muda pela altura total.</p>`;
-  else if(k==='long') h=`<label class="mf grande"><span>Perfil das longarinas</span>${selPerfil(p,'long',d)}</label><div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n','Quantas longarinas',d)}</div>`;
-  else if(k==='trav') h=`<label class="mf grande"><span>Perfil das travessas</span>${selPerfil(p,'trav',d)}</label>
+  else if(k==='long') h=`<label class="mf grande"><span>Perfil das longarinas</span>${selPerfil(p,'long',d,true)}</label>${camposPerfil(p,'long',d)}<div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n','Quantas longarinas',d)}</div>`;
+  else if(k==='trav') h=`<label class="mf grande"><span>Perfil das travessas</span>${selPerfil(p,'trav',d,true)}</label>${camposPerfil(p,'trav',d)}
       <div class="mlinha" style="margin-top:8px">${RG.semTravMeio?'<p class="sub">2 travessas — só nas pontas (pela observação)</p>':campoNum(p,'trav_n','Quantas travessas',d)}</div>
       <div class="q"><span>Montagem:</span>${chipsOp(p,'trav_mont',[['ENTRE','entre as longarinas'],['SOBRE','por cima']],false)}</div>`;
-  else if(k==='base') h=`<label class="mf grande"><span>Perfil da base</span>${selPerfil(p,'base',d)}</label><div class="q"><span>Tem base?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],false)}</div>`;
+  else if(k==='base') h=`<label class="mf grande"><span>Perfil da base</span>${selPerfil(p,'base',d,true)}</label>${camposPerfil(p,'base',d)}<div class="q"><span>Tem base?</span>${chipsOp(p,'base_tem',[['NAO','Não'],['SIM','Sim']],false)}</div>`;
   else if(k==='sap') h=`<div class="mlinha">${campoNum(p,'sap_lado','Lado (quadrada)',d)}${campoNum(p,'sap_t','Espessura da chapa',d)}</div>`;
-  else if(k==='rc') h=`<label class="mf grande"><span>Perfil do reforço</span>${selPerfil(p,'rc',d)}</label><div class="mlinha" style="margin-top:8px">${campoNum(p,'rc_comp','Comprimento de cada reforço',d)}</div>`;
+  else if(k==='rc') h=`<label class="mf grande"><span>Perfil do reforço</span>${selPerfil(p,'rc',d,true)}</label>${camposPerfil(p,'rc',d)}<div class="mlinha" style="margin-top:8px">${campoNum(p,'rc_comp','Comprimento de cada reforço',d)}</div>`;
   else if(k==='olhal') h=`<div class="mlinha">${campoNum(p,'olhal_n','Quantos olhais',d)}</div>`;
   /* no modal tudo redesenha na hora */
   h=h.replace(/onchange="setVal\(/g,'onchange="setValPeca(').replace(/onchange="setPerfil\(/g,'onchange="setPerfilPeca(').replace(/onclick="setVal\(/g,'onclick="setValPeca(').replace(/onchange="setUnK\(/g,'onchange="setUnKPeca(');
@@ -1267,6 +1283,8 @@ function desenharModalPeca(){
 function fecharPeca(){ pecaAberta=null; desenharModalPeca(); }
 function redesenharComPeca(){ const y=window.scrollY; render(); window.scrollTo(0,y); desenharModalPeca(); }
 function setValPeca(k,v,re){ setVal(k,v,false); redesenharComPeca(); }
+function setPesInteiroMed(v){ const p=P[cur]; p.pesInteiro=!!v; salvar(p,true); reMedidas(); }
+function setPesInteiro(v){ const p=P[cur]; p.pesInteiro=!!v; salvar(p,true); redesenharComPeca(); }
 function setPerfilPeca(c,v){ setPerfil(c,v); desenharModalPeca(); }
 function setUnKPeca(key,u){ setUnK(key,u); desenharModalPeca(); }
 function fichaPreliminar(p,A){
