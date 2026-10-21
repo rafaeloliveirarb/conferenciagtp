@@ -206,7 +206,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v13</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v14</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -542,8 +542,7 @@ function analisar(p){
   const hashAtual = hashMedidas(p);
   const plantaOk = !!(p.planta && p.planta.hash===hashAtual);
   let st='RASCUNHO';
-  if(p.lib && p.lib.ok && plantaOk) st='LIBERADO';
-  else if(plantaOk && pronto) st='PLANTA';
+  if(plantaOk && pronto) st='LIBERADO';
   else if(pronto) st='PRONTO';
   else if((p.fotos||[]).length || Object.values(p.m||{}).some(x=>x.o!=='PAD')) st='PRELIMINAR';
   return { pend, refFaltas, erros, avisos, fotosPed, semMarca, pronto, pct: total?Math.round(feitos/total*100):0, st, hashAtual, plantaOk };
@@ -555,8 +554,7 @@ function proximoPasso(p,A){
   if(!p.estado) return ['Diga se o palete da foto está VAZIO ou CARREGADO','ident'];
   if(A.pend.length||A.refFaltas.length){ const n=contaFaltas(A,null); return [passo==='medidas'?'Preencha os campos em laranja — falta'+(n>1?'m ':' ')+n+' informaç'+(n>1?'ões':'ão'):'Faltam '+n+' informações do palete','medidas']; }
   if(A.erros.length) return ['Corrija '+A.erros.length+' problema(s) nas medidas','medidas'];
-  if(!A.plantaOk) return ['Confira as medidas e gere a planta técnica','planta'];
-  if(!(p.lib&&p.lib.ok)) return ['Faça as 4 conferências para liberar a fabricação','lib'];
+  if(!A.plantaOk) return ['Confira a planta e libere para fabricação','planta'];
   return ['✔ Liberado para fabricação — imprima a planta para a bancada','planta'];
 }
 
@@ -758,13 +756,12 @@ function telaConfig(){
 /* =================== EDITOR =================== */
 function telaEditor(){
   const p=P[cur]; const A=analisar(p); const trav=travado(p);
-  const PASSOS=[['ident','1 · Identificação', !!(p.nome&&p.estado)],['fotos','2 · Fotos (opcional)', (p.fotos||[]).length>0],['medidas','3 · Medidas', A.pronto],['planta', A.pronto?'4 · Planta técnica':'4 · Ficha preliminar', A.plantaOk],['lib','5 · Liberação', !!(p.lib&&p.lib.ok&&A.plantaOk)]];
+  const PASSOS=[['ident','1 · Identificação', !!(p.nome&&p.estado)],['fotos','2 · Fotos (opcional)', (p.fotos||[]).length>0],['medidas','3 · Medidas', A.pronto],['planta', A.pronto?'4 · Planta e liberação':'4 · Ficha preliminar', A.plantaOk]];
   let corpo='';
   if(passo==='ident') corpo=passoIdent(p,trav);
   else if(passo==='fotos') corpo=passoFotos(p,A,trav);
   else if(passo==='medidas') corpo=passoMedidas(p,A,trav);
-  else if(passo==='planta') corpo=passoPlanta(p,A);
-  else corpo=passoLib(p,A);
+  else corpo=passoPlanta(p,A);
   return `<div class="ed-top">
       <button class="btn c mini" onclick="irAba('lista')">← Paletes</button>
       <span class="cod">${esc(p.codigo)}</span><span class="tt">${esc(p.nome||'Novo palete')}</span>
@@ -775,10 +772,10 @@ function telaEditor(){
     </div>
     <div id="assist" class="assist">${htmlAssist(p,A)}</div>
     <div class="passos">${PASSOS.map(([k,t,ok])=>`<button class="${passo===k?'on':''}" onclick="irPasso('${k}')">${ok?'<span class="ck">✔</span> ':''}${t}</button>`).join('')}</div>
-    ${trav?`<div class="aviso ok noprint">🔒 Palete <b>liberado para fabricação</b> — as medidas estão travadas. Para mudar algo, vá em <a onclick="irPasso('lib')" style="cursor:pointer;text-decoration:underline">5 · Liberação</a> e reabra.</div>`:''}
+    ${trav&&passo!=='planta'?`<div class="aviso ok noprint">🔒 <b>Liberado para fabricação</b> (planta Rev. ${p.planta.rev}). Para mudar, toque numa peça do desenho ou em <a onclick="reabrir()" style="cursor:pointer;text-decoration:underline">reabrir para editar</a> — a liberação é cancelada e sai uma nova revisão.</div>`:''}
     <div id="passo">${corpo}</div>`;
 }
-function travado(p){ return !!(p.lib && p.lib.ok && p.planta && p.planta.hash===hashMedidas(p)); }
+function travado(p){ return !!(p.planta && p.planta.hash===hashMedidas(p)); }
 function irPasso(k){ passo=k; render(); window.scrollTo({top:0}); }
 function renderAssist(){
   const p=P[cur]; if(!p) return; const A=analisar(p);
@@ -1186,7 +1183,7 @@ function editarCampo(k){
   const p=P[cur];
   if(travado(p)){
     if(!confirm('Este palete está LIBERADO para fabricação.\n\nPara editar, a liberação é cancelada e a planta ganha uma nova revisão. Continuar?')) return;
-    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p,true);
+    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); p.planta.hash='reaberto'; salvar(p,true);
   }
   const c=(FMAP[k]||{}).comp;
   if(k==='notas'){ passo='medidas'; render(); setTimeout(()=>{ const e=$('in_notas'); if(e){ e.scrollIntoView({block:'center'}); e.focus(); } },60); return; }
@@ -1201,13 +1198,12 @@ function passoPlanta(p,A){
   const M=modelo(p);
   const lib=p.lib||{};
   const pad=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='PAD').length;
-  const faixa = A.plantaOk ? `<span style="font-size:13.5px;color:var(--mut)">Planta Rev. ${p.planta.rev} · gerada em ${dataBR(p.planta.em)} por ${esc(p.planta.por||'—')}</span>`
-    : `<div class="aviso a" style="flex:1 1 100%;margin:0">${p.planta?`⚠ Você mudou o palete depois da Rev. ${p.planta.rev}${p.lib&&p.lib.ok?' (a liberação foi cancelada)':''}. `:''}Isto é uma <b>prévia</b>. ${pad?`Confira o padrão: <b>${esc(resumoExtras(p))}</b>. `:''}Quando estiver certo, toque em <b>Conferi</b>.
-        <div style="margin-top:8px"><button class="btn v" onclick="confirmarPlanta()">✅ Conferi as medidas — gerar planta${p.planta?' Rev. '+(p.planta.rev+1):''}</button></div></div>`;
+  const faixa = A.plantaOk ? `<div class="aviso ok" style="flex:1 1 100%;margin:0">✔ <b>LIBERADO PARA FABRICAÇÃO</b> — planta Rev. ${p.planta.rev}, liberada em ${dataBR(p.planta.em)} por <b>${esc(p.planta.por||'—')}</b>. <a onclick="reabrir()" style="cursor:pointer;text-decoration:underline;margin-left:6px">Reabrir para editar</a></div>`
+    : `<div class="aviso a" style="flex:1 1 100%;margin:0">${p.planta?`⚠ Você mudou o palete depois da Rev. ${p.planta.rev}${p.lib&&p.lib.ok?' (a liberação foi cancelada)':''}. `:''}Isto é uma <b>prévia</b>. ${pad?`Confira o padrão: <b>${esc(resumoExtras(p))}</b>. `:''}Quando estiver certo, libere.
+        <div style="margin-top:8px"><button class="btn v" onclick="confirmarPlanta()">✅ Conferi — liberar para fabricação${p.planta?' (Rev. '+(p.planta.rev+1)+')':''}</button></div></div>`;
   const ver=verificacao(M, +lib.capacidade);
   return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">${faixa}
       <span class="linha"><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
-    ${A.plantaOk&&!(lib.ok)?'<div class="aviso a noprint">Esta planta ainda <b>não está liberada para fabricação</b>. Faça as conferências no passo 5.</div>':''}
     <div class="aviso i noprint" style="margin:0 0 8px">👆 <b>Toque numa peça do desenho</b> (placa, pé, longarina, travessa…) ou numa <b style="color:#1d4ed8">medida azul</b> para mudar perfil, espessura, quantidade e tamanho.</div>
     <div class="folha" id="folha" onclick="cliqueDesenho(event)">${desenharPlanta(p,M)}</div>
     ${campoNotas(p,travado(p))}
@@ -1218,10 +1214,9 @@ function passoPlanta(p,A){
     ${tabelaBarras(M)}
     <h2 class="sec">Origem das informações</h2>
     ${tabelaOrigens(p)}
-    ${ver?`<h2 class="sec">Verificação indicativa da longarina</h2>${htmlVerif(ver,M,+lib.capacidade)}`:''}
     ${p.obs?`<h2 class="sec">Observações gerais</h2><p>${esc(p.obs)}</p>`:''}
     <h2 class="sec">Liberação</h2>
-    ${lib.ok&&A.plantaOk?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(lib.resp)} em ${dataBR(lib.em)} · capacidade nominal ${nf(+lib.capacidade)} kg${lib.empilha?' · empilhamento máx. '+esc(lib.empilha):''}${lib.obs?' · '+esc(lib.obs):''}</div>`:'<div class="aviso e">✖ NÃO LIBERADO PARA FABRICAÇÃO — faltam as conferências de dimensões, capacidade de carga, estabilidade e segurança.</div>'}`;
+    ${A.plantaOk?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(p.planta.por||'—')} em ${dataBR(p.planta.em)} — conferidos dimensões, capacidade de carga, estabilidade e segurança.</div>`:'<div class="aviso e">✖ PRÉVIA — ainda não liberada para fabricação.</div>'}`;
 }
 
 /* ===== editar clicando na peça do desenho ===== */
@@ -1232,7 +1227,7 @@ function abrirPeca(k){
   const p=P[cur];
   if(travado(p)){
     if(!confirm('Este palete está LIBERADO para fabricação.\n\nPara mudar uma peça, a liberação é cancelada e a planta ganha uma nova revisão. Continuar?')) return;
-    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p,true); render();
+    Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); p.planta.hash='reaberto'; salvar(p,true); render();
   }
   pecaAberta=k; desenharModalPeca();
 }
@@ -1299,10 +1294,12 @@ function fichaPreliminar(p,A){
 }
 function confirmarPlanta(){
   const p=P[cur]; const A=analisar(p); if(!A.pronto) return;
+  const nome=quem()||'—';
+  if(!confirm('LIBERAR PARA FABRICAÇÃO\n\nAo liberar, '+nome+' confirma que conferiu:\n• as dimensões (comprimento, largura, altura, perfis e espessuras)\n• a capacidade de carga\n• a estabilidade\n• a segurança (soldas, rebarbas, abertura do garfo)\n\nLiberar agora?')) return;
   const rev = p.planta ? (p.planta.hash===A.hashAtual ? p.planta.rev : p.planta.rev+1) : 0;
-  p.planta={ rev, hash:A.hashAtual, em:Date.now(), por:quem() };
-  if(p.lib && p.lib.ok){ p.lib.ok=false; }
-  salvar(p); render(); toast('📐 Planta Rev. '+rev+' gerada');
+  p.planta={ rev, hash:A.hashAtual, em:Date.now(), por:nome };
+  p.lib=Object.assign(p.lib||{}, { ok:true, dim:true, cap:true, est:true, seg:true, resp:nome, em:Date.now() });
+  salvar(p); render(); toast('🔓 Liberado para fabricação — planta Rev. '+rev);
 }
 function tabelaPecas(M){
   const lin=M.pecas.map(pc=>`<tr><td><b>${pc.id}</b></td><td>${esc(pc.nome)}</td><td>${esc(nomePerfil(pc.perfil))}</td><td class="n">${pc.qtd}</td><td class="n">${pc.qtdTot}</td><td class="n"><b>${mm(pc.corte)}</b></td><td class="n">${nf(pc.kgUn,2)}</td><td class="n">${nf(pc.kgUn*pc.qtdTot,1)}</td><td style="font-size:12px;color:var(--mut)">${esc(pc.obs)}</td></tr>`);
@@ -1431,7 +1428,7 @@ function desenharPlanta(p,M){
   if(M.rc && M.rc.comp>0 && temLong){ const a=M.rc.comp/Math.SQRT2/2; o.push(bal(X(M.C-(M.trav.sobre?0:M.trav.b)-a),SY(M.L-M.long.b-a,0),colB,SY(M.L-M.long.b-a,0)+4,'P7')); }
 
   /* ===== carimbo ===== */
-  const lib=p.lib||{}; const previa=!(p.planta && p.planta.hash===hashMedidas(p)); const liberado=!!lib.ok && !previa;
+  const lib=p.lib||{}; const previa=!(p.planta && p.planta.hash===hashMedidas(p)); const liberado=!previa;
   const cy=160, ch=26;
   const marca = liberado ? '' : `<text x="${W/2}" y="${HH/2-4}" text-anchor="middle" class="wm" transform="rotate(-18 ${W/2} ${HH/2})">NÃO LIBERADO PARA FABRICAÇÃO</text>`;
   const carimbo=`<rect x="6" y="${cy}" width="${W-12}" height="${ch}" class="cb"/>
@@ -1444,7 +1441,7 @@ function desenharPlanta(p,M){
     <text x="162" y="${cy+4.3}" class="pq">ESCALA · UNIDADE</text><text x="162" y="${cy+10.5}" class="cv">1:${String(den).replace('.',',')} · mm</text>
     <text x="162" y="${cy+17.3}" class="pq">REV. · DATA</text><text x="162" y="${cy+23.5}" class="cv">${previa?(p.planta?p.planta.rev+1:0)+' (prévia)':p.planta.rev} · ${dataBR(previa?Date.now():p.planta.em)}</text>
     <text x="212" y="${cy+4.3}" class="pq">SITUAÇÃO</text><text x="212" y="${cy+10.5}" class="cv" style="fill:${liberado?'#15803d':'#b91c1c'}">${liberado?'LIBERADO P/ FABRICAÇÃO':previa?'PRÉVIA — CONFERIR':'NÃO LIBERADO'}</text>
-    <text x="212" y="${cy+17.3}" class="pq">${liberado?'LIBERADO POR':'DESENHADO POR'}</text><text x="212" y="${cy+23.5}" class="cv">${esc(((liberado?lib.resp:(p.planta&&p.planta.por))||'—').slice(0,28))}</text>
+    <text x="212" y="${cy+17.3}" class="pq">${liberado?'LIBERADO POR':'DESENHADO POR'}</text><text x="212" y="${cy+23.5}" class="cv">${esc(((liberado?p.planta.por:quem())||'—').slice(0,28))}</text>
     <text x="8" y="${cy-2}" class="pq">Projeção 1º diedro (ABNT). Medidas em mm. Peças P1…P5 e reforços: ver lista de materiais. Linhas tracejadas: peças escondidas${mostrarCarga?' · laranja: carga (referência)':''}.</text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${HH}" id="svgPlanta">
     <style>
@@ -1531,7 +1528,7 @@ function liberar(){
   if(!confirm('Confirmar a liberação de '+p.codigo+' para fabricação, em nome de '+l.resp+'?')) return;
   l.ok=true; l.em=Date.now(); salvar(p); render(); toast('🔓 Liberado para fabricação');
 }
-function reabrir(){ if(!confirm('Reabrir cancela a liberação. As 4 conferências terão que ser feitas de novo. Continuar?')) return; const p=P[cur]; Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p); render(); }
+function reabrir(){ if(!confirm('Reabrir cancela a liberação. Depois de editar, é preciso conferir e liberar de novo (nova revisão). Continuar?')) return; const p=P[cur]; Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); p.planta.hash='reaberto'; salvar(p); passo='medidas'; render(); }
 
 /* =================== INÍCIO =================== */
 carregarLocal();
