@@ -1,0 +1,1165 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paletes · Central de Conferência</title>
+<style>
+:root{
+  --azul:#0B4F9E; --azul2:#1d2b6b; --lar:#f58220; --fundo:#eef1f7; --card:#fff; --tx:#1b2033; --mut:#68708a;
+  --line:#d9deea; --ok:#15803d; --okbg:#e7f6ec; --warn:#b45309; --warnbg:#fff4e0; --err:#b91c1c; --errbg:#fdeaea;
+  --obs:#0e7490; --obsbg:#e0f4f8; --inf:#6d28d9; --infbg:#f1eafe; --pend:#b45309; --pendbg:#fff1dc; --calc:#475569; --calcbg:#eef1f5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--fundo);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+header{background:var(--azul);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.marca{display:flex;align-items:baseline;gap:6px;font-weight:800;letter-spacing:.5px}
+.marca .gt{color:#fff}.marca .pl{color:var(--lar)}
+header h1{font-size:16px;margin:0;font-weight:600;opacity:.95}
+.nuvem{margin-left:auto;font-size:12px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.15)}
+.nuvem.ok{background:#1f8a4c}.nuvem.off{background:#c2410c}
+.quem{font-size:12px;opacity:.9;cursor:pointer;text-decoration:underline dotted}
+nav{display:flex;gap:4px;padding:8px 16px 0;max-width:1180px;margin:0 auto}
+nav button{border:0;background:transparent;padding:9px 14px;border-radius:10px 10px 0 0;font-weight:600;color:var(--mut);cursor:pointer}
+nav button.on{background:var(--card);color:var(--azul)}
+main{max-width:1180px;margin:0 auto;padding:0 16px 60px}
+.painel{background:var(--card);border-radius:0 12px 12px 12px;padding:16px}
+.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;background:var(--azul);color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.lar{background:var(--lar)}.btn.v{background:var(--ok)}.btn.d{background:var(--err)}
+.btn.c{background:#e8ebf3;color:var(--tx)}.btn.mini{padding:6px 10px;font-size:13px;border-radius:8px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grade{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mut)}
+label.f input,label.f select,label.f textarea,.campo input,.campo select{border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:#fff;font-weight:500;color:var(--tx);width:100%}
+textarea{min-height:64px;resize:vertical}
+input:disabled,select:disabled{background:#f3f4f7;color:#777}
+.card{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+.card h3{margin:0 0 4px;font-size:15px;color:var(--azul)}
+.card .sub{font-size:12.5px;color:var(--mut);margin:0 0 10px}
+.badge{display:inline-block;font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.3px;white-space:nowrap}
+.st-RASCUNHO{background:#eceff5;color:#475569}
+.st-PRELIMINAR{background:var(--warnbg);color:var(--warn)}
+.st-PRONTO{background:#e3e8fb;color:var(--azul)}
+.st-PLANTA{background:#dbeafe;color:#1d4ed8}
+.st-LIBERADO{background:var(--okbg);color:var(--ok)}
+.lista{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));margin-top:14px}
+.pc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column}
+.pc:hover{border-color:var(--azul)}
+.pc .th{height:130px;background:#dde2ee center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:40px;color:#9aa3bd}
+.pc .ct{padding:10px 12px;display:flex;flex-direction:column;gap:5px}
+.pc .cod{font-size:12px;font-weight:800;color:var(--lar)}
+.pc .nm{font-weight:700}
+.pc .mt{font-size:12.5px;color:var(--mut)}
+.vazio{padding:40px 10px;text-align:center;color:var(--mut)}
+/* editor */
+.ed-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.ed-top .tt{font-size:18px;font-weight:800}
+.ed-top .cod{color:var(--lar);font-weight:800}
+.assist{border:2px solid var(--azul);border-radius:14px;padding:12px 14px;background:linear-gradient(180deg,#f5f7ff,#fff);margin-bottom:14px}
+.assist .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.assist .cab b{color:var(--azul)}
+.barra{height:8px;border-radius:8px;background:#e3e7f2;overflow:hidden;flex:1;min-width:120px}
+.barra i{display:block;height:100%;background:var(--lar);border-radius:8px}
+.prox{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--azul);color:#fff;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.prox .btn{background:#fff;color:var(--azul)}
+.assist details{margin-top:8px;font-size:13.5px}
+.assist summary{cursor:pointer;font-weight:700;padding:4px 0}
+.assist ul{margin:4px 0 4px;padding-left:20px}
+.assist li{margin:3px 0}
+.assist li a{color:var(--azul);font-weight:700;cursor:pointer;text-decoration:underline}
+.leg{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;margin-top:8px}
+.passos{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.passos button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--mut)}
+.passos button.on{background:var(--azul);color:#fff;border-color:var(--azul)}
+.passos button .ck{color:var(--ok)}
+.passos button.on .ck{color:#9ef0b8}
+.aviso{border-radius:10px;padding:10px 12px;font-size:13.5px;margin:8px 0}
+.aviso.a{background:var(--warnbg);color:#7a3d06;border:1px solid #f6d29b}
+.aviso.e{background:var(--errbg);color:#7f1d1d;border:1px solid #f3b9b9}
+.aviso.i{background:#eef2ff;color:#1e2a6e;border:1px solid #cdd6fb}
+.aviso.ok{background:var(--okbg);color:#14532d;border:1px solid #b6e3c4}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{flex:1;min-width:140px;border:2px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-weight:800;cursor:pointer;text-align:center}
+.seg button.on{border-color:var(--azul);background:#eef1fd;color:var(--azul)}
+.seg button small{display:block;font-weight:500;color:var(--mut);font-size:12px;margin-top:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);border-radius:20px;padding:6px 11px;font-size:13px;cursor:pointer;background:#fff;user-select:none}
+.chip.on{background:var(--azul);color:#fff;border-color:var(--azul)}
+/* fotos */
+.fotos{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:12px}
+.ft{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+.ft img{width:100%;height:190px;object-fit:cover;display:block;cursor:zoom-in;background:#ddd}
+.ft .fb{padding:10px;display:flex;flex-direction:column;gap:8px}
+.ft .vis{display:flex;flex-wrap:wrap;gap:5px}
+.ft .vis .chip{font-size:12px;padding:5px 9px}
+.ft .vis .chip.carga.on{background:var(--lar);border-color:var(--lar)}
+.ft .vis .chip.trena.on{background:var(--ok);border-color:var(--ok)}
+.ft .nf{font-size:12px;font-weight:800;color:var(--lar)}
+.pedidas{display:flex;flex-direction:column;gap:6px}
+.pedida{display:flex;gap:8px;align-items:center;font-size:13.5px;background:var(--warnbg);border:1px dashed #f0b45a;border-radius:10px;padding:8px 10px}
+/* medidas */
+.comp{margin-bottom:12px}
+.comp .ctit{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.comp .vist{font-size:12px;color:var(--mut)}
+.row{display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(120px,1fr) minmax(230px,1.6fr);gap:10px;align-items:center;padding:8px 0;border-top:1px dashed #e6e9f1}
+.row:first-of-type{border-top:0}
+.row .rl{font-size:13.5px;font-weight:600}
+.row .rl small{display:block;font-weight:400;color:var(--mut);font-size:12px}
+.campo{display:flex;align-items:center;gap:6px}
+.campo .un{font-size:12px;color:var(--mut)}
+.org{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.o{border:1px solid transparent;border-radius:20px;padding:4px 9px;font-size:12px;font-weight:700;background:#f2f3f7;color:#8a90a5;cursor:pointer;white-space:nowrap}
+.o.obs.on{background:var(--obsbg);color:var(--obs);border-color:#7cc8d6}
+.o.inf.on{background:var(--infbg);color:var(--inf);border-color:#c5b0f5}
+.o.pend.on{background:var(--pendbg);color:var(--pend);border-color:#f3c27f}
+.o.calc{background:var(--calcbg);color:var(--calc);cursor:default}
+.o.dis{opacity:.4;cursor:not-allowed}
+.o.pend{cursor:default}
+.org select{font-size:12px;padding:3px 6px;border-radius:8px;border:1px solid var(--line);max-width:150px}
+.tg{display:inline-block;font-size:11px;font-weight:800;padding:2px 7px;border-radius:12px}
+.tg.OBS{background:var(--obsbg);color:var(--obs)}.tg.INF{background:var(--infbg);color:var(--inf)}
+.tg.PEND{background:var(--pendbg);color:var(--pend)}.tg.CALC{background:var(--calcbg);color:var(--calc)}
+.ref{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;background:#fbfcfe}
+@media (max-width:760px){.row{grid-template-columns:1fr 1fr}.row .org{grid-column:1/-1}}
+/* tabelas */
+table.t{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0 14px}
+table.t th{background:#eef1f8;color:var(--azul2);text-align:left;padding:7px 8px;font-size:12px;border-bottom:2px solid #cfd6ea}
+table.t td{padding:6px 8px;border-bottom:1px solid #eceff5;vertical-align:top}
+table.t td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.t tfoot td{font-weight:800;background:#f7f8fb}
+.folha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px;overflow:auto}
+.folha svg{width:100%;height:auto;display:block;min-width:720px}
+h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px solid var(--lar);padding-bottom:4px}
+.lib{display:flex;flex-direction:column;gap:10px}
+.lib label.ck{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;background:#fff}
+.lib label.ck input{width:20px;height:20px;margin-top:2px;flex:none}
+.lib label.ck b{display:block}
+.lib label.ck span{font-size:13px;color:var(--mut)}
+.lib label.ck.on{border-color:var(--ok);background:#f4fbf6}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1b2033;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:90vw}
+#toast.on{opacity:1}
+.lb{position:fixed;inset:0;background:rgba(10,14,30,.88);z-index:90;display:flex;align-items:center;justify-content:center;padding:20px}
+.lb img{max-width:100%;max-height:100%;border-radius:8px}
+.modal{position:fixed;inset:0;background:rgba(10,14,30,.55);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal .cx{background:#fff;border-radius:14px;padding:18px;max-width:420px;width:100%}
+.print-only{display:none}
+@media (max-width:640px){
+  header{padding:8px 12px;gap:6px 10px}
+  .marca{font-size:12px}
+  header h1{font-size:14px;flex:1}
+  header a{font-size:12px!important;padding:5px 8px!important}
+  .nuvem{margin-left:0;font-size:11px;padding:3px 8px}
+  nav{padding:6px 8px 0;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+  nav button{white-space:nowrap;padding:8px 11px;font-size:14px}
+  main{padding:0 8px 50px}
+  .painel{padding:12px}
+  .ed-top .tt{font-size:16px}
+  .assist{padding:10px}
+  .passos{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .passos button{white-space:nowrap;flex:none}
+  .seg button{min-width:0}
+  .btn{padding:10px 12px}
+}
+@page{size:A4 landscape;margin:8mm}
+@media print{
+  header,nav,.assist,.passos,.ed-top,.noprint,#toast{display:none!important}
+  html,body{background:#fff}
+  main{padding:0;max-width:none}
+  .painel{padding:0;border-radius:0}
+  .folha{border:0;padding:0;overflow:visible}
+  .folha svg{min-width:0;width:277mm;height:190mm}
+  .quebra{break-before:page}
+  .print-only{display:block}
+  table.t{font-size:10.5px}
+  h2.sec{break-after:avoid}
+  tr{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
+  <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
+  <h1>🧱 Projeto de Paletes</h1>
+  <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
+  <span class="nuvem" id="nuvem">conectando…</span>
+</header>
+<nav id="nav"></nav>
+<main><div class="painel" id="app"></div></main>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* =================== SUPABASE — o MESMO da Central de Conferência ===================
+   Usa o banco gravado no app.js da Central; se o aparelho tiver outro banco configurado
+   pela tela de configuração da Central, usa esse. */
+const NUVEM = (function(){
+  let url='https://cllylcuhpmwnyebmlelf.supabase.co',
+      key='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsbHlsY3VocG13bnllYm1sZWxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3OTA0MTMsImV4cCI6MjEwMzM2NjQxM30.fNnvg23PqzSCgwHzcMw5XdHwYAA6PF3kdffDA9yW4-E';
+  if(!url||!key){ try{ const c=JSON.parse(localStorage.getItem('central_conferencia_config')||'null'); if(c&&c.url&&c.chave){ url=c.url; key=c.chave; } }catch(e){} }
+  return { url, key };
+})();
+/* sessão da Central: quem entrou como coordenador assina sozinho */
+function sessaoCentral(){ try{ return JSON.parse(localStorage.getItem('central_conferencia_sessao')||'null'); }catch(e){ return null; } }
+const TAB = 'paletes_projetos';
+const BUCKET = 'paletes';
+const LS = 'paletes_projetos_v1', LSCFG = 'paletes_cfg_v1', LSQUEM = 'paletes_quem';
+let sb = null;
+
+/* =================== ESTADO =================== */
+let P = {};                 // id -> palete
+let CFG = cfgPadrao();
+let aba = 'lista', cur = null, passo = 'ident', busca = '', filtro = '';
+
+function cfgPadrao(){ return { barraAco:6000, barraMadeira:3000, kerf:3, densMadeira:0.6, atualizado:0 }; }
+
+/* =================== DICIONÁRIOS =================== */
+const TIPOS = {
+  TUBO: { nome:'Tubo retangular/quadrado (metalon)', curto:'Metalon', aco:true,  rot:['lado de cima (largura)','lado em pé (altura)','espessura da parede'] },
+  CANT: { nome:'Cantoneira (L)',                    curto:'Cantoneira', aco:true, rot:['aba deitada','aba em pé','espessura da chapa'] },
+  U:    { nome:'Perfil U',                          curto:'Perfil U', aco:true,  rot:['aba (largura vista de cima)','alma (altura)','espessura da chapa'] },
+  MAD:  { nome:'Madeira',                           curto:'Madeira', aco:false, rot:['largura (vista de cima)','altura','—'] }
+};
+const COMP = {
+  geral: { nome:'Medidas gerais',   ic:'📐', dica:'medidas externas da ESTRUTURA do palete (nunca do material que está em cima)' },
+  long:  { nome:'Longarinas',       ic:'═',  dica:'vigas principais que correm no sentido do comprimento' },
+  trav:  { nome:'Travessas',        ic:'║',  dica:'peças no sentido da largura, ligando as longarinas (ou tábuas por cima)' },
+  pes:   { nome:'Pés / blocos',     ic:'▮',  dica:'apoios que formam a abertura para o garfo' },
+  base:  { nome:'Base inferior',    ic:'▁',  dica:'barras no chão, por baixo dos pés' },
+  tampo: { nome:'Tampo / piso',     ic:'▭',  dica:'chapa, tábuas ou tela por cima da estrutura' },
+  ref:   { nome:'Reforços',         ic:'◣',  dica:'diagonais, mãos-francesas, cantos, olhais — só o que existir de verdade' }
+};
+const VIS = [ ['long','Longarinas'],['trav','Travessas'],['pes','Pés'],['base','Base inferior'],['tampo','Tampo'],['ref','Reforços'],['carga','📦 Material armazenado'],['trena','📏 Trena / referência de medida'] ];
+const VISTAS = { FRENTE:'Frente', LATERAL:'Lateral', SUPERIOR:'De cima', INFERIOR:'Por baixo / inclinada', DETALHE:'Detalhe', GERAL:'Geral' };
+const DICA_FOTO = {
+  long:'abaixado, na altura do palete, mostrando a longarina inteira de ponta a ponta',
+  trav:'pelo vão do garfo ou de cima com o palete vazio, mostrando as travessas do meio',
+  pes:'agachado na frente da abertura do garfo, mostrando os pés',
+  base:'por baixo ou com o palete inclinado, para ver se existe base no chão',
+  tampo:'de cima, mostrando a borda do tampo e a espessura',
+  ref:'de perto em cada reforço (diagonal, canto, mão-francesa)'
+};
+
+function grupoPerfil(c){ return [
+  { k:c+'_tipo', comp:c, rot:'Tipo de perfil', tipo:'sel', opts:Object.keys(TIPOS).map(v=>[v,TIPOS[v].nome]) },
+  { k:c+'_b', comp:c, perf:0, tipo:'num', un:'mm' },
+  { k:c+'_h', comp:c, perf:1, tipo:'num', un:'mm' },
+  { k:c+'_t', comp:c, perf:2, tipo:'num', un:'mm' }
+]; }
+const FIELDS = [
+  { k:'C', comp:'geral', rot:'Comprimento total', ajuda:'maior lado do palete', tipo:'num', un:'mm' },
+  { k:'L', comp:'geral', rot:'Largura total', ajuda:'menor lado do palete', tipo:'num', un:'mm' },
+  { k:'H', comp:'geral', rot:'Altura total', ajuda:'do chão até o topo da estrutura (sem a carga)', tipo:'num', un:'mm' },
+  { k:'long_n', comp:'long', rot:'Quantidade de longarinas', tipo:'int', un:'un' }, ...grupoPerfil('long'),
+  { k:'trav_n', comp:'trav', rot:'Quantidade de travessas', ajuda:'fileiras no sentido da largura, contando as das pontas', tipo:'int', un:'un' },
+  { k:'trav_mont', comp:'trav', rot:'Como a travessa está montada', tipo:'sel', opts:[['ENTRE','Entre as longarinas (no mesmo nível)'],['SOBRE','Por cima das longarinas']] },
+  ...grupoPerfil('trav'),
+  { k:'pes_n', comp:'pes', rot:'Pés por longarina', ajuda:'quantos pés debaixo de CADA longarina', tipo:'int', un:'un' }, ...grupoPerfil('pes'),
+  { k:'base_tem', comp:'base', rot:'Tem base inferior?', tipo:'sel', opts:[['SIM','Sim — barras no chão'],['NAO','Não — os pés apoiam direto no chão']] },
+  ...grupoPerfil('base'),
+  { k:'tampo_tipo', comp:'tampo', rot:'Tampo', tipo:'sel', opts:[['NENHUM','Sem tampo (estrutura aberta)'],['CHAPA','Chapa de aço'],['MADEIRA','Chapa/compensado de madeira'],['TELA','Tela / grade']] },
+  { k:'tampo_t', comp:'tampo', rot:'Espessura do tampo', tipo:'num', un:'mm' },
+  { k:'ref_tem', comp:'ref', rot:'Tem reforços?', tipo:'sel', opts:[['SIM','Sim — listar cada um'],['NAO','Não tem']] }
+];
+const FMAP = Object.fromEntries(FIELDS.map(f=>[f.k,f]));
+
+/* =================== UTIL =================== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const nf = (v,d=0) => (v==null||isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const mm = v => nf(Math.round(v*10)/10, (Math.round(v)===Math.round(v*10)/10)?0:1);
+const dataBR = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
+function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(toast._t); toast._t=setTimeout(()=>e.classList.remove('on'),2600); }
+function quem(){ const ss=sessaoCentral(); if(ss&&ss.nome) return ss.nome; try{ return localStorage.getItem(LSQUEM)||''; }catch(e){ return ''; } }
+function pedirQuem(forcar){
+  const ss=sessaoCentral();
+  if(ss&&ss.nome){ $('quem').textContent='👤 '+ss.nome+(ss.tipo==='coordenador'?' · coordenador':''); $('quem').onclick=null; $('quem').style.cursor='default'; $('quem').style.textDecoration='none'; return; }
+  if(quem() && !forcar){ $('quem').textContent='👤 '+quem(); return; }
+  const m=document.createElement('div'); m.className='modal';
+  m.innerHTML=`<div class="cx"><h3 style="margin:0 0 8px;color:var(--azul)">Quem está usando?</h3>
+    <p style="margin:0 0 10px;font-size:13.5px;color:var(--mut)">O nome fica registrado em cada palete que você mexer e na liberação.</p>
+    <input id="qNome" value="${esc(quem())}" placeholder="Seu nome" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px">
+    <div class="linha" style="margin-top:12px;justify-content:flex-end"><button class="btn" id="qOk">OK</button></div></div>`;
+  document.body.appendChild(m);
+  const ok=()=>{ const v=m.querySelector('#qNome').value.trim(); if(!v) return; try{localStorage.setItem(LSQUEM,v);}catch(e){} m.remove(); $('quem').textContent='👤 '+v; };
+  m.querySelector('#qOk').onclick=ok; m.querySelector('#qNome').onkeydown=e=>{ if(e.key==='Enter') ok(); };
+  setTimeout(()=>m.querySelector('#qNome').focus(),50);
+}
+
+/* =================== PERSISTÊNCIA =================== */
+function carregarLocal(){
+  try{ P=JSON.parse(localStorage.getItem(LS)||'{}')||{}; }catch(e){ P={}; }
+  try{ const c=JSON.parse(localStorage.getItem(LSCFG)||'null'); if(c) CFG=Object.assign(cfgPadrao(),c); }catch(e){}
+  // lixeira: some depois de 30 dias
+  const lim=Date.now()-30*864e5;
+  Object.values(P).forEach(p=>{ if(p.excluido && p.excluido<lim){ delete P[p.id]; apagarNuvem(p.id); } });
+}
+function guardarLocal(){
+  try{ localStorage.setItem(LS, JSON.stringify(P)); }catch(e){
+    // aparelho cheio (fotos guardadas sem nuvem): guarda sem as fotos em base64
+    try{ const leve={}; for(const id in P){ leve[id]=Object.assign({},P[id],{fotos:(P[id].fotos||[]).map(f=>f.url&&f.url.startsWith('data:')?Object.assign({},f,{url:''}):f)}); } localStorage.setItem(LS, JSON.stringify(leve)); }catch(e2){}
+  }
+  try{ localStorage.setItem(LSCFG, JSON.stringify(CFG)); }catch(e){}
+}
+function salvar(p, silencioso){
+  p.atualizado=Date.now(); p.por=quem()||p.por||'';
+  P[p.id]=p; guardarLocal(); enviar(p);
+  if(!silencioso) toast('💾 Salvo');
+}
+async function enviar(p){
+  if(!sb) return;
+  try{ const {error}=await sb.from(TAB).upsert({ id:p.id, dados:p, atualizado_em:new Date().toISOString() }); if(error) throw error; setNuvem('ok'); }
+  catch(e){ setNuvem('off', e.message); }
+}
+async function apagarNuvem(id){ if(!sb) return; try{ await sb.from(TAB).delete().eq('id',id); }catch(e){} }
+function salvarCfg(){ CFG.atualizado=Date.now(); guardarLocal(); if(sb) sb.from(TAB).upsert({id:'__config', dados:CFG, atualizado_em:new Date().toISOString()}).then(()=>{}); toast('💾 Configuração salva'); }
+function setNuvem(st, msg){
+  const e=$('nuvem'); if(!e) return;
+  e.className='nuvem '+(st==='ok'?'ok':st==='off'?'off':'');
+  e.textContent = st==='ok' ? '☁ sincronizado' : st==='off' ? '⚠ só neste aparelho' : 'conectando…';
+  e.title = msg||'';
+}
+async function iniciarNuvem(){
+  try{
+    if(!window.supabase) throw new Error('biblioteca do Supabase não carregou');
+    sb = window.supabase.createClient(NUVEM.url, NUVEM.key);
+    const { data, error } = await sb.from(TAB).select('id,dados');
+    if(error) throw error;
+    const remotos={};
+    (data||[]).forEach(r=>{
+      if(r.id==='__config'){ if((r.dados.atualizado||0)>(CFG.atualizado||0)) CFG=Object.assign(cfgPadrao(),r.dados); return; }
+      remotos[r.id]=r.dados;
+      const l=P[r.id]; if(!l || (r.dados.atualizado||0)>(l.atualizado||0)) P[r.id]=r.dados;
+    });
+    for(const id in P){ const r=remotos[id]; if(!r || (P[id].atualizado||0)>(r.atualizado||0)) enviar(P[id]); }
+    guardarLocal(); setNuvem('ok');
+    sb.channel('paletes-rt').on('postgres_changes',{event:'*',schema:'public',table:TAB},pl=>{
+      if(pl.eventType==='DELETE'){ const id=pl.old&&pl.old.id; if(id&&P[id]){ delete P[id]; guardarLocal(); if(aba==='lista'||aba==='lixeira') render(); } return; }
+      const r=pl.new; if(!r||!r.dados) return;
+      if(r.id==='__config'){ if((r.dados.atualizado||0)>(CFG.atualizado||0)){ CFG=Object.assign(cfgPadrao(),r.dados); guardarLocal(); } return; }
+      const l=P[r.id]; if(l && (l.atualizado||0)>=(r.dados.atualizado||0)) return;
+      P[r.id]=r.dados; guardarLocal();
+      if(aba==='editor' && cur===r.id){
+        const foco=document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        toast('🔄 Atualizado por '+(r.dados.por||'outro aparelho'));
+        if(!foco) render(); else renderAssist();
+      } else if(aba!=='editor') render();
+    }).subscribe();
+    render();
+  }catch(e){ console.warn(e); sb=null; setNuvem('off', e.message||String(e)); }
+}
+
+/* =================== MODELO DE DADOS =================== */
+function novoPalete(){
+  const nums=Object.values(P).map(p=>parseInt(String(p.codigo||'').replace(/\D/g,''))||0);
+  const n=(nums.length?Math.max(...nums):0)+1;
+  return { id:uid(), codigo:'PL-'+String(n).padStart(4,'0'), nome:'', uso:'', materiais:[], qtdFab:1,
+    estado:'', carga:{ desc:'', comp:'', larg:'', alt:'', peso:'', mostrar:false }, obs:'',
+    fotos:[], m:{}, refs:[], planta:null, lib:{ dim:false, cap:false, est:false, seg:false, capacidade:'', empilha:'', resp:'', obs:'', ok:false, em:0 },
+    criado:Date.now(), atualizado:Date.now(), por:quem() };
+}
+const vRaw = (p,k) => (p.m && p.m[k]) ? p.m[k].v : '';
+function vNum(p,k){ const v=vRaw(p,k); if(v===''||v==null) return null; const n=Number(String(v).replace(',','.')); return isNaN(n)?null:n; }
+function tipoDe(p,c){ return vRaw(p,c+'_tipo')||''; }
+function rotulo(p,f){
+  if(f.perf==null) return f.rot;
+  const c=f.comp, tp=tipoDe(p,c);
+  if(c==='pes') return ['Seção: lado no sentido do comprimento','Seção: lado no sentido da largura','Espessura da parede/chapa'][f.perf];
+  if(!tp) return ['Seção: largura (vista de cima)','Seção: altura','Espessura'][f.perf];
+  return 'Seção: '+TIPOS[tp].rot[f.perf];
+}
+function ativo(p,f){
+  if(f.comp==='base' && f.k!=='base_tem') return vRaw(p,'base_tem')==='SIM';
+  if(f.k==='tampo_t') return ['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'));
+  if(f.perf===2) return tipoDe(p,f.comp)!=='MAD';
+  return true;
+}
+function vazioCampo(p,f){ const v=vRaw(p,f.k); return v===''||v==null; }
+
+/* fotos que mostram um componente (e, para medida em mm, com trena/referência) */
+function fotosQueMostram(p, comp, precisaTrena){
+  return (p.fotos||[]).filter(ft=>{
+    const v=ft.vis||[];
+    const okc = comp==='geral' ? ['long','trav','pes','base','tampo'].some(c=>v.includes(c)) : v.includes(comp);
+    return okc && (!precisaTrena || v.includes('trena'));
+  });
+}
+function origemEfetiva(p,f){
+  if(vazioCampo(p,f)) return 'PEND';
+  const o=p.m[f.k].o||'INF';
+  if(o==='OBS'){
+    const permit=fotosQueMostram(p,f.comp,f.tipo==='num');
+    if(!permit.length) return 'INF';            // foto sumiu ou foi desmarcada: vale como informado
+    if(p.m[f.k].f && !permit.some(x=>x.id===p.m[f.k].f)) return 'INF';
+  }
+  return o;
+}
+function refsPend(p){
+  const faltas=[];
+  (p.refs||[]).forEach((r,i)=>{
+    const miss=[]; if(!r.desc) miss.push('descrição'); if(!r.tipo) miss.push('perfil');
+    if(!(+r.b>0)) miss.push('seção'); if(!(+r.h>0)) miss.push('seção'); if(r.tipo!=='MAD' && !(+r.t>0)) miss.push('espessura');
+    if(!(+r.comp>0)) miss.push('comprimento'); if(!(+r.qtd>0)) miss.push('quantidade');
+    if(miss.length) faltas.push('Reforço R'+(i+1)+': '+[...new Set(miss)].join(', '));
+  });
+  return faltas;
+}
+
+/* =================== ANÁLISE (o "assistente") =================== */
+function analisar(p){
+  const ativos=FIELDS.filter(f=>ativo(p,f));
+  const pend=ativos.filter(f=>vazioCampo(p,f));
+  const refFaltas = vRaw(p,'ref_tem')==='SIM' ? ((p.refs||[]).length ? refsPend(p) : ['Reforços: cadastre cada reforço (ou marque "não tem")']) : [];
+  const total=ativos.length + (vRaw(p,'ref_tem')==='SIM'?Math.max(1,(p.refs||[]).length):0);
+  const feitos=total - pend.length - refFaltas.length;
+  const erros=[], avisos=[], fotosPed=[];
+  const g=k=>vNum(p,k);
+  const C=g('C'), L=g('L'), H=g('H');
+  // consistência
+  if(C!=null && L!=null && C<L) avisos.push('O comprimento está menor que a largura — confira se não inverteu (comprimento é o lado maior).');
+  ['long_n','trav_n','pes_n'].forEach(k=>{ const v=g(k); if(v!=null && v<2) erros.push(FMAP[k].rot+': precisa ser no mínimo 2.'); if(v!=null && v!==Math.round(v)) erros.push(FMAP[k].rot+': tem que ser número inteiro.'); });
+  ['long','trav','pes','base'].forEach(c=>{
+    if(c==='base' && vRaw(p,'base_tem')!=='SIM') return;
+    const b=g(c+'_b'), h=g(c+'_h'), t=g(c+'_t'), tp=tipoDe(p,c);
+    if(tp && tp!=='MAD' && t!=null && b!=null && h!=null && (2*t>=Math.min(b,h))) erros.push(COMP[c].nome+': espessura grande demais para a seção '+b+'×'+h+'.');
+  });
+  const pe=alturaPe(p);
+  if(pe!=null && pe<=0) erros.push('A altura dos pés calculada deu '+mm(pe)+' mm — a soma das peças passa da altura total. Confira altura total e seções.');
+  else if(pe!=null && pe<70) avisos.push('Abertura para o garfo só com '+mm(pe)+' mm de altura — garfo de empilhadeira/paleteira costuma precisar de 90 a 100 mm. Confira.');
+  const nl=g('long_n'), bl=g('long_b');
+  if(L!=null && nl!=null && bl!=null && nl*bl>=L) erros.push('As longarinas ('+nl+' × '+bl+' mm) não cabem na largura de '+L+' mm.');
+  if(vRaw(p,'trav_mont')==='ENTRE' && g('trav_h')!=null && g('long_h')!=null && g('trav_h')>g('long_h')) avisos.push('A travessa (entre longarinas) é mais alta que a longarina — ela vai sobrar para cima ou para baixo. Confira.');
+  const nt=g('trav_n'), bt=g('trav_b');
+  if(C!=null && nt!=null && bt!=null && nt*bt>C) erros.push('As travessas não cabem no comprimento.');
+  const np=g('pes_n'), bp=g('pes_b');
+  if(C!=null && np!=null && bp!=null && np*bp>C) erros.push('Os pés não cabem no comprimento.');
+  // regra: medida do material ≠ medida do palete
+  if(p.estado==='CARREGADO'){
+    const cc=+p.carga.comp, cl=+p.carga.larg;
+    const perto=(a,b)=>a>0&&b>0&&Math.abs(a-b)<=5;
+    if(perto(C,cc)||perto(C,cl)||perto(L,cl)||perto(L,cc)) avisos.push('Uma medida do palete está igual à do material armazenado. Confira se foi medida a ESTRUTURA do palete, não a carga.');
+    if(C!=null && L!=null && cc>0 && cl>0 && (Math.max(cc,cl)>C+5 || Math.min(cc,cl)>L+5)) avisos.push('A carga informada é maior que o palete (fica em balanço). Avalie na conferência de estabilidade.');
+  }
+  if(p.estado==='CARREGADO' && (p.fotos||[]).length && !(p.fotos||[]).some(f=>(f.vis||[]).includes('carga'))) avisos.push('Palete carregado: marque em quais fotos aparece o 📦 material armazenado, para separar o que é carga do que é estrutura.');
+  // observado sem foto
+  FIELDS.forEach(f=>{ if(ativo(p,f) && !vazioCampo(p,f) && (p.m[f.k].o==='OBS') && origemEfetiva(p,f)!=='OBS') avisos.push('"'+rotulo(p,f)+'" estava como observado, mas nenhuma foto marcada mostra essa peça'+(f.tipo==='num'?' com trena':'')+' — passou a contar como informado.'); });
+  // fotos pedidas
+  const temVista=v=>(p.fotos||[]).some(f=>f.vista===v);
+  if(!temVista('FRENTE')) fotosPed.push({v:'FRENTE', txt:'Foto da FRENTE — de frente para a abertura do garfo, palete inteiro no quadro.'});
+  if(!temVista('LATERAL')) fotosPed.push({v:'LATERAL', txt:'Foto da LATERAL — do lado comprido, palete inteiro no quadro.'});
+  if(!temVista('SUPERIOR')) fotosPed.push({v:'SUPERIOR', txt: p.estado==='CARREGADO' ? 'Foto DE CIMA — com carga ela mostra só o material; se der, tire com o palete vazio ou mostrando as bordas da estrutura.' : 'Foto DE CIMA — mostrando a estrutura toda.'});
+  const compsPend=[...new Set(pend.map(f=>f.comp))];
+  if(vRaw(p,'ref_tem')==='SIM' && refFaltas.length) compsPend.push('ref');
+  compsPend.forEach(c=>{
+    if(c==='geral') return;
+    if(c==='base' && vRaw(p,'base_tem')==='' ) { if(!fotosQueMostram(p,'base',false).length && !temVista('INFERIOR')) fotosPed.push({v:'INFERIOR', txt:'Foto POR BAIXO / INCLINADA — para saber se existe base inferior.'}); return; }
+    if(!fotosQueMostram(p,c,false).length) fotosPed.push({v:'DETALHE', txt:'Detalhe de '+COMP[c].nome.toUpperCase()+' — '+DICA_FOTO[c]+'.'});
+    else if(pend.some(f=>f.comp===c && f.tipo==='num') && !fotosQueMostram(p,c,true).length) fotosPed.push({v:'DETALHE', txt:'Detalhe de '+COMP[c].nome.toUpperCase()+' com TRENA encostada — para ler seção e espessura (ou informe a medida à mão).'});
+  });
+  if(pend.some(f=>f.comp==='geral') && !fotosQueMostram(p,'geral',true).length) fotosPed.push({v:'GERAL', txt:'Foto com a TRENA esticada no comprimento e na largura da estrutura (ou informe a medida à mão).'});
+  const semMarca=(p.fotos||[]).filter(f=>!(f.vis||[]).length);
+  const pronto = pend.length===0 && refFaltas.length===0 && erros.length===0 && !!p.estado;
+  const hashAtual = hashMedidas(p);
+  const plantaOk = !!(p.planta && p.planta.hash===hashAtual);
+  let st='RASCUNHO';
+  if(p.lib && p.lib.ok && plantaOk) st='LIBERADO';
+  else if(plantaOk && pronto) st='PLANTA';
+  else if(pronto) st='PRONTO';
+  else if((p.fotos||[]).length || Object.keys(p.m||{}).length) st='PRELIMINAR';
+  return { pend, refFaltas, erros, avisos, fotosPed, semMarca, pronto, pct: total?Math.round(feitos/total*100):0, st, hashAtual, plantaOk };
+}
+const ST_NOME = { RASCUNHO:'RASCUNHO', PRELIMINAR:'FICHA PRELIMINAR', PRONTO:'PRONTO P/ PLANTA', PLANTA:'PLANTA GERADA', LIBERADO:'LIBERADO P/ FABRICAÇÃO' };
+
+function proximoPasso(p,A){
+  if(!p.nome) return ['Dê um nome ao palete e diga se ele está vazio ou carregado','ident'];
+  if(!p.estado) return ['Diga se o palete da foto está VAZIO ou CARREGADO','ident'];
+  if(!(p.fotos||[]).length) return ['Tire ou anexe as fotos do palete','fotos'];
+  if(A.semMarca.length) return ['Marque o que aparece em '+(A.semMarca.length===1?'1 foto':A.semMarca.length+' fotos')+' (longarina, pé, travessa…)','fotos'];
+  if(A.pend.length||A.refFaltas.length) return ['Faltam '+(A.pend.length+A.refFaltas.length)+' medidas — preencha o que souber e peça as fotos que faltam','medidas'];
+  if(A.erros.length) return ['Corrija '+A.erros.length+' problema(s) nas medidas','medidas'];
+  if(!A.plantaOk) return ['Confira as medidas e gere a planta técnica','planta'];
+  if(!(p.lib&&p.lib.ok)) return ['Faça as 4 conferências para liberar a fabricação','lib'];
+  return ['✔ Liberado para fabricação — imprima a planta para a bancada','planta'];
+}
+
+/* =================== GEOMETRIA =================== */
+function alturaPe(p){
+  const H=vNum(p,'H'), hl=vNum(p,'long_h'); if(H==null||hl==null) return null;
+  const sobre=vRaw(p,'trav_mont')==='SOBRE'; const ht=vNum(p,'trav_h');
+  if(sobre && ht==null) return null;
+  const base=vRaw(p,'base_tem'); if(base==='') return null;
+  const hb= base==='SIM' ? vNum(p,'base_h') : 0; if(hb==null) return null;
+  const tt= ['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo')) ? vNum(p,'tampo_t') : 0; if(vRaw(p,'tampo_tipo')==='') return null; if(tt==null) return null;
+  return H - hl - (sobre?ht:0) - hb - tt;
+}
+function perfilDe(p,c){ return { tipo:tipoDe(p,c), b:vNum(p,c+'_b'), h:vNum(p,c+'_h'), t:tipoDe(p,c)==='MAD'?0:vNum(p,c+'_t') }; }
+function nomePerfil(pf){ if(!pf.tipo) return '—'; const T=TIPOS[pf.tipo]; return T.curto+' '+mm(pf.b)+'×'+mm(pf.h)+(pf.tipo==='MAD'?'':'×'+mm(pf.t))+' mm'; }
+function kgm(pf){
+  const {tipo,b,h,t}=pf;
+  if(tipo==='TUBO') return (2*t*(b+h)-4*t*t)*7.85/1000;
+  if(tipo==='CANT') return t*(b+h-t)*7.85/1000;
+  if(tipo==='U')    return t*(h+2*b-2*t)*7.85/1000;
+  if(tipo==='MAD')  return b*h*(+CFG.densMadeira||0.6)/1000;
+  return 0;
+}
+function moduloW(pf){ // módulo resistente (mm³) em torno do eixo de flexão (carga vertical)
+  const {tipo,b,h,t}=pf;
+  if(tipo==='TUBO'){ const I=(b*h**3-(b-2*t)*(h-2*t)**3)/12; return I/(h/2); }
+  if(tipo==='U'){ const I=(b*h**3-(b-t)*(h-2*t)**3)/12; return I/(h/2); }
+  if(tipo==='MAD') return b*h*h/6;
+  return null; // cantoneira: não calcula (perfil assimétrico)
+}
+function modelo(p){
+  const g=k=>vNum(p,k);
+  const M={ C:g('C'), L:g('L'), H:g('H'),
+    long:Object.assign(perfilDe(p,'long'),{n:g('long_n')}),
+    trav:Object.assign(perfilDe(p,'trav'),{n:g('trav_n'), sobre:vRaw(p,'trav_mont')==='SOBRE'}),
+    pes:Object.assign(perfilDe(p,'pes'),{n:g('pes_n')}),
+    base: vRaw(p,'base_tem')==='SIM' ? perfilDe(p,'base') : null,
+    tampo:{ tipo:vRaw(p,'tampo_tipo'), t: ['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?g('tampo_t'):0 } };
+  M.hb = M.base ? M.base.h : 0;
+  M.hp = alturaPe(p);
+  const nl=M.long.n, bl=M.long.b;
+  M.longY=[...Array(nl).keys()].map(i=> nl===1?0: i*(M.L-bl)/(nl-1));
+  M.travX=[...Array(M.trav.n).keys()].map(j=> j*(M.C-M.trav.b)/(M.trav.n-1));
+  M.pesX=[...Array(M.pes.n).keys()].map(k=> k*(M.C-M.pes.b)/(M.pes.n-1));
+  M.zLong=M.hb+M.hp; M.zTopo=M.zLong+M.long.h; M.zTrav= M.trav.sobre ? M.zTopo : M.zTopo-M.trav.h;
+  M.zTampo = M.trav.sobre ? M.zTopo+M.trav.h : M.zTopo;
+  M.vaoTrav = M.trav.sobre ? M.L : (M.L - nl*bl)/(nl-1);
+  // peças
+  const q=Math.max(1, parseInt(p.qtdFab)||1);
+  const pecas=[];
+  pecas.push({ id:'P1', nome:'Longarina', perfil:M.long, qtd:nl, corte:M.C, obs:'corte reto 90°' });
+  pecas.push({ id:'P2', nome: M.trav.sobre?'Travessa (por cima das longarinas)':'Travessa (entre longarinas)', perfil:M.trav, qtd: M.trav.sobre? M.trav.n : M.trav.n*(nl-1), corte:M.vaoTrav, obs: M.trav.sobre?'corte reto 90°':'vão livre entre longarinas' });
+  pecas.push({ id:'P3', nome:'Pé', perfil:M.pes, qtd: nl*M.pes.n, corte:M.hp, obs:'altura calculada' });
+  if(M.base) pecas.push({ id:'P4', nome:'Base inferior', perfil:M.base, qtd:nl, corte:M.C, obs:'corte reto 90°' });
+  (p.refs||[]).forEach((r,i)=> pecas.push({ id:'R'+(i+1), nome:'Reforço — '+(r.desc||''), perfil:{tipo:r.tipo,b:+r.b,h:+r.h,t:r.tipo==='MAD'?0:+r.t}, qtd:+r.qtd, corte:+r.comp, obs:'informado ('+(r.o==='OBS'?'observado na foto':'usuário')+')' }));
+  pecas.forEach(pc=>{ pc.kgm=kgm(pc.perfil); pc.kgUn=pc.kgm*pc.corte/1000; pc.qtdTot=pc.qtd*q; });
+  M.pecas=pecas; M.q=q;
+  // tampo
+  if(['CHAPA','MADEIRA','TELA'].includes(M.tampo.tipo)){
+    const area=M.C*M.L/1e6;
+    const kg = M.tampo.tipo==='CHAPA' ? M.C*M.L*M.tampo.t*7.85e-6 : M.tampo.tipo==='MADEIRA' ? M.C*M.L*M.tampo.t*(+CFG.densMadeira||0.6)*1e-6 : null;
+    M.tampoInfo={ id:'P5', nome: M.tampo.tipo==='CHAPA'?'Tampo — chapa de aço':M.tampo.tipo==='MADEIRA'?'Tampo — chapa de madeira':'Tampo — tela/grade', area, kg, dim: mm(M.C)+' × '+mm(M.L)+(M.tampo.t?' × '+mm(M.tampo.t):'')+' mm' };
+  }
+  // barras
+  const grupos={};
+  pecas.forEach(pc=>{ const key=nomePerfil(pc.perfil); (grupos[key]=grupos[key]||{perfil:pc.perfil, cortes:[]}); for(let i=0;i<pc.qtdTot;i++) grupos[key].cortes.push({len:pc.corte, ref:pc.id}); });
+  M.barras=Object.entries(grupos).map(([key,gp])=>{
+    const barra = TIPOS[gp.perfil.tipo] && TIPOS[gp.perfil.tipo].aco ? (+CFG.barraAco||6000) : (+CFG.barraMadeira||3000);
+    const plano=planoBarras(gp.cortes, barra, +CFG.kerf||0);
+    const usado=gp.cortes.reduce((s,c)=>s+c.len,0);
+    const nBar=plano.reduce((s,b)=>s+(b.grande?Math.ceil(b.usado/barra):1),0);
+    return { key, perfil:gp.perfil, barra, plano, nBar, usado, aprov: usado/(nBar*barra), kg: nBar*barra/1000*kgm(gp.perfil), grande: plano.some(b=>b.grande) };
+  });
+  M.pesoUn = pecas.reduce((s,pc)=>s+pc.kgUn*pc.qtd,0) + (M.tampoInfo&&M.tampoInfo.kg||0);
+  return M;
+}
+function planoBarras(cortes, barra, kerf){
+  const ord=[...cortes].sort((a,b)=>b.len-a.len), bars=[];
+  for(const c of ord){
+    if(c.len>barra){ bars.push({cortes:[c], usado:c.len, grande:true}); continue; }
+    let b=bars.find(b=>!b.grande && b.usado+(b.cortes.length?kerf:0)+c.len<=barra+1e-6);
+    if(!b){ b={cortes:[],usado:0}; bars.push(b); }
+    b.usado+=(b.cortes.length?kerf:0)+c.len; b.cortes.push(c);
+  }
+  return bars;
+}
+function verificacao(M, Qkg){
+  if(!(Qkg>0)) return null;
+  const vao=(M.C-M.pes.b)/(M.pes.n-1);
+  const W=moduloW(M.long);
+  const adm = TIPOS[M.long.tipo].aco ? 165 : 10; // MPa — aço ASTM A36 (250/1,5) · madeira (valor conservador)
+  if(!W) return { semCalc:true, vao };
+  const w = Qkg*9.81/(M.long.n*M.C);  // N/mm por longarina (carga distribuída)
+  const Mf = w*vao*vao/8;             // N·mm — vão bi-apoiado entre pés (a favor da segurança)
+  const sig = Mf/W;
+  return { vao, sig, adm, ok: sig<=adm, fs: adm/sig };
+}
+function hashMedidas(p){
+  const s=JSON.stringify([FIELDS.filter(f=>ativo(p,f)).map(f=>[f.k,vRaw(p,f.k)]), (p.refs||[]).map(r=>[r.desc,r.tipo,r.b,r.h,r.t,r.comp,r.qtd]), p.qtdFab, p.carga&&p.carga.mostrar?[p.carga.comp,p.carga.larg,p.carga.alt]:0]);
+  let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h+s.charCodeAt(i))|0; } return String(h);
+}
+
+/* =================== RENDER GERAL =================== */
+function render(){
+  $('nav').innerHTML = [['lista','📋 Paletes'],['editor', cur&&P[cur]?'✏ '+esc(P[cur].codigo):''],['lixeira','🗑 Lixeira'],['config','⚙ Configuração']]
+    .filter(x=>x[1]).map(([k,t])=>`<button class="${aba===k?'on':''}" onclick="irAba('${k}')">${t}</button>`).join('');
+  const app=$('app');
+  if(aba==='editor' && cur && P[cur]) app.innerHTML=telaEditor();
+  else if(aba==='lixeira') app.innerHTML=telaLixeira();
+  else if(aba==='config') app.innerHTML=telaConfig();
+  else { aba='lista'; app.innerHTML=telaLista(); }
+}
+function irAba(a){ aba=a; render(); window.scrollTo(0,0); }
+
+/* ---------- lista ---------- */
+function listaFiltrada(){
+  return Object.values(P).filter(p=>!p.excluido).sort((a,b)=>(b.atualizado||0)-(a.atualizado||0)).filter(p=>{
+    if(filtro && analisar(p).st!==filtro) return false;
+    if(busca){ const s=(p.codigo+' '+p.nome+' '+p.uso).toLowerCase(); if(!s.includes(busca.toLowerCase())) return false; }
+    return true;
+  });
+}
+function telaLista(){
+  const vis=listaFiltrada();
+  return `<div class="linha">
+      <button class="btn lar" onclick="novaAnalise()">➕ Nova análise de palete</button>
+      <input placeholder="🔎 Buscar código, nome, uso…" value="${esc(busca)}" oninput="busca=this.value;document.getElementById('lst').innerHTML=cardsLista()" style="flex:1;min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px 10px">
+      <select onchange="filtro=this.value;render()" style="border:1px solid var(--line);border-radius:9px;padding:9px 10px">
+        <option value="">Todas as situações</option>
+        ${Object.entries(ST_NOME).map(([k,t])=>`<option value="${k}" ${filtro===k?'selected':''}>${t}</option>`).join('')}
+      </select>
+    </div>
+    <div id="lst" class="lista">${cardsLista(vis)}</div>`;
+}
+function cardsLista(vis){
+  if(!vis) vis=listaFiltrada();
+  if(!vis.length) return `<div class="vazio" style="grid-column:1/-1">Nenhum palete ${busca||filtro?'encontrado':'cadastrado ainda'}.<br><br>Toque em <b>➕ Nova análise de palete</b> — o assistente te guia: fotos, medidas e a planta.</div>`;
+  return vis.map(p=>{
+    const A=analisar(p); const f=(p.fotos||[]).find(x=>x.url);
+    const falta=A.pend.length+A.refFaltas.length;
+    return `<div class="pc" onclick="abrir('${p.id}')">
+      <div class="th" style="${f?`background-image:url('${esc(f.url)}')`:''}">${f?'':'🧱'}</div>
+      <div class="ct"><div class="linha" style="justify-content:space-between"><span class="cod">${esc(p.codigo)}</span><span class="badge st-${A.st}">${ST_NOME[A.st]}</span></div>
+      <div class="nm">${esc(p.nome||'(sem nome)')}</div>
+      <div class="mt">${p.estado==='CARREGADO'?'📦 analisado carregado':p.estado==='VAZIO'?'▢ analisado vazio':'situação não informada'} · ${(p.fotos||[]).length} foto(s)${falta?` · <b style="color:var(--warn)">${falta} medida(s) pendente(s)</b>`:''}</div>
+      <div class="mt">${vNum(p,'C')&&vNum(p,'L')?mm(vNum(p,'C'))+' × '+mm(vNum(p,'L'))+(vNum(p,'H')?' × '+mm(vNum(p,'H')):'')+' mm':'medidas a definir'} · ${esc(p.por||'')} ${dataBR(p.atualizado)}</div></div></div>`;
+  }).join('');
+}
+function novaAnalise(){ const p=novoPalete(); P[p.id]=p; salvar(p,true); cur=p.id; passo='ident'; aba='editor'; render(); window.scrollTo(0,0); }
+function abrir(id){ cur=id; passo='ident'; const A=analisar(P[id]); passo=proximoPasso(P[id],A)[1]; aba='editor'; render(); window.scrollTo(0,0); }
+
+/* ---------- lixeira / config ---------- */
+function telaLixeira(){
+  const it=Object.values(P).filter(p=>p.excluido).sort((a,b)=>b.excluido-a.excluido);
+  return `<h2 class="sec" style="margin-top:0">🗑 Lixeira</h2><p style="color:var(--mut);font-size:13.5px">O palete fica 30 dias aqui e depois some sozinho.</p>
+  ${it.length?`<table class="t"><tr><th>Código</th><th>Nome</th><th>Excluído em</th><th></th></tr>${it.map(p=>`<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${dataBR(p.excluido)} (some em ${Math.max(0,30-Math.floor((Date.now()-p.excluido)/864e5))} dias)</td>
+  <td class="n"><button class="btn mini v" onclick="restaurar('${p.id}')">↩ Restaurar</button> <button class="btn mini d" onclick="apagarDeVez('${p.id}')">Apagar de vez</button></td></tr>`).join('')}</table>`:'<div class="vazio">Lixeira vazia.</div>'}`;
+}
+function restaurar(id){ const p=P[id]; delete p.excluido; salvar(p); render(); }
+function apagarDeVez(id){ if(!confirm('Apagar de vez? Não tem volta.')) return; delete P[id]; guardarLocal(); apagarNuvem(id); render(); }
+function excluir(){ const p=P[cur]; if(!confirm('Mandar '+p.codigo+' para a lixeira?')) return; p.excluido=Date.now(); salvar(p); cur=null; aba='lista'; render(); }
+function telaConfig(){
+  return `<h2 class="sec" style="margin-top:0">⚙ Configuração</h2>
+  <div class="grade g3">
+    <label class="f">Barra comercial de aço (mm)<input type="number" value="${CFG.barraAco}" onchange="CFG.barraAco=+this.value;salvarCfg()"></label>
+    <label class="f">Peça comercial de madeira (mm)<input type="number" value="${CFG.barraMadeira}" onchange="CFG.barraMadeira=+this.value;salvarCfg()"></label>
+    <label class="f">Perda por corte — disco/serra (mm)<input type="number" value="${CFG.kerf}" onchange="CFG.kerf=+this.value;salvarCfg()"></label>
+    <label class="f">Densidade da madeira (g/cm³)<input type="number" step="0.01" value="${CFG.densMadeira}" onchange="CFG.densMadeira=+this.value;salvarCfg()"></label>
+  </div>
+  <div class="aviso i" style="margin-top:14px">Esses valores entram no cálculo de barras comerciais e de peso de todos os paletes. Aço: densidade 7,85 g/cm³.</div>`;
+}
+
+/* =================== EDITOR =================== */
+function telaEditor(){
+  const p=P[cur]; const A=analisar(p); const trav=travado(p);
+  const PASSOS=[['ident','1 · Identificação', !!(p.nome&&p.estado)],['fotos','2 · Fotos', (p.fotos||[]).length>0 && !A.semMarca.length],['medidas','3 · Medidas', A.pronto],['planta', A.pronto?'4 · Planta técnica':'4 · Ficha preliminar', A.plantaOk],['lib','5 · Liberação', !!(p.lib&&p.lib.ok&&A.plantaOk)]];
+  let corpo='';
+  if(passo==='ident') corpo=passoIdent(p,trav);
+  else if(passo==='fotos') corpo=passoFotos(p,A,trav);
+  else if(passo==='medidas') corpo=passoMedidas(p,A,trav);
+  else if(passo==='planta') corpo=passoPlanta(p,A);
+  else corpo=passoLib(p,A);
+  return `<div class="ed-top">
+      <button class="btn c mini" onclick="irAba('lista')">← Paletes</button>
+      <span class="cod">${esc(p.codigo)}</span><span class="tt">${esc(p.nome||'Novo palete')}</span>
+      <span class="badge st-${A.st}" id="stBadge">${ST_NOME[A.st]}</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn c mini noprint" onclick="duplicar()">⧉ Duplicar</button>
+      <button class="btn c mini noprint" onclick="excluir()">🗑</button>
+    </div>
+    <div id="assist" class="assist">${htmlAssist(p,A)}</div>
+    <div class="passos">${PASSOS.map(([k,t,ok])=>`<button class="${passo===k?'on':''}" onclick="irPasso('${k}')">${ok?'<span class="ck">✔</span> ':''}${t}</button>`).join('')}</div>
+    ${trav?`<div class="aviso ok noprint">🔒 Palete <b>liberado para fabricação</b> — as medidas estão travadas. Para mudar algo, vá em <a onclick="irPasso('lib')" style="cursor:pointer;text-decoration:underline">5 · Liberação</a> e reabra.</div>`:''}
+    <div id="passo">${corpo}</div>`;
+}
+function travado(p){ return !!(p.lib && p.lib.ok && p.planta && p.planta.hash===hashMedidas(p)); }
+function irPasso(k){ passo=k; render(); window.scrollTo({top:0}); }
+function renderAssist(){
+  const p=P[cur]; if(!p) return; const A=analisar(p);
+  const e=$('assist'); if(e) e.innerHTML=htmlAssist(p,A);
+  const b=$('stBadge'); if(b){ b.className='badge st-'+A.st; b.textContent=ST_NOME[A.st]; }
+}
+function htmlAssist(p,A){
+  const [txt,alvo]=proximoPasso(p,A);
+  const nObs=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='OBS').length;
+  const nInf=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length + (p.refs||[]).length;
+  const nPen=A.pend.length+A.refFaltas.length;
+  return `<div class="cab"><b>🤖 Assistente</b><div class="barra" title="${A.pct}% das informações"><i style="width:${A.pct}%"></i></div><b style="color:var(--lar)">${A.pct}%</b></div>
+    <div class="prox"><span style="flex:1">👉 <b>Próximo passo:</b> ${esc(txt)}</span>${passo!==alvo?`<button class="btn mini" onclick="irPasso('${alvo}')">Ir</button>`:''}</div>
+    <div class="leg"><span class="tg OBS">👁 ${nObs} observadas na foto</span><span class="tg INF">✍ ${nInf} informadas</span><span class="tg PEND">⏳ ${nPen} pendentes</span>${A.erros.length?`<span class="tg" style="background:var(--errbg);color:var(--err)">✖ ${A.erros.length} erro(s)</span>`:''}${A.avisos.length?`<span class="tg" style="background:var(--warnbg);color:var(--warn)">⚠ ${A.avisos.length} aviso(s)</span>`:''}</div>
+    ${A.erros.length?`<details open><summary style="color:var(--err)">✖ Problemas nas medidas</summary><ul>${A.erros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
+    ${A.avisos.length?`<details open><summary style="color:var(--warn)">⚠ Avisos</summary><ul>${A.avisos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
+    ${A.fotosPed.length?`<details ${passo==='fotos'||passo==='medidas'?'open':''}><summary>📷 Fotos que eu preciso (${A.fotosPed.length})</summary><ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul></details>`:''}
+    ${nPen?`<details ${passo==='medidas'?'open':''}><summary>⏳ Medidas que faltam (${nPen})</summary><ul>${A.pend.map(f=>`<li><a onclick="irCampo('${f.k}')">${esc(COMP[f.comp].nome)} — ${esc(rotulo(p,f))}</a></li>`).join('')}${A.refFaltas.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}`;
+}
+function irCampo(k){ if(passo!=='medidas'){ passo='medidas'; render(); } setTimeout(()=>{ const e=$('in_'+k); if(e){ e.scrollIntoView({behavior:'smooth',block:'center'}); e.focus(); } },60); }
+function duplicar(){
+  const o=P[cur]; const p=JSON.parse(JSON.stringify(o)); const n=novoPalete();
+  Object.assign(p,{ id:n.id, codigo:n.codigo, nome:(o.nome||'')+' (cópia)', planta:null, lib:n.lib, criado:Date.now(), fotos:[] });
+  Object.values(p.m).forEach(x=>{ if(x.o==='OBS'){ x.o='INF'; delete x.f; } });
+  salvar(p); cur=p.id; passo='ident'; render(); toast('⧉ Cópia criada (sem as fotos, medidas como informadas)');
+}
+
+/* ---------- passo 1: identificação ---------- */
+function passoIdent(p,trav){
+  const dis=trav?'disabled':'';
+  const c=p.carga||{};
+  return `<div class="grade g2">
+      <label class="f">Nome / identificação do palete *<input value="${esc(p.nome)}" ${dis} placeholder="Ex.: Palete de placa de piso elevado" onchange="setP('nome',this.value)"></label>
+      <label class="f">Para que serve (o que vai armazenar)<input value="${esc(p.uso)}" ${dis} placeholder="Ex.: 70 placas de 1,00 × 1,00 m" onchange="setP('uso',this.value)"></label>
+      <label class="f">Quantidade a fabricar<input type="number" min="1" value="${esc(p.qtdFab||1)}" ${dis} onchange="setP('qtdFab',Math.max(1,parseInt(this.value)||1))"></label>
+      <div class="f" style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mut)">Material da estrutura (pode marcar mais de um)
+        <div class="chips">${[['ACO_TUBO','Aço — tubo/metalon'],['ACO_PERFIL','Aço — cantoneira/perfil U'],['MADEIRA','Madeira']].map(([k,t])=>`<span class="chip ${(p.materiais||[]).includes(k)?'on':''}" onclick="${trav?'':`togMat('${k}')`}">${t}</span>`).join('')}</div></div>
+    </div>
+    <h2 class="sec">Como está o palete nas fotos? *</h2>
+    <div class="seg">
+      <button class="${p.estado==='VAZIO'?'on':''}" ${dis} onclick="setP('estado','VAZIO',true)">▢ VAZIO<small>dá para ver a estrutura toda</small></button>
+      <button class="${p.estado==='CARREGADO'?'on':''}" ${dis} onclick="setP('estado','CARREGADO',true)">📦 COM MATERIAL EM CIMA<small>parte da estrutura fica escondida</small></button>
+    </div>
+    ${p.estado==='CARREGADO'?`<div class="aviso a" style="margin-top:12px"><b>Palete carregado — como o assistente trabalha:</b>
+      <ul style="margin:6px 0 0;padding-left:18px">
+        <li>Nas fotos, marque separado o que é <b>📦 material armazenado</b> e o que é <b>estrutura</b> do palete.</li>
+        <li>Só conta como <b>observado</b> o que aparece de verdade na foto. Travessa, reforço ou espessura escondidos ficam <b>pendentes</b> até você informar ou mandar outra foto.</li>
+        <li>A medida do material <b>não</b> é a medida do palete. Ela fica guardada só como referência, abaixo.</li></ul></div>
+      <div class="card" style="margin-top:10px"><h3>📦 Material armazenado (só referência)</h3><p class="sub">Essas medidas NÃO entram na planta como palete. Servem para conferir estabilidade e, se você quiser, mostrar o acondicionamento.</p>
+        <div class="grade g3">
+          <label class="f">O que é<input value="${esc(c.desc)}" ${dis} placeholder="Ex.: placas de piso" onchange="setCarga('desc',this.value)"></label>
+          <label class="f">Comprimento da carga (mm)<input type="number" value="${esc(c.comp)}" ${dis} onchange="setCarga('comp',this.value)"></label>
+          <label class="f">Largura da carga (mm)<input type="number" value="${esc(c.larg)}" ${dis} onchange="setCarga('larg',this.value)"></label>
+          <label class="f">Altura da carga (mm)<input type="number" value="${esc(c.alt)}" ${dis} onchange="setCarga('alt',this.value)"></label>
+          <label class="f">Peso aproximado da carga (kg)<input type="number" value="${esc(c.peso)}" ${dis} onchange="setCarga('peso',this.value)"></label>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" ${c.mostrar?'checked':''} ${dis} onchange="setCarga('mostrar',this.checked)"> Mostrar a carga tracejada na planta (posicionamento / acondicionamento)</label>
+      </div>`:''}
+    <label class="f" style="margin-top:14px">Observações<textarea ${dis} onchange="setP('obs',this.value)">${esc(p.obs)}</textarea></label>
+    <div class="linha" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="irPasso('fotos')">Próximo: fotos →</button></div>`;
+}
+function setP(k,v,rerender){ const p=P[cur]; p[k]=v; salvar(p,true); if(rerender||k==='nome') render(); else renderAssist(); }
+function setCarga(k,v){ const p=P[cur]; p.carga=p.carga||{}; p.carga[k]=v; salvar(p,true); renderAssist(); }
+function togMat(k){ const p=P[cur]; p.materiais=p.materiais||[]; const i=p.materiais.indexOf(k); if(i>=0) p.materiais.splice(i,1); else p.materiais.push(k); salvar(p,true); render(); }
+
+/* ---------- passo 2: fotos ---------- */
+function passoFotos(p,A,trav){
+  const fotos=p.fotos||[];
+  return `<div class="aviso i">Tire as fotos <b>da frente, da lateral, de cima</b> e dos <b>detalhes</b>. Em cada foto, marque o que aparece nela.
+    É isso que decide o que pode ser <b>👁 observado</b>: uma peça só conta como observada se alguma foto marcada mostrar essa peça. Para valer como medida observada (mm), a foto também precisa ter <b>📏 trena ou referência</b> visível.</div>
+    ${A.fotosPed.length?`<div class="pedidas" style="margin:10px 0">${A.fotosPed.map(x=>`<div class="pedida">📷 <span style="flex:1">${esc(x.txt)}</span>${trav?'':`<label class="btn mini lar" style="cursor:pointer">Tirar<input type="file" accept="image/*" capture="environment" hidden onchange="addFotos(this,'${x.v}')"></label>`}</div>`).join('')}</div>`:'<div class="aviso ok">✔ Tenho as vistas básicas. Mande mais detalhes se alguma medida continuar pendente.</div>'}
+    ${trav?'':`<div class="linha" style="margin-top:8px">
+      <label class="btn" style="cursor:pointer">📷 Tirar foto<input type="file" accept="image/*" capture="environment" hidden onchange="addFotos(this,'')"></label>
+      <label class="btn c" style="cursor:pointer">🖼 Galeria (várias)<input type="file" accept="image/*" multiple hidden onchange="addFotos(this,'')"></label>
+      <span id="upInfo" style="font-size:13px;color:var(--mut)"></span></div>`}
+    <div class="fotos">${fotos.map((f,i)=>cardFoto(p,f,i,trav)).join('')||'<div class="vazio" style="grid-column:1/-1">Nenhuma foto ainda.</div>'}</div>
+    <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('ident')">← Identificação</button><button class="btn" onclick="irPasso('medidas')">Próximo: medidas →</button></div>`;
+}
+function cardFoto(p,f,i,trav){
+  const vis=f.vis||[];
+  return `<div class="ft">
+    ${f.url?`<img src="${esc(f.url)}" onclick="verFoto('${f.id}')" alt="foto ${i+1}">`:`<div style="height:190px;display:flex;align-items:center;justify-content:center;background:#eee;color:#888;font-size:13px">foto só no aparelho que tirou</div>`}
+    <div class="fb">
+      <div class="linha" style="justify-content:space-between"><span class="nf">FOTO ${i+1}</span>
+        <select ${trav?'disabled':''} onchange="setFoto('${f.id}','vista',this.value)" style="border:1px solid var(--line);border-radius:8px;padding:5px">
+          <option value="">— que vista é? —</option>${Object.entries(VISTAS).map(([k,t])=>`<option value="${k}" ${f.vista===k?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div style="font-size:12px;font-weight:700;color:var(--mut)">O que aparece nesta foto:</div>
+      <div class="vis">${VIS.filter(([k])=>k!=='carga'||p.estado==='CARREGADO').map(([k,t])=>`<span class="chip ${k} ${vis.includes(k)?'on':''}" onclick="${trav?'':`togVis('${f.id}','${k}')`}">${t}</span>`).join('')}</div>
+      ${!vis.length?'<div style="font-size:12px;color:var(--warn);font-weight:700">⚠ marque o que aparece</div>':''}
+      <input placeholder="anotação (ex.: travessa do meio escondida pela carga)" value="${esc(f.obs)}" ${trav?'disabled':''} onchange="setFoto('${f.id}','obs',this.value)" style="border:1px solid var(--line);border-radius:8px;padding:7px;font-size:13px">
+      ${trav?'':`<button class="btn mini c" onclick="tirarFoto('${f.id}')">🗑 Tirar foto</button>`}
+    </div></div>`;
+}
+async function addFotos(inp, vista){
+  const arqs=[...(inp.files||[])]; if(!arqs.length) return;
+  const p=P[cur]; p.fotos=p.fotos||[];
+  const info=$('upInfo');
+  for(let i=0;i<arqs.length;i++){
+    if(info) info.textContent='📤 Enviando '+(i+1)+' de '+arqs.length+'…'; toast('📤 Enviando foto '+(i+1)+' de '+arqs.length+'…');
+    try{
+      const dataUrl=await comprimir(arqs[i]);
+      const fid=uid(); const url=await subirFoto(p.id,fid,dataUrl);
+      p.fotos.push({ id:fid, url, vista:vista||'', vis:[], obs:'', em:Date.now() });
+      salvar(p,true);
+    }catch(e){ toast('Não consegui ler a foto: '+(e.message||e)); }
+  }
+  toast('📷 '+arqs.length+' foto(s) adicionada(s) — marque o que aparece em cada uma');
+  render();
+}
+function comprimir(file, max=1400, q=.72){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{ const img=new Image(); img.onload=()=>{ const k=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',q)); }; img.onerror=()=>rej(new Error('arquivo não é imagem')); img.src=fr.result; };
+    fr.onerror=()=>rej(fr.error); fr.readAsDataURL(file);
+  });
+}
+async function subirFoto(pid,fid,dataUrl){
+  if(!sb) return dataUrl;
+  try{
+    const blob=await (await fetch(dataUrl)).blob(); const path=pid+'/'+fid+'.jpg';
+    const { error }=await sb.storage.from(BUCKET).upload(path, blob, { contentType:'image/jpeg', upsert:true });
+    if(error) throw error;
+    return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  }catch(e){ console.warn(e); toast('⚠ Foto guardada só neste aparelho (nuvem de fotos indisponível)'); return dataUrl; }
+}
+function setFoto(fid,k,v){ const p=P[cur]; const f=p.fotos.find(x=>x.id===fid); if(!f) return; f[k]=v; salvar(p,true); if(k==='vista') render(); else renderAssist(); }
+function togVis(fid,k){ const p=P[cur]; const f=p.fotos.find(x=>x.id===fid); f.vis=f.vis||[]; const i=f.vis.indexOf(k); if(i>=0) f.vis.splice(i,1); else f.vis.push(k); salvar(p,true); render(); }
+function tirarFoto(fid){
+  if(!confirm('Tirar esta foto do palete?')) return;
+  const p=P[cur]; const f=p.fotos.find(x=>x.id===fid);
+  p.fotos=p.fotos.filter(x=>x.id!==fid); salvar(p,true);
+  if(sb && f && f.url && !f.url.startsWith('data:')) sb.storage.from(BUCKET).remove([p.id+'/'+fid+'.jpg']).then(()=>{});
+  render();
+}
+function verFoto(fid){ const p=P[cur]; const f=p.fotos.find(x=>x.id===fid); if(!f) return; const d=document.createElement('div'); d.className='lb'; d.innerHTML=`<img src="${esc(f.url)}">`; d.onclick=()=>d.remove(); document.body.appendChild(d); }
+
+/* ---------- passo 3: medidas ---------- */
+function passoMedidas(p,A,trav){
+  const comps=['geral','long','trav','pes','base','tampo','ref'];
+  return `<div class="aviso i">Cada medida mostra de onde veio: <span class="tg OBS">👁 Observado</span> lido na foto · <span class="tg INF">✍ Informado</span> por você · <span class="tg CALC">🧮 Calculado</span> pelo sistema · <span class="tg PEND">⏳ Pendente</span>.
+    O assistente <b>não preenche nada sozinho</b> — o que não aparece na foto e não foi informado continua pendente.</div>
+    ${comps.map(c=>{
+      const fs=FIELDS.filter(f=>f.comp===c && ativo(p,f));
+      const fv=fotosQueMostram(p,c,false), ft=fotosQueMostram(p,c,true);
+      const visTxt = c==='geral' ? (ft.length?'📏 com trena em '+ft.length+' foto(s)':'sem foto com trena') : (fv.length?'aparece em '+fv.length+' foto(s)'+(ft.length?' · 📏 trena em '+ft.length:''):'<span style="color:var(--warn)">não aparece em nenhuma foto marcada</span>');
+      return `<div class="card comp"><div class="ctit"><h3>${COMP[c].ic} ${COMP[c].nome}</h3><span class="vist">· ${visTxt}</span></div><p class="sub">${COMP[c].dica}</p>
+        ${fs.map(f=>linhaCampo(p,f,trav)).join('')}
+        ${c==='pes'?linhaPe(p):''}
+        ${c==='ref' && vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}
+      </div>`;}).join('')}
+    <div class="linha" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('fotos')">← Fotos</button><button class="btn" onclick="irPasso('planta')">${A.pronto?'Próximo: planta técnica →':'Ver ficha preliminar →'}</button></div>`;
+}
+function linhaPe(p){
+  const pe=alturaPe(p);
+  return `<div class="row" id="row_pecalc"><div class="rl">Altura do pé (abertura do garfo)<small>altura total − longarina − travessa por cima − base − tampo</small></div><div class="campo"><b>${pe==null?'—':mm(pe)}</b><span class="un">mm</span></div><div class="org"><span class="o calc">🧮 Calculado</span>${pe==null?'<span style="font-size:12px;color:var(--mut)">aguardando as outras medidas</span>':''}</div></div>`;
+}
+function linhaCampo(p,f,trav){
+  const v=vRaw(p,f.k); const o=origemEfetiva(p,f); const dis=trav?'disabled':'';
+  const permit=fotosQueMostram(p,f.comp,f.tipo==='num');
+  let inp;
+  if(f.tipo==='sel') inp=`<select id="in_${f.k}" ${dis} onchange="setCampo('${f.k}',this.value)"><option value="">— escolha —</option>${f.opts.map(([k,t])=>`<option value="${k}" ${v===k?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
+  else inp=`<input id="in_${f.k}" type="number" inputmode="decimal" step="${f.tipo==='int'?1:'any'}" min="0" value="${esc(v)}" ${dis} onchange="setCampo('${f.k}',this.value)"><span class="un">${f.un}</span>`;
+  const fotoSel = o==='OBS' && permit.length ? `<select ${dis} onchange="setFotoCampo('${f.k}',this.value)" title="em qual foto">${permit.map(ft=>`<option value="${ft.id}" ${p.m[f.k].f===ft.id?'selected':''}>Foto ${p.fotos.indexOf(ft)+1}${ft.vista?' · '+VISTAS[ft.vista]:''}</option>`).join('')}</select>` : '';
+  const obsTitle = permit.length ? 'Lido na foto' : (f.tipo==='num' ? 'Nenhuma foto marcada mostra '+COMP[f.comp].nome.toLowerCase()+' com trena' : 'Nenhuma foto marcada mostra '+COMP[f.comp].nome.toLowerCase());
+  return `<div class="row" id="row_${f.k}"><div class="rl">${esc(rotulo(p,f))}${f.ajuda?`<small>${esc(f.ajuda)}</small>`:''}</div>
+    <div class="campo">${inp}</div>
+    <div class="org">${o==='PEND'?'<span class="o pend on">⏳ Pendente</span>':''}
+      <button class="o obs ${o==='OBS'?'on':''} ${permit.length&&!trav?'':'dis'}" title="${esc(obsTitle)}" ${permit.length&&!trav?`onclick="setOrigem('${f.k}','OBS')"`:'disabled'}>👁 Observado</button>
+      <button class="o inf ${o==='INF'?'on':''} ${trav?'dis':''}" ${trav?'disabled':`onclick="setOrigem('${f.k}','INF')"`}>✍ Informado</button>${fotoSel}</div></div>`;
+}
+function setCampo(k,v){
+  const p=P[cur]; p.m=p.m||{}; const f=FMAP[k];
+  if(v===''){ delete p.m[k]; }
+  else { const x=p.m[k]||{o:'INF'}; x.v= f.tipo==='sel'?v:String(v).replace(',','.'); p.m[k]=x; }
+  salvar(p,true);
+  // seleções mudam rótulos e campos ativos → redesenha o passo; número só a linha
+  if(f.tipo==='sel'){ const y=window.scrollY; render(); window.scrollTo(0,y); }
+  else { const r=$('row_'+k); if(r) r.outerHTML=linhaCampo(p,f,false); const rp=$('row_pecalc'); if(rp) rp.outerHTML=linhaPe(p); renderAssist(); }
+}
+function setOrigem(k,o){
+  const p=P[cur]; p.m=p.m||{}; const x=p.m[k]||{v:''}; x.o=o;
+  if(o==='OBS'){ const perm=fotosQueMostram(p,FMAP[k].comp,FMAP[k].tipo==='num'); if(!perm.length) return; if(!x.f||!perm.some(z=>z.id===x.f)) x.f=perm[0].id; } else delete x.f;
+  p.m[k]=x; salvar(p,true);
+  const r=$('row_'+k); if(r) r.outerHTML=linhaCampo(p,FMAP[k],false); renderAssist();
+  if(o==='OBS' && x.v==='') toast('Digite o valor que você leu na foto');
+}
+function setFotoCampo(k,fid){ const p=P[cur]; p.m[k].f=fid; salvar(p,true); renderAssist(); }
+function htmlRefs(p,trav){
+  const dis=trav?'disabled':'';
+  const temFotoRef=fotosQueMostram(p,'ref',false).length>0;
+  return `<div style="margin-top:6px">${(p.refs||[]).map((r,i)=>`<div class="ref"><div class="linha" style="justify-content:space-between"><b>R${i+1}</b>
+      <span class="org"><button class="o obs ${r.o==='OBS'?'on':''} ${temFotoRef&&!trav?'':'dis'}" ${temFotoRef&&!trav?`onclick="setRef(${i},'o','OBS')"`:'disabled'}>👁 Observado</button><button class="o inf ${r.o!=='OBS'?'on':''}" ${dis} onclick="setRef(${i},'o','INF')">✍ Informado</button>${trav?'':`<button class="btn mini c" onclick="tirarRef(${i})">🗑</button>`}</span></div>
+    <div class="grade g3" style="margin-top:6px">
+      <label class="f">Descrição<input value="${esc(r.desc)}" ${dis} placeholder="Ex.: diagonal de canto" onchange="setRef(${i},'desc',this.value)"></label>
+      <label class="f">Perfil<select ${dis} onchange="setRef(${i},'tipo',this.value,true)"><option value="">—</option>${Object.keys(TIPOS).map(k=>`<option value="${k}" ${r.tipo===k?'selected':''}>${TIPOS[k].nome}</option>`).join('')}</select></label>
+      <label class="f">Seção A (mm)<input type="number" value="${esc(r.b)}" ${dis} onchange="setRef(${i},'b',this.value)"></label>
+      <label class="f">Seção B (mm)<input type="number" value="${esc(r.h)}" ${dis} onchange="setRef(${i},'h',this.value)"></label>
+      ${r.tipo!=='MAD'?`<label class="f">Espessura (mm)<input type="number" step="any" value="${esc(r.t)}" ${dis} onchange="setRef(${i},'t',this.value)"></label>`:''}
+      <label class="f">Comprimento de corte (mm)<input type="number" value="${esc(r.comp)}" ${dis} onchange="setRef(${i},'comp',this.value)"></label>
+      <label class="f">Qtd por palete<input type="number" value="${esc(r.qtd)}" ${dis} onchange="setRef(${i},'qtd',this.value)"></label>
+    </div></div>`).join('')}
+    ${trav?'':`<button class="btn mini" style="margin-top:8px" onclick="addRef()">➕ Adicionar reforço</button>`}
+    <div style="font-size:12px;color:var(--mut);margin-top:6px">Os reforços entram na lista de materiais e no corte. Na planta eles não são desenhados — a posição fica descrita na lista.</div></div>`;
+}
+function addRef(){ const p=P[cur]; p.refs=p.refs||[]; p.refs.push({desc:'',tipo:'',b:'',h:'',t:'',comp:'',qtd:'',o:'INF'}); salvar(p,true); render(); }
+function tirarRef(i){ const p=P[cur]; p.refs.splice(i,1); salvar(p,true); render(); }
+function setRef(i,k,v,re){ const p=P[cur]; p.refs[i][k]=v; salvar(p,true); if(re||k==='o'){ const y=window.scrollY; render(); window.scrollTo(0,y); } else renderAssist(); }
+
+/* ---------- passo 4: ficha preliminar / planta ---------- */
+function tabelaOrigens(p){
+  const lin=FIELDS.filter(f=>ativo(p,f)).map(f=>{
+    const o=origemEfetiva(p,f); const v=vRaw(p,f.k);
+    let val = v===''?'—': f.tipo==='sel' ? (f.opts.find(x=>x[0]===v)||[,v])[1] : mm(+v)+' '+f.un;
+    const ft = o==='OBS' ? p.fotos.findIndex(x=>x.id===p.m[f.k].f)+1 : 0;
+    return `<tr><td>${esc(COMP[f.comp].nome)}</td><td>${esc(rotulo(p,f))}</td><td>${esc(val)}</td><td><span class="tg ${o}">${o==='OBS'?'👁 Observado'+(ft>0?' (foto '+ft+')':''):o==='INF'?'✍ Informado':'⏳ Pendente'}</span></td></tr>`;
+  });
+  const pe=alturaPe(p);
+  lin.push(`<tr><td>Pés / blocos</td><td>Altura do pé (abertura do garfo)</td><td>${pe==null?'—':mm(pe)+' mm'}</td><td><span class="tg ${pe==null?'PEND':'CALC'}">${pe==null?'⏳ Pendente':'🧮 Calculado'}</span></td></tr>`);
+  (p.refs||[]).forEach((r,i)=>lin.push(`<tr><td>Reforços</td><td>R${i+1} — ${esc(r.desc||'?')}</td><td>${r.tipo?esc(TIPOS[r.tipo].curto)+' '+esc(r.b)+'×'+esc(r.h)+(r.tipo!=='MAD'?'×'+esc(r.t):''):'—'} · ${esc(r.comp||'?')} mm · ${esc(r.qtd||'?')} un</td><td><span class="tg ${r.o==='OBS'?'OBS':'INF'}">${r.o==='OBS'?'👁 Observado':'✍ Informado'}</span></td></tr>`));
+  return `<table class="t"><tr><th>Peça</th><th>Informação</th><th>Valor</th><th>Origem</th></tr>${lin.join('')}</table>`;
+}
+function cabecalhoImpresso(p,titulo){
+  return `<div class="print-only" style="border-bottom:3px solid var(--lar);margin-bottom:8px;padding-bottom:6px"><b style="color:var(--azul)">GRUPO TENDAS</b> <b style="color:var(--lar)">PLENART</b> · ${titulo} · <b>${esc(p.codigo)}</b> — ${esc(p.nome)} · ${dataBR(Date.now())}</div>`;
+}
+function passoPlanta(p,A){
+  if(!A.pronto) return fichaPreliminar(p,A);
+  const M=modelo(p);
+  const lib=p.lib||{};
+  const stale = p.planta && !A.plantaOk;
+  if(!A.plantaOk){
+    return `${stale?`<div class="aviso a">⚠ As medidas mudaram depois da planta Rev. ${p.planta.rev}. Confira de novo para gerar a Rev. ${p.planta.rev+1}${p.lib&&p.lib.ok?' — a liberação anterior foi cancelada':''}.</div>`:''}
+      <div class="aviso i"><b>Tudo preenchido.</b> Antes de gerar a planta, confira o resumo: as medidas abaixo são da <b>estrutura do palete</b>${p.estado==='CARREGADO'?' (não do material que estava em cima)':''}.</div>
+      ${tabelaOrigens(p)}
+      <div class="aviso ${FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length?'a':'ok'}">${(()=>{const n=FIELDS.filter(f=>ativo(p,f)&&origemEfetiva(p,f)==='INF').length;return n?`${n} medida(s) foram informadas e não lidas em foto. Ao confirmar, você assume que elas estão certas.`:'Todas as medidas foram lidas nas fotos.';})()}</div>
+      <div class="linha" style="justify-content:flex-end;margin-top:10px"><button class="btn v" onclick="confirmarPlanta()">✅ Conferi as medidas — gerar planta técnica</button></div>`;
+  }
+  const ver=verificacao(M, +lib.capacidade);
+  return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">
+      <span style="font-size:13.5px;color:var(--mut)">Planta Rev. ${p.planta.rev} · gerada em ${dataBR(p.planta.em)} por ${esc(p.planta.por||'—')}</span>
+      <span class="linha"><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
+    ${!(lib.ok)?'<div class="aviso a noprint">Esta planta ainda <b>não está liberada para fabricação</b>. Faça as conferências no passo 5.</div>':''}
+    <div class="folha" id="folha">${desenharPlanta(p,M)}</div>
+    <div class="quebra">${cabecalhoImpresso(p,'LISTA DE MATERIAIS E CORTE')}</div>
+    <h2 class="sec">Lista de peças e comprimentos de corte</h2>
+    ${tabelaPecas(M)}
+    <h2 class="sec">Barras comerciais (${M.q} palete${M.q>1?'s':''})</h2>
+    ${tabelaBarras(M)}
+    <h2 class="sec">Origem das informações</h2>
+    ${tabelaOrigens(p)}
+    ${ver?`<h2 class="sec">Verificação indicativa da longarina</h2>${htmlVerif(ver,M,+lib.capacidade)}`:''}
+    ${p.obs?`<h2 class="sec">Observações</h2><p>${esc(p.obs)}</p>`:''}
+    <h2 class="sec">Liberação</h2>
+    ${lib.ok?`<div class="aviso ok">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por ${esc(lib.resp)} em ${dataBR(lib.em)} · capacidade nominal ${nf(+lib.capacidade)} kg${lib.empilha?' · empilhamento máx. '+esc(lib.empilha):''}${lib.obs?' · '+esc(lib.obs):''}</div>`:'<div class="aviso e">✖ NÃO LIBERADO PARA FABRICAÇÃO — faltam as conferências de dimensões, capacidade de carga, estabilidade e segurança.</div>'}`;
+}
+function fichaPreliminar(p,A){
+  return `${cabecalhoImpresso(p,'FICHA PRELIMINAR')}
+    <div class="aviso a"><b>FICHA PRELIMINAR — não é projeto.</b> Ainda faltam informações para desenhar o palete sem inventar peça ou medida.
+    Abaixo está o que já se sabe, de onde veio cada dado e o que falta.</div>
+    <div class="linha noprint" style="justify-content:flex-end"><button class="btn mini c" onclick="window.print()">🖨 Imprimir ficha</button></div>
+    <h2 class="sec">Identificação</h2>
+    <table class="t"><tr><td style="width:200px">Código</td><td><b>${esc(p.codigo)}</b></td></tr><tr><td>Nome</td><td>${esc(p.nome||'—')}</td></tr><tr><td>Uso</td><td>${esc(p.uso||'—')}</td></tr>
+      <tr><td>Situação nas fotos</td><td>${p.estado==='CARREGADO'?'Com material em cima'+(p.carga&&p.carga.desc?' ('+esc(p.carga.desc)+')':''):p.estado==='VAZIO'?'Vazio':'⏳ não informado'}</td></tr>
+      <tr><td>Fotos</td><td>${(p.fotos||[]).length} — ${Object.entries(VISTAS).map(([k,t])=>{const n=(p.fotos||[]).filter(f=>f.vista===k).length;return n?t+': '+n:''}).filter(Boolean).join(' · ')||'nenhuma vista marcada'}</td></tr></table>
+    ${A.erros.length?`<h2 class="sec" style="color:var(--err)">Problemas a corrigir</h2><ul>${A.erros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
+    <h2 class="sec">Medidas que faltam (${A.pend.length+A.refFaltas.length})</h2>
+    ${A.pend.length+A.refFaltas.length?`<ul>${A.pend.map(f=>`<li><b>${esc(COMP[f.comp].nome)}</b> — ${esc(rotulo(p,f))}</li>`).join('')}${A.refFaltas.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
+    <h2 class="sec">Fotos solicitadas (${A.fotosPed.length})</h2>
+    ${A.fotosPed.length?`<ul>${A.fotosPed.map(x=>`<li>${esc(x.txt)}</li>`).join('')}</ul>`:'<p>Nenhuma.</p>'}
+    <h2 class="sec">O que já se sabe</h2>
+    ${tabelaOrigens(p)}
+    ${p.estado==='CARREGADO'&&p.carga&&(p.carga.comp||p.carga.larg)?`<p style="font-size:13px;color:var(--mut)">📦 Material armazenado (referência, não é medida do palete): ${esc(p.carga.desc||'')} ${esc(p.carga.comp||'?')} × ${esc(p.carga.larg||'?')} × ${esc(p.carga.alt||'?')} mm${p.carga.peso?' · ~'+esc(p.carga.peso)+' kg':''}</p>`:''}
+    <div class="linha noprint" style="margin-top:14px;justify-content:space-between"><button class="btn c" onclick="irPasso('medidas')">← Completar medidas</button><button class="btn c" onclick="irPasso('fotos')">📷 Mandar fotos</button></div>`;
+}
+function confirmarPlanta(){
+  const p=P[cur]; const A=analisar(p); if(!A.pronto) return;
+  const rev = p.planta ? (p.planta.hash===A.hashAtual ? p.planta.rev : p.planta.rev+1) : 0;
+  p.planta={ rev, hash:A.hashAtual, em:Date.now(), por:quem() };
+  if(p.lib && p.lib.ok){ p.lib.ok=false; }
+  salvar(p); render(); toast('📐 Planta Rev. '+rev+' gerada');
+}
+function tabelaPecas(M){
+  const lin=M.pecas.map(pc=>`<tr><td><b>${pc.id}</b></td><td>${esc(pc.nome)}</td><td>${esc(nomePerfil(pc.perfil))}</td><td class="n">${pc.qtd}</td><td class="n">${pc.qtdTot}</td><td class="n"><b>${mm(pc.corte)}</b></td><td class="n">${nf(pc.kgUn,2)}</td><td class="n">${nf(pc.kgUn*pc.qtdTot,1)}</td><td style="font-size:12px;color:var(--mut)">${esc(pc.obs)}</td></tr>`);
+  if(M.tampoInfo) lin.push(`<tr><td><b>${M.tampoInfo.id}</b></td><td>${esc(M.tampoInfo.nome)}</td><td>${esc(M.tampoInfo.dim)}</td><td class="n">1</td><td class="n">${M.q}</td><td class="n">${nf(M.tampoInfo.area,2)} m²</td><td class="n">${M.tampoInfo.kg!=null?nf(M.tampoInfo.kg,2):'—'}</td><td class="n">${M.tampoInfo.kg!=null?nf(M.tampoInfo.kg*M.q,1):'—'}</td><td style="font-size:12px;color:var(--mut)">peça inteira ou emendada</td></tr>`);
+  return `<table class="t"><tr><th>Peça</th><th>Descrição</th><th>Perfil</th><th>Qtd/palete</th><th>Qtd total</th><th>Corte (mm)</th><th>kg/un</th><th>kg total</th><th>Obs.</th></tr>${lin.join('')}
+    <tfoot><tr><td colspan="7">Peso estimado da estrutura: ${nf(M.pesoUn,1)} kg por palete</td><td class="n">${nf(M.pesoUn*M.q,1)}</td><td></td></tr></tfoot></table>
+    <div style="font-size:12px;color:var(--mut)">Comprimentos de corte para união topo a topo com solda (aço) ou fixação por cima (madeira). Confirme o tipo de união na conferência.</div>`;
+}
+function tabelaBarras(M){
+  const lin=M.barras.map(b=>{
+    const grupos={};
+    b.plano.forEach(x=>{ const k=x.grande?'GRANDE:'+x.cortes[0].len:x.cortes.map(c=>mm(c.len)).join(' + '); (grupos[k]=grupos[k]||{n:0,b:x}).n++; });
+    const plano=Object.entries(grupos).map(([k,g])=> g.b.grande ? `<div style="color:var(--err)">⚠ ${g.n}× peça de ${mm(g.b.cortes[0].len)} mm — maior que a barra (precisa emenda ou barra especial)</div>` : `<div>${g.n}× barra: ${k} <span style="color:var(--mut)">(sobra ${mm(b.barra-g.b.usado)})</span></div>`).join('');
+    return `<tr><td>${esc(b.key)}</td><td class="n">${mm(b.barra)}</td><td class="n"><b>${b.nBar}</b></td><td class="n">${nf(b.usado/1000,2)} m</td><td class="n">${nf(b.aprov*100,0)}%</td><td class="n">${nf(b.kg,1)}</td><td style="font-size:12px">${plano}</td></tr>`;
+  });
+  return `<table class="t"><tr><th>Perfil</th><th>Barra (mm)</th><th>Nº barras</th><th>Metros usados</th><th>Aproveit.</th><th>kg comprados</th><th>Plano de corte</th></tr>${lin.join('')}</table>
+    <div style="font-size:12px;color:var(--mut)">Perda por corte considerada: ${CFG.kerf} mm por corte. Barras: aço ${mm(CFG.barraAco)} mm, madeira ${mm(CFG.barraMadeira)} mm (muda em ⚙ Configuração).</div>`;
+}
+function htmlVerif(v,M,Q){
+  if(v.semCalc) return `<div class="aviso a">Cantoneira: o sistema não faz a conta indicativa (perfil assimétrico). A capacidade tem que ser conferida por quem libera.</div>`;
+  return `<div class="aviso ${v.ok?'ok':'e'}">Carga nominal ${nf(Q)} kg distribuída em ${M.long.n} longarinas · vão entre pés ${mm(v.vao)} mm · tensão estimada <b>${nf(v.sig,0)} MPa</b> para ${nf(v.adm,0)} MPa admissível → ${v.ok?'<b>dentro</b>':'<b>ACIMA</b>'} (folga ${nf(v.fs,2)}×).</div>
+    <div style="font-size:12px;color:var(--mut)">Conta simplificada (vão bi-apoiado, carga uniforme, só flexão da longarina). Não verifica solda, pés, travessas, flambagem, impacto de garfo nem empilhamento. <b>Não substitui o cálculo de um responsável técnico.</b></div>`;
+}
+
+/* ---------- desenho técnico (SVG em mm de papel, A4 paisagem) ---------- */
+function desenharPlanta(p,M){
+  const W=277, HH=190, s0=[];
+  const cg=p.carga||{}; const mostrarCarga=p.estado==='CARREGADO' && cg.mostrar && +cg.comp>0 && +cg.larg>0;
+  const cAltReal= mostrarCarga && +cg.alt>0 ? +cg.alt : 0;
+  const cAlt = Math.min(cAltReal, Math.max(M.H*1.5, 0.3*M.C));   // carga alta é desenhada interrompida — o foco é a estrutura
+  const cTxt = mostrarCarga ? 'CARGA '+mm(+cg.comp)+' × '+mm(+cg.larg)+(cAltReal?' × '+mm(cAltReal):'')+' (referência'+(cAltReal>cAlt?' · altura interrompida':'')+')' : '';
+  const Hv = M.H + cAlt;
+  const sRaw=Math.min(190/(M.C+M.L), 95/(Hv+M.L));
+  const ESC=[1,2,2.5,5,10,15,20,25,30,40,50,75,100,150,200,250];
+  const den=ESC.find(d=>1/d<=sRaw)||250; const s=1/den;
+  const fx=Math.max(24,(W-((M.C+M.L)*s+30))/2), fyTop=16+cAlt*s, fyBase=fyTop+M.H*s;        // vista frontal: base em fyBase
+  const sx=fx, syTop=fyBase+20;                            // vista superior (abaixo — 1º diedro)
+  const lx=fx+M.C*s+30;                                    // vista lateral esquerda (à direita)
+  const X=x=>fx+x*s, Zf=z=>fyBase-z*s;
+  const LX=y=>lx+(M.L-y)*s, LXw=(y,w)=>lx+(M.L-y-w)*s;    // lateral: frente do palete à direita
+  const SY=(y,w)=>syTop+(M.L-y-w)*s;                        // superior: frente embaixo
+  const o=[];
+  const R=(x,y,w,h,cls)=>`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(w,0.05).toFixed(2)}" height="${Math.max(h,0.05).toFixed(2)}" class="${cls}"/>`;
+  const T=(x,y,t,a='middle',cls='tx')=>`<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${a}" class="${cls}">${esc(t)}</text>`;
+  const cotaH=(x1,x2,y,yRef,txt)=>{ const d=y<yRef?-1:1; return `<g class="cota"><line x1="${x1}" y1="${yRef+d*0.8}" x2="${x1}" y2="${y+d*1.2}"/><line x1="${x2}" y1="${yRef+d*0.8}" x2="${x2}" y2="${y+d*1.2}"/><line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"/><line x1="${x1-0.8}" y1="${y+0.8}" x2="${x1+0.8}" y2="${y-0.8}" class="tk"/><line x1="${x2-0.8}" y1="${y+0.8}" x2="${x2+0.8}" y2="${y-0.8}" class="tk"/></g>${T((x1+x2)/2, y-0.9, txt,'middle','tc')}`; };
+  const cotaV=(y1,y2,x,xRef,txt)=>{ const d=x<xRef?-1:1; return `<g class="cota"><line x1="${xRef+d*0.8}" y1="${y1}" x2="${x+d*1.2}" y2="${y1}"/><line x1="${xRef+d*0.8}" y1="${y2}" x2="${x+d*1.2}" y2="${y2}"/><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><line x1="${x-0.8}" y1="${y1+0.8}" x2="${x+0.8}" y2="${y1-0.8}" class="tk"/><line x1="${x-0.8}" y1="${y2+0.8}" x2="${x+0.8}" y2="${y2-0.8}" class="tk"/></g><text x="${x-0.9}" y="${(y1+y2)/2}" text-anchor="middle" class="tc" transform="rotate(-90 ${x-0.9} ${(y1+y2)/2})">${esc(txt)}</text>`; };
+  const bal=(x,y,lx2,ly2,t)=>`<line x1="${x}" y1="${y}" x2="${lx2}" y2="${ly2}" class="ld"/><circle cx="${lx2}" cy="${ly2}" r="2.6" class="bl"/>${T(lx2,ly2+0.9,t,'middle','tb')}`;
+  const tubo=(x,y,w,h,pf)=>{ let r=R(x,y,w,h,'pc'); if(pf.tipo==='TUBO'&&pf.t*s>=0.25 && w>2*pf.t*s && h>2*pf.t*s) r+=R(x+pf.t*s,y+pf.t*s,w-2*pf.t*s,h-2*pf.t*s,'oco'); return r; };
+
+  /* ===== VISTA FRONTAL (comprimento × altura) ===== */
+  if(M.base) o.push(R(X(0),Zf(M.hb),M.C*s,M.hb*s,'pc'));
+  M.pesX.forEach(x=>o.push(R(X(x),Zf(M.hb+M.hp),M.pes.b*s,M.hp*s,'pc')));
+  o.push(R(X(0),Zf(M.zTopo),M.C*s,M.long.h*s,'pc'));
+  if(M.trav.sobre) M.travX.forEach(x=>o.push(tubo(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,M.trav)));
+  else M.travX.forEach(x=>o.push(R(X(x),Zf(M.zTrav+M.trav.h),M.trav.b*s,M.trav.h*s,'oculto')));
+  if(M.tampo.t>0) o.push(R(X(0),Zf(M.zTampo+M.tampo.t),M.C*s,M.tampo.t*s,'tp'));
+  if(mostrarCarga){ const cc=+cg.comp; const x0=(M.C-cc)/2; const zt=M.H; o.push(R(X(x0),Zf(zt+cAlt),cc*s,cAlt*s,'cg')); o.push(T(X(M.C/2),Zf(zt+cAlt/2)+1,cTxt,'middle','tcg')); if(cAltReal>cAlt){ const yy=Zf(zt+cAlt); o.push(`<path d="M${X(x0)-1} ${yy} l${cc*s*0.45} 0 l1.2 -1.6 l1.2 3.2 l1.2 -1.6 L${X(x0+cc)+1} ${yy}" fill="none" stroke="#f58220" stroke-width=".3"/>`); } }
+  o.push(cotaH(X(0),X(M.C),fyBase+6,fyBase,mm(M.C)));
+  o.push(cotaV(Zf(M.H),Zf(0),fx-6,fx,mm(M.H)));
+  const yVao = M.hp*s>=4 ? Zf(M.hb+M.hp/2)+1.2 : Zf(0)+3.2;
+  if(M.pes.n>=2){ const g0=M.pesX[0]+M.pes.b, g1=M.pesX[1]; o.push(cotaH(X(g0),X(g1),yVao,yVao,mm(g1-g0)+' livre')); }
+  o.push(cotaV(Zf(M.hb+M.hp),Zf(M.hb),X(M.C)+6,X(M.C),mm(M.hp)));
+  o.push(T(X(M.C/2), fyTop-cAlt*s-3.2, 'VISTA FRONTAL','middle','tv'));
+
+  /* ===== VISTA LATERAL ESQUERDA (largura × altura) ===== */
+  M.longY.forEach(y=>{
+    const cy=y+M.long.b/2;
+    if(M.base) o.push(R(LXw(cy-M.base.b/2,M.base.b),Zf(M.hb),M.base.b*s,M.hb*s,'pc'));
+    o.push(R(LXw(cy-M.pes.h/2,M.pes.h),Zf(M.hb+M.hp),M.pes.h*s,M.hp*s,'pc'));
+    o.push(tubo(LXw(y,M.long.b),Zf(M.zTopo),M.long.b*s,M.long.h*s,M.long));
+  });
+  if(M.trav.sobre) o.push(R(LX(M.L),Zf(M.zTrav+M.trav.h),M.L*s,M.trav.h*s,'pc'));
+  else for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; o.push(R(LXw(y0,y1-y0),Zf(M.zTrav+M.trav.h),(y1-y0)*s,M.trav.h*s,'pc')); }
+  if(M.tampo.t>0) o.push(R(LX(M.L),Zf(M.zTampo+M.tampo.t),M.L*s,M.tampo.t*s,'tp'));
+  if(mostrarCarga){ const cl=+cg.larg; const y0=(M.L-cl)/2; o.push(R(LXw(y0,cl),Zf(M.H+cAlt),cl*s,cAlt*s,'cg')); }
+  o.push(cotaH(LX(M.L),LX(0),fyBase+6,fyBase,mm(M.L)));
+  if(M.longY.length>=2){ const a=M.longY[0]+M.long.b/2+M.pes.h/2, b=M.longY[1]+M.long.b/2-M.pes.h/2; if(b>a) o.push(cotaH(LXw(a,b-a),LX(a),yVao,yVao,mm(b-a)+' livre')); }
+  o.push(T(LX(M.L/2), fyTop-cAlt*s-3.2, 'VISTA LATERAL ESQUERDA','middle','tv'));
+
+  /* ===== VISTA SUPERIOR (comprimento × largura) — tampo omitido ===== */
+  M.longY.forEach(y=>M.pesX.forEach(x=>{ const cy=y+M.long.b/2; o.push(R(X(x),SY(cy-M.pes.h/2,M.pes.h),M.pes.b*s,M.pes.h*s,'oculto')); }));
+  if(M.trav.sobre){
+    M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'oculto')));
+    M.travX.forEach(x=>o.push(R(X(x),SY(0,M.L),M.trav.b*s,M.L*s,'pc')));
+  } else {
+    M.longY.forEach(y=>o.push(R(X(0),SY(y,M.long.b),M.C*s,M.long.b*s,'pc')));
+    for(let i=0;i<M.longY.length-1;i++){ const y0=M.longY[i]+M.long.b, y1=M.longY[i+1]; M.travX.forEach(x=>o.push(R(X(x),SY(y0,y1-y0),M.trav.b*s,(y1-y0)*s,'pc'))); }
+  }
+  if(M.tampo.t>0||M.tampo.tipo==='TELA') o.push(R(X(0),SY(0,M.L),M.C*s,M.L*s,'tpo'));
+  if(mostrarCarga){ const cc=+cg.comp, cl=+cg.larg; o.push(R(X((M.C-cc)/2),SY((M.L-cl)/2,cl),cc*s,cl*s,'cg')); }
+  o.push(cotaH(X(0),X(M.C),syTop+M.L*s+6,syTop+M.L*s,mm(M.C)));
+  o.push(cotaV(syTop,syTop+M.L*s,fx-6,fx,mm(M.L)));
+  if(M.trav.n>=2){ const e=M.travX[1]-M.travX[0]; o.push(cotaH(X(M.travX[0]+M.trav.b/2),X(M.travX[1]+M.trav.b/2),syTop-3,syTop,mm(e)+' e/e')); }
+  if(M.longY.length>=2){ const y0=M.longY[M.longY.length-2], y1=M.longY[M.longY.length-1]; o.push(cotaV(SY(y1+M.long.b/2,0),SY(y0+M.long.b/2,0),X(M.C)+6,X(M.C),mm(y1-y0)+' e/e')); }
+  o.push(T(X(M.C/2), syTop+M.L*s+12.5, 'VISTA SUPERIOR'+(M.tampo.t>0||M.tampo.tipo==='TELA'?' (tampo omitido — contorno tracejado)':''),'middle','tv'));
+  // balões de identificação — coluna à direita de cada vista
+  const colB=X(M.C)+16, passoB=6.2; const balF=[];
+  if(M.tampoInfo) balF.push(['P5', X(M.C*0.9), Zf(M.zTampo+M.tampo.t/2)]);
+  balF.push(['P1', X(M.C*0.93), Zf(M.zLong+M.long.h/2)]);
+  balF.push(['P3', X(M.pesX[M.pesX.length-1]+M.pes.b/2), Zf(M.hb+M.hp/2)]);
+  if(M.base) balF.push(['P4', X(M.C*0.96), Zf(M.hb/2)]);
+  const yB0=Math.min(Zf(M.H)-2, fyBase+14-passoB*(balF.length-1));
+  balF.forEach(([t,x,y],i)=>o.push(bal(x,y,colB,yB0+i*passoB,t)));
+  { const j=Math.max(0,M.travX.length-2), xt=X(M.travX[j]+M.trav.b/2);
+    const yt = M.trav.sobre || M.longY.length<2 ? SY(M.L/2,0) : SY((M.longY[0]+M.long.b+M.longY[1])/2,0);
+    o.push(bal(xt,yt,colB,yt-4,'P2')); }
+
+  /* ===== carimbo ===== */
+  const lib=p.lib||{}; const liberado=!!lib.ok;
+  const cy=160, ch=26;
+  const marca = liberado ? '' : `<text x="${W/2}" y="${HH/2-4}" text-anchor="middle" class="wm" transform="rotate(-18 ${W/2} ${HH/2})">NÃO LIBERADO PARA FABRICAÇÃO</text>`;
+  const carimbo=`<rect x="6" y="${cy}" width="${W-12}" height="${ch}" class="cb"/>
+    <line x1="64" y1="${cy}" x2="64" y2="${cy+ch}" class="cbl"/><line x1="160" y1="${cy}" x2="160" y2="${cy+ch}" class="cbl"/><line x1="210" y1="${cy}" x2="210" y2="${cy+ch}" class="cbl"/>
+    <line x1="64" y1="${cy+13}" x2="${W-6}" y2="${cy+13}" class="cbl"/>
+    <text x="9" y="${cy+9}" class="lgA">GRUPO TENDAS</text><text x="9" y="${cy+16.5}" class="lgB">PLENART</text><text x="9" y="${cy+22.5}" class="pq">Central de Conferência · pátio</text>
+    <text x="66" y="${cy+4.3}" class="pq">PALETE</text><text x="66" y="${cy+10.5}" class="cv">${esc((p.nome||'').slice(0,46))}</text>
+    <text x="66" y="${cy+17.3}" class="pq">CÓDIGO · QTD</text><text x="66" y="${cy+23.5}" class="cv">${esc(p.codigo)} · ${M.q} un</text>
+    <text x="112" y="${cy+17.3}" class="pq">PESO ESTIMADO</text><text x="112" y="${cy+23.5}" class="cv">${nf(M.pesoUn,1)} kg/un</text>
+    <text x="162" y="${cy+4.3}" class="pq">ESCALA · UNIDADE</text><text x="162" y="${cy+10.5}" class="cv">1:${String(den).replace('.',',')} · mm</text>
+    <text x="162" y="${cy+17.3}" class="pq">REV. · DATA</text><text x="162" y="${cy+23.5}" class="cv">${p.planta?p.planta.rev:0} · ${dataBR(p.planta?p.planta.em:Date.now())}</text>
+    <text x="212" y="${cy+4.3}" class="pq">SITUAÇÃO</text><text x="212" y="${cy+10.5}" class="cv" style="fill:${liberado?'#15803d':'#b91c1c'}">${liberado?'LIBERADO P/ FABRICAÇÃO':'NÃO LIBERADO'}</text>
+    <text x="212" y="${cy+17.3}" class="pq">${liberado?'LIBERADO POR':'DESENHADO POR'}</text><text x="212" y="${cy+23.5}" class="cv">${esc(((liberado?lib.resp:(p.planta&&p.planta.por))||'—').slice(0,28))}</text>
+    <text x="8" y="${cy-2}" class="pq">Projeção 1º diedro (ABNT). Medidas em mm. Peças P1…P5 e reforços: ver lista de materiais. Linhas tracejadas: peças escondidas${mostrarCarga?' · laranja: carga (referência)':''}.</text>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${HH}" id="svgPlanta">
+    <style>
+      .pc{fill:#dfe5f5;stroke:#1d2b6b;stroke-width:.3}
+      .oco{fill:#fff;stroke:#1d2b6b;stroke-width:.18}
+      .oculto{fill:none;stroke:#555;stroke-width:.22;stroke-dasharray:1.2 .8}
+      .tp{fill:#f3e6d3;stroke:#7a4b12;stroke-width:.25}
+      .tpo{fill:none;stroke:#7a4b12;stroke-width:.22;stroke-dasharray:2.5 1}
+      .cg{fill:rgba(245,130,32,.08);stroke:#f58220;stroke-width:.3;stroke-dasharray:2 1}
+      .cota line{stroke:#333;stroke-width:.15}
+      .cota .tk{stroke-width:.3}
+      .tx,.tc,.tv,.tb,.pq,.cv,.tcg,.lgA,.lgB,.wm{font-family:Arial,Helvetica,sans-serif}
+      .tc{font-size:2.3px;fill:#111}
+      .tv{font-size:2.9px;font-weight:700;fill:#2b3990;letter-spacing:.2px}
+      .tcg{font-size:2.2px;fill:#c2410c;font-weight:700}
+      .ld{stroke:#2b3990;stroke-width:.2}
+      .bl{fill:#fff;stroke:#2b3990;stroke-width:.3}
+      .tb{font-size:2.5px;font-weight:700;fill:#2b3990}
+      .cb{fill:#fff;stroke:#1d2b6b;stroke-width:.45}
+      .cbl{stroke:#1d2b6b;stroke-width:.2}
+      .pq{font-size:1.9px;fill:#666}
+      .cv{font-size:3px;font-weight:700;fill:#111}
+      .lgA{font-size:4.3px;font-weight:800;fill:#2b3990}
+      .lgB{font-size:5.4px;font-weight:800;fill:#f58220}
+      .wm{font-size:12px;font-weight:800;fill:rgba(185,28,28,.10)}
+    </style>
+    <rect x="0" y="0" width="${W}" height="${HH}" fill="#fff"/>
+    <rect x="3" y="3" width="${W-6}" height="${HH-6}" fill="none" stroke="#1d2b6b" stroke-width=".5"/>
+    ${marca}${o.join('')}${carimbo}</svg>`;
+}
+function baixarSVG(){
+  const svg=$('svgPlanta'); if(!svg) return; const p=P[cur];
+  const blob=new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+svg.outerHTML],{type:'image/svg+xml'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(p.codigo+'_'+(p.nome||'palete')).replace(/[^\w\-]+/g,'_')+'_rev'+(p.planta?p.planta.rev:0)+'.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* ---------- passo 5: liberação ---------- */
+function passoLib(p,A){
+  if(!A.pronto) return `<div class="aviso a">A liberação só abre depois que todas as medidas estiverem completas e a planta for gerada. Hoje: <b>${ST_NOME[A.st]}</b>.</div><button class="btn" onclick="irPasso('${proximoPasso(p,A)[1]}')">Ir para o próximo passo</button>`;
+  if(!A.plantaOk) return `<div class="aviso a">Gere a planta técnica primeiro (passo 4).</div><button class="btn" onclick="irPasso('planta')">Ir para a planta</button>`;
+  const l=p.lib; const M=modelo(p); const ver=verificacao(M,+l.capacidade);
+  const cg=p.carga||{}; const relH = cg.alt>0 ? (+cg.alt)/Math.min(M.C,M.L) : null;
+  if(l.ok) return `<div class="aviso ok" style="font-size:15px">✔ <b>LIBERADO PARA FABRICAÇÃO</b> por <b>${esc(l.resp)}</b> em ${dataBR(l.em)}<br>Capacidade nominal: ${nf(+l.capacidade)} kg${l.empilha?' · empilhamento máx.: '+esc(l.empilha):''}${l.obs?'<br>'+esc(l.obs):''}</div>
+    <div class="linha"><button class="btn" onclick="irPasso('planta')">🖨 Ver / imprimir planta</button><button class="btn d" onclick="reabrir()">🔓 Reabrir (cancela a liberação)</button></div>`;
+  const ck=(k,tit,txt)=>`<label class="ck ${l[k]?'on':''}"><input type="checkbox" ${l[k]?'checked':''} onchange="setLib('${k}',this.checked,true)"><div><b>${tit}</b><span>${txt}</span></div></label>`;
+  return `<div class="aviso i">A fabricação só é liberada depois das <b>4 conferências</b>. Quem libera assina com o nome e responde pelo que marcou.</div>
+    <div class="lib">
+      ${ck('dim','1. Dimensões conferidas','Comprimento, largura, altura, seções e espessuras conferidos com trena na peça real ou no protótipo, batendo com a planta Rev. '+p.planta.rev+'.')}
+      <div class="card"><h3>Capacidade de carga</h3><div class="grade g3">
+        <label class="f">Capacidade nominal do palete (kg) *<input type="number" value="${esc(l.capacidade)}" onchange="setLib('capacidade',this.value,true)" placeholder="${cg.peso?'carga informada: '+esc(cg.peso)+' kg':''}"></label>
+        <label class="f">Empilhamento máximo (paletes carregados um sobre o outro)<input value="${esc(l.empilha)}" onchange="setLib('empilha',this.value)" placeholder="Ex.: 3 ou não empilha"></label></div>
+        ${ver?htmlVerif(ver,M,+l.capacidade):'<div style="font-size:12.5px;color:var(--mut);margin-top:6px">Informe a capacidade para ver a conta indicativa da longarina.</div>'}
+        ${cg.peso && +l.capacidade>0 && +cg.peso>+l.capacidade?`<div class="aviso e">A carga informada (${esc(cg.peso)} kg) é maior que a capacidade nominal.</div>`:''}
+      </div>
+      ${ck('cap','2. Capacidade de carga conferida','A capacidade nominal acima foi verificada (conta de responsável técnico, teste com carga ou histórico de palete igual em uso).')}
+      ${ck('est','3. Estabilidade conferida','Pés apoiam no plano, palete não balança, carga não passa da borda e não tomba no transporte/empilhadeira.'+(relH?` Relação altura da carga ÷ menor lado = ${nf(relH,2)}${relH>2?' ⚠ alta':''}.`:''))}
+      ${ck('seg','4. Segurança conferida','Soldas/fixações completas, sem rebarba ou canto vivo, abertura do garfo compatível com a empilhadeira/paleteira (altura '+mm(M.hp)+' mm), capacidade identificada no palete.')}
+      <div class="grade g2">
+        <label class="f">Responsável pela liberação *<input value="${esc(l.resp||quem())}" onchange="setLib('resp',this.value,true)"></label>
+        <label class="f">Observação da liberação<input value="${esc(l.obs)}" onchange="setLib('obs',this.value)"></label>
+      </div>
+      ${(()=>{ const faltam=[]; if(!l.dim)faltam.push('dimensões'); if(!(+l.capacidade>0))faltam.push('capacidade nominal'); if(!l.cap)faltam.push('capacidade conferida'); if(!l.est)faltam.push('estabilidade'); if(!l.seg)faltam.push('segurança'); if(!(l.resp||quem()))faltam.push('responsável'); if(ver&&!ver.semCalc&&!ver.ok) faltam.push('a conta indicativa deu acima do admissível — revise o perfil ou a capacidade');
+        return `${faltam.length?`<div class="aviso a">Falta: ${faltam.join(' · ')}</div>`:''}<button class="btn v" style="font-size:16px;padding:14px" ${faltam.length?'disabled':''} onclick="liberar()">🔓 LIBERAR PARA FABRICAÇÃO</button>`; })()}
+    </div>`;
+}
+function setLib(k,v,re){ const p=P[cur]; p.lib=p.lib||{}; p.lib[k]=v; salvar(p,true); if(re){ const y=window.scrollY; render(); window.scrollTo(0,y); } }
+function liberar(){
+  const p=P[cur]; const l=p.lib; if(!l.resp) l.resp=quem();
+  if(!(l.dim&&l.cap&&l.est&&l.seg&&+l.capacidade>0&&l.resp)) return;
+  if(!confirm('Confirmar a liberação de '+p.codigo+' para fabricação, em nome de '+l.resp+'?')) return;
+  l.ok=true; l.em=Date.now(); salvar(p); render(); toast('🔓 Liberado para fabricação');
+}
+function reabrir(){ if(!confirm('Reabrir cancela a liberação. As 4 conferências terão que ser feitas de novo. Continuar?')) return; const p=P[cur]; Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); salvar(p); render(); }
+
+/* =================== INÍCIO =================== */
+carregarLocal();
+pedirQuem(false);
+render();
+iniciarNuvem();
+</script>
+</body>
+</html>
