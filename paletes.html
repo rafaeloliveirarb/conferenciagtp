@@ -206,7 +206,7 @@ h2.sec{font-size:16px;color:var(--azul);margin:18px 0 6px;border-bottom:2px soli
 <header>
   <div class="marca"><span class="gt">GRUPO TENDAS</span><span class="pl">PLENART</span></div>
   <a href="index.html" onclick="if(window.parent!==window&&window.parent.fecharPaletes){window.parent.fecharPaletes();return false}" style="color:#fff;text-decoration:none;font-size:13px;font-weight:700;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px">← Central · Demanda do Pátio</a>
-  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v14</small></h1>
+  <h1>🧱 Projeto de Paletes <small style="font-size:11px;opacity:.7;font-weight:500">v15</small></h1>
   <span class="quem" id="quem" onclick="pedirQuem(true)"></span>
   <span class="nuvem" id="nuvem">conectando…</span>
 </header>
@@ -538,6 +538,7 @@ function analisar(p){
     if(!fotosQueMostram(p,c,false).length) fotosPed.push({v:'DETALHE', txt:'Detalhe de '+COMP[c].nome.toUpperCase()+' — '+DICA_FOTO[c]+'.'});
   });
   const semMarca=(p.fotos||[]).filter(f=>!(f.vis||[]).length);
+  refFaltas.push(...parsFaltas(p));
   const pronto = pend.length===0 && refFaltas.length===0 && erros.length===0 && !!p.estado;
   const hashAtual = hashMedidas(p);
   const plantaOk = !!(p.planta && p.planta.hash===hashAtual);
@@ -641,6 +642,10 @@ function modelo(p){
     M.chapas.push({ id: M.placa?'P1':'P5', nome:nm, qtd:1, area, kg, dim: mm(M.C)+' × '+mm(M.L)+(M.tampo.t?' × '+mm(M.tampo.t):'')+' mm', obs:'peça inteira ou emendada' });
   }
   if(RG.sapata){ const kg=M.sap*M.sap*M.sapT*7.85e-6; M.chapas.push({ id:'P6', nome:'Sapata — chapa de aço', qtd:M.nPes, area:M.sap*M.sap/1e6, kg, dim: mm(M.sap)+' × '+mm(M.sap)+' × '+mm(M.sapT)+' mm', obs:'1 embaixo de cada pé' }); }
+  const disp=ligacoesDisp(p).map(x=>x[0]); const nomeLig=Object.fromEntries(ligacoesDisp(p));
+  M.pars=(p.pars||[]).filter(l=>disp.includes(l.lig)).map(l=>{ const pts=pontosLig(M,p,l); return Object.assign({},l,{ nome:nomeLig[l.lig], pts, total: pts.length*(+l.n||0) }); });
+  { const grp={}; M.pars.forEach(l=>{ const k=String(l.med||'').trim(); if(!k) return; (grp[k]=grp[k]||{qtd:0,onde:[]}); grp[k].qtd+=l.total; grp[k].onde.push(l.nome+' ('+l.n+' por ponto'+(ligLinear(p,l.lig)?' a cada '+mm(+l.esp)+' mm':'')+')'); });
+    Object.entries(grp).forEach(([k,v],i)=>M.itens.push({ id:'PF'+(i+1), nome:'Parafuso '+k, qtd:v.qtd, obs:v.onde.join(' · ') })); }
   if(RG.olhal){ M.olhalN=g('olhal_n'); M.itens.push({ id:'P8', nome:'Olhal de içamento', qtd:M.olhalN, obs:'comprar conforme a carga · soldar nos cantos' }); }
   // barras
   const grupos={};
@@ -678,8 +683,50 @@ function verificacao(M, Qkg){
   const sig = Mf/W;
   return { vao, sig, adm, ok: sig<=adm, fs: adm/sig };
 }
+/* ===== PARAFUSOS: onde vão, quantos por ponto, e os pontos calculados no desenho ===== */
+function ligacoesDisp(p){
+  const RG=regras(p); const L=[];
+  const tamp=['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'));
+  if(RG.placa) L.push(['pe_placa','Placa nos pés']);
+  else {
+    L.push(['pe_long','Pés nas longarinas']);
+    L.push(['trav_long','Travessas nas longarinas']);
+    if(tamp) L.push(['tampo_estr','Tampo na estrutura']);
+    if(vRaw(p,'base_tem')==='SIM') L.push(['base_pe','Base nos pés']);
+  }
+  return L;
+}
+function ligLinear(p,lig){ return lig==='tampo_estr' || ((lig==='pe_placa'||lig==='pe_long'||lig==='base_pe') && !!p.pesInteiro); }
+function espacar(a,b,esp){ const ini=a, fim=b; if(!(esp>0)||fim<=ini) return [ (a+b)/2 ]; const n=Math.max(2,Math.floor((fim-ini)/esp)+1); return [...Array(n).keys()].map(i=>ini+i*(fim-ini)/(n-1)); }
+function pontosLig(M,p,l){
+  const pts=[]; const esp=+l.esp; const mg=30;
+  const centrosPes=()=>{ M.rowsY.forEach(y=>M.pesX.forEach(x=>pts.push([x+M.pes.b/2,y+M.pes.h/2]))); };
+  if(l.lig==='pe_placa'||l.lig==='pe_long'||l.lig==='base_pe'){
+    if(M.pesInteiro) M.rowsY.forEach(y=>espacar(mg,M.C-mg,esp).forEach(x=>pts.push([x,y+M.pes.h/2])));
+    else centrosPes();
+  } else if(l.lig==='trav_long' && !M.placa){
+    M.travX.forEach(x=>{ const xc=x+M.trav.b/2;
+      if(M.trav.sobre) M.longY.forEach(y=>pts.push([xc,y+M.long.b/2]));
+      else for(let i=0;i<M.longY.length-1;i++){ pts.push([xc,M.longY[i]+M.long.b/2]); pts.push([xc,M.longY[i+1]+M.long.b/2]); } });
+  } else if(l.lig==='tampo_estr' && !M.placa){
+    if(M.trav.sobre) M.travX.forEach(x=>espacar(mg,M.L-mg,esp).forEach(y=>pts.push([x+M.trav.b/2,y])));
+    else M.longY.forEach(y=>espacar(mg,M.C-mg,esp).forEach(x=>pts.push([x,y+M.long.b/2])));
+  }
+  return pts;
+}
+function parsFaltas(p){
+  const disp=ligacoesDisp(p).map(x=>x[0]); const f=[];
+  (p.pars||[]).forEach((l,i)=>{ const m=[];
+    if(!disp.includes(l.lig)) m.push('onde vai');
+    if(!String(l.med||'').trim()) m.push('medida');
+    if(!(+l.n>0)) m.push('quantos por ponto');
+    if(ligLinear(p,l.lig) && !(+l.esp>0)) m.push('espaçamento');
+    if(m.length) f.push('Parafuso '+(i+1)+': '+m.join(', '));
+  });
+  return f;
+}
 function hashMedidas(p){
-  const s=JSON.stringify([regras(p), !!p.pesInteiro, FIELDS.filter(f=>ativo(p,f)).map(f=>[f.k,vRaw(p,f.k)]), (p.refs||[]).map(r=>[r.desc,r.tipo,r.b,r.h,r.t,r.comp,r.qtd]), p.qtdFab, p.carga&&p.carga.mostrar?[p.carga.comp,p.carga.larg,p.carga.alt]:0]);
+  const s=JSON.stringify([regras(p), !!p.pesInteiro, (p.pars||[]).map(l=>[l.lig,l.med,l.n,l.esp]), FIELDS.filter(f=>ativo(p,f)).map(f=>[f.k,vRaw(p,f.k)]), (p.refs||[]).map(r=>[r.desc,r.tipo,r.b,r.h,r.t,r.comp,r.qtd]), p.qtdFab, p.carga&&p.carga.mostrar?[p.carga.comp,p.carga.larg,p.carga.alt]:0]);
   let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h+s.charCodeAt(i))|0; } return String(h);
 }
 
@@ -793,7 +840,7 @@ function contaFaltas(A,comps){ /* conta perguntas, não campos internos (perfil 
 function pendResumo(A){
   const g={}; A.pend.forEach(f=>{ (g[f.comp]=g[f.comp]||{k:f.k,s:new Set()}).s.add(curto(f.k)); });
   const r=Object.entries(g).map(([c,x])=>({c, k:x.k, txt:COMP[c].nome.replace(' / blocos','').replace(' / piso','')+' ('+[...x.s].join(', ')+')'}));
-  if(A.refFaltas.length) r.push({c:'ref',k:'ref_tem',txt:'Reforços (completar a lista)'});
+  if(A.refFaltas.length) r.push({c:'ref',k:'ref_tem',txt:'Reforços / parafusos (completar)'});
   return r;
 }
 function htmlAssist(p,A){
@@ -1063,6 +1110,7 @@ function passoMedidas(p,A,trav){
       ${vRaw(p,'base_tem')==='SIM'?`<div class="q"><span>Perfil da base:</span>${selPerfil(p,'base',dis)}</div>`:''}
       <div class="q"><span>Tampo?</span>${chipsOp(p,'tampo_tipo',[['NENHUM','Não'],['CHAPA','Chapa'],['MADEIRA','Madeira'],['TELA','Tela']],trav)}</div>
       ${['CHAPA','MADEIRA'].includes(vRaw(p,'tampo_tipo'))?`<div class="q">${campoNum(p,'tampo_t','Espessura do tampo',dis)}</div>`:''}`}
+      <div class="q"><span>Parafusos:</span><span>${(p.pars||[]).length?esc((p.pars||[]).map(l=>l.med||'?').join(' · ')):'nenhum'}</span><button class="btn mini lar" onclick="abrirPeca('par')">🔩 ${(p.pars||[]).length?'Editar':'Adicionar'}</button></div>
       <div class="q"><span>${RG.placa?'Outros reforços?':'Reforços?'}</span>${chipsOp(p,'ref_tem',[['NAO','Não'],['SIM','Sim']],trav)}</div>
       ${vRaw(p,'ref_tem')==='SIM'?htmlRefs(p,trav):''}
       <p style="font-size:12px;color:var(--mut);margin:10px 0 0">Se a peça não aparece na foto e você não sabe, deixe como está: o sistema não inventa peça.</p>
@@ -1170,6 +1218,8 @@ function resumoDados(p){
   if(RG.cantos) add('Reforço nos cantos', nomePerfilP(p,'rc')&&n('rc_comp')!=null ? '4 × '+nomePerfilP(p,'rc')+' · '+mm(n('rc_comp'))+' mm' : '', [...pk('rc'),'rc_comp']);
   if(RG.olhal) add('Olhais para içar', v('olhal_n')?v('olhal_n')+' un':'', ['olhal_n']);
   if(RG.sapata) add('Sapata em cada pé', n('sap_lado')!=null&&n('sap_t')!=null ? mm(n('sap_lado'))+' × '+mm(n('sap_lado'))+' × '+mm(n('sap_t'))+' mm' : '', ['sap_lado','sap_t']);
+  { const pf=parsFaltas(p); const n=(p.pars||[]).length;
+    R.push({rot:'Parafusos', val: n? (p.pars||[]).map(l=>(String(l.med||'?'))+' — '+((Object.fromEntries(ligacoesDisp(p))[l.lig])||'?')).join(' · ') : 'não', o: pf.length?'PEND':'INF', k:'par'}); }
   add(RG.placa?'Outros reforços':'Reforços', v('ref_tem')==='SIM'?(p.refs||[]).length+' cadastrado(s)':v('ref_tem')==='NAO'?'não':'',['ref_tem']);
   if(v('ref_tem')==='SIM' && refsPend(p).length) R[R.length-1].o='PEND';
   return R;
@@ -1186,6 +1236,7 @@ function editarCampo(k){
     Object.assign(p.lib,{ok:false,dim:false,cap:false,est:false,seg:false,em:0}); p.planta.hash='reaberto'; salvar(p,true);
   }
   const c=(FMAP[k]||{}).comp;
+  if(k==='par'){ abrirPeca('par'); return; }
   if(k==='notas'){ passo='medidas'; render(); setTimeout(()=>{ const e=$('in_notas'); if(e){ e.scrollIntoView({block:'center'}); e.focus(); } },60); return; }
   if(['base','ref'].includes(c) || k==='trav_mont' || (c==='tampo'&&!regras(p).placa)) maisAberto=true;
   passo='medidas'; render(); irCampo(k);
@@ -1204,7 +1255,7 @@ function passoPlanta(p,A){
   const ver=verificacao(M, +lib.capacidade);
   return `<div class="linha noprint" style="justify-content:space-between;margin-bottom:10px">${faixa}
       <span class="linha"><button class="btn c mini" onclick="baixarSVG()">⬇ Desenho (SVG)</button><button class="btn mini" onclick="window.print()">🖨 Imprimir / PDF</button></span></div>
-    <div class="aviso i noprint" style="margin:0 0 8px">👆 <b>Toque numa peça do desenho</b> (placa, pé, longarina, travessa…) ou numa <b style="color:#1d4ed8">medida azul</b> para mudar perfil, espessura, quantidade e tamanho.</div>
+    <div class="aviso i noprint" style="margin:0 0 8px">👆 <b>Toque numa peça do desenho</b> (placa, pé, longarina, travessa…) ou numa <b style="color:#1d4ed8">medida azul</b> para mudar perfil, espessura, quantidade e tamanho. <button class="btn mini lar" style="margin-left:6px" onclick="abrirPeca('par')">🔩 Parafusos${(p.pars||[]).length?' ('+p.pars.length+')':''}</button></div>
     <div class="folha" id="folha" onclick="cliqueDesenho(event)">${desenharPlanta(p,M)}</div>
     ${campoNotas(p,travado(p))}
     <div class="quebra">${cabecalhoImpresso(p,'LISTA DE MATERIAIS E CORTE')}</div>
@@ -1222,7 +1273,7 @@ function passoPlanta(p,A){
 /* ===== editar clicando na peça do desenho ===== */
 let pecaAberta=null;
 function cliqueDesenho(ev){ const el=ev.target.closest&&ev.target.closest('[data-p]'); if(el) abrirPeca(el.dataset.p); }
-const PECA_TIT={tampo:'Placa / tampo',pes:'Pés',long:'Longarinas',trav:'Travessas',base:'Base inferior',sap:'Sapatas',rc:'Reforço nos cantos',olhal:'Olhais',C:'Comprimento do palete',L:'Largura do palete',H:'Altura do palete'};
+const PECA_TIT={par:'Parafusos',tampo:'Placa / tampo',pes:'Pés',long:'Longarinas',trav:'Travessas',base:'Base inferior',sap:'Sapatas',rc:'Reforço nos cantos',olhal:'Olhais',C:'Comprimento do palete',L:'Largura do palete',H:'Altura do palete'};
 function abrirPeca(k){
   const p=P[cur];
   if(travado(p)){
@@ -1250,7 +1301,8 @@ function corpoPeca(p,k){
       <label class="mf grande" style="margin-top:8px"><span>Perfil dos pés</span>${selPerfil(p,'pes',d,true)}</label>${camposPerfil(p,'pes',d)}
       <div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n',RG.placa?'Fileiras de pés':'Longarinas (uma fileira de pés em cada)',d)}${p.pesInteiro?'':campoNum(p,'pes_n',RG.placa?'Pés em cada fileira':'Pés em cada longarina',d)}</div>
       <div class="mlinha" style="margin-top:8px">${campoNum(p,'H','Altura total do palete',d)}</div>
-      <p class="sub" style="margin-top:8px">🧮 Altura do pé: <b>${pe==null?'—':mm(pe)+' mm'}</b> — muda pela altura total.</p>`;
+      <p class="sub" style="margin-top:8px">🧮 Altura do pé: <b>${pe==null?'—':mm(pe)+' mm'}</b> — muda pela altura total.</p>
+      <button class="btn mini lar" onclick="abrirPeca('par')">🔩 Parafusos dos pés</button>`;
   else if(k==='long') h=`<label class="mf grande"><span>Perfil das longarinas</span>${selPerfil(p,'long',d,true)}</label>${camposPerfil(p,'long',d)}<div class="mlinha" style="margin-top:8px">${campoNum(p,'long_n','Quantas longarinas',d)}</div>`;
   else if(k==='trav') h=`<label class="mf grande"><span>Perfil das travessas</span>${selPerfil(p,'trav',d,true)}</label>${camposPerfil(p,'trav',d)}
       <div class="mlinha" style="margin-top:8px">${RG.semTravMeio?'<p class="sub">2 travessas — só nas pontas (pela observação)</p>':campoNum(p,'trav_n','Quantas travessas',d)}</div>
@@ -1259,6 +1311,7 @@ function corpoPeca(p,k){
   else if(k==='sap') h=`<div class="mlinha">${campoNum(p,'sap_lado','Lado (quadrada)',d)}${campoNum(p,'sap_t','Espessura da chapa',d)}</div>`;
   else if(k==='rc') h=`<label class="mf grande"><span>Perfil do reforço</span>${selPerfil(p,'rc',d,true)}</label>${camposPerfil(p,'rc',d)}<div class="mlinha" style="margin-top:8px">${campoNum(p,'rc_comp','Comprimento de cada reforço',d)}</div>`;
   else if(k==='olhal') h=`<div class="mlinha">${campoNum(p,'olhal_n','Quantos olhais',d)}</div>`;
+  else if(k==='par') return {tit:'🔩 Parafusos', h:painelParafusos(p)};
   /* no modal tudo redesenha na hora */
   h=h.replace(/onchange="setVal\(/g,'onchange="setValPeca(').replace(/onchange="setPerfil\(/g,'onchange="setPerfilPeca(').replace(/onclick="setVal\(/g,'onclick="setValPeca(').replace(/onchange="setUnK\(/g,'onchange="setUnKPeca(');
   return {tit,h};
@@ -1278,6 +1331,26 @@ function desenharModalPeca(){
 function fecharPeca(){ pecaAberta=null; desenharModalPeca(); }
 function redesenharComPeca(){ const y=window.scrollY; render(); window.scrollTo(0,y); desenharModalPeca(); }
 function setValPeca(k,v,re){ setVal(k,v,false); redesenharComPeca(); }
+function painelParafusos(p){
+  const disp=ligacoesDisp(p); const pr=analisar(p).pronto; let M=null; try{ if(pr) M=modelo(p); }catch(e){}
+  const linhas=(p.pars||[]).map((l,i)=>{
+    const lin=ligLinear(p,l.lig); let calc='';
+    if(M){ const mp=M.pars.find(x=>x.id===l.id); if(mp) calc=`<div class="sub" style="margin:6px 0 0;color:var(--ok);font-weight:700">→ ${mp.pts.length} ponto(s) × ${+l.n||0} = <b>${mp.total} parafusos</b> por palete</div>`; }
+    return `<div class="ref"><div class="linha" style="justify-content:space-between"><b>🔩 ${i+1}</b><button class="btn mini c" onclick="tirarPar(${i})">🗑</button></div>
+      <label class="mf" style="margin-top:6px"><span>Onde vai</span><select onchange="setPar(${i},'lig',this.value)">${disp.map(([k,t])=>`<option value="${k}" ${l.lig===k?'selected':''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="mf" style="margin-top:6px"><span>Medida / tipo do parafuso</span><input class="${String(l.med||'').trim()?'':'vz'}" value="${esc(l.med||'')}" placeholder="Ex.: 4,5 × 50 madeira · sextavado 1/4 × 2&quot;" onchange="setPar(${i},'med',this.value)"></label>
+      <div class="mlinha" style="margin-top:6px">
+        <label class="mf"><span>${lin?'Parafusos lado a lado':'Parafusos por ponto'}</span><input class="${+l.n>0?'':'vz'}" type="number" min="1" step="1" value="${esc(l.n||'')}" onchange="setPar(${i},'n',this.value)"></label>
+        ${lin?`<label class="mf"><span>Um a cada (mm)</span><input class="${+l.esp>0?'':'vz'}" type="number" min="1" step="any" value="${esc(l.esp||'')}" onchange="setPar(${i},'esp',this.value)"></label>`:''}
+      </div>${calc}</div>`;
+  }).join('');
+  return `${linhas||'<p class="sub">Nenhum parafuso ainda.</p>'}
+    <button class="btn mini" style="margin-top:10px" onclick="addPar()">➕ Adicionar parafuso</button>
+    <p class="sub" style="margin-top:10px">O sistema conta os pontos pelo desenho (cada pé, cada cruzamento ou ao longo da peça) e multiplica pela quantidade por ponto.${M?'':' A contagem aparece quando as medidas estiverem completas.'}</p>`;
+}
+function addPar(){ const p=P[cur]; p.pars=p.pars||[]; const d=ligacoesDisp(p); p.pars.push({id:uid(), lig:d.length?d[0][0]:'', med:'', n:'', esp:''}); salvar(p,true); redesenharComPeca(); }
+function tirarPar(i){ const p=P[cur]; p.pars.splice(i,1); salvar(p,true); redesenharComPeca(); }
+function setPar(i,k,v){ const p=P[cur]; p.pars[i][k]= k==='med'?v.trim():v; salvar(p,true); redesenharComPeca(); }
 function setPesInteiroMed(v){ const p=P[cur]; p.pesInteiro=!!v; salvar(p,true); reMedidas(); }
 function setPesInteiro(v){ const p=P[cur]; p.pesInteiro=!!v; salvar(p,true); redesenharComPeca(); }
 function setPerfilPeca(c,v){ setPerfil(c,v); desenharModalPeca(); }
@@ -1405,6 +1478,7 @@ function desenharPlanta(p,M){
     if(M.rc && M.rc.comp>0){ const a=M.rc.comp/Math.SQRT2, x0=M.trav.sobre?0:M.trav.b, y0=M.long.b;
       [[x0,y0,1,1],[M.C-x0,y0,-1,1],[x0,M.L-y0,1,-1],[M.C-x0,M.L-y0,-1,-1]].forEach(([xc,yc,dx,dy])=>o.push(`<line x1="${X(xc+dx*a)}" y1="${SY(yc,0)}" x2="${X(xc)}" y2="${SY(yc+dy*a,0)}" class="rcl" data-p="rc" style="stroke-width:${Math.max(.3,M.rc.b*s)}"/>`)); }
   }
+  (M.pars||[]).forEach(l=>l.pts.forEach(([x,y])=>{ const cx=X(x), cy=SY(y,0); o.push(`<g class="pf" data-p="par"><circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="0.9" data-p="par"/><line x1="${(cx-0.6).toFixed(2)}" y1="${cy.toFixed(2)}" x2="${(cx+0.6).toFixed(2)}" y2="${cy.toFixed(2)}" data-p="par"/><line x1="${cx.toFixed(2)}" y1="${(cy-0.6).toFixed(2)}" x2="${cx.toFixed(2)}" y2="${(cy+0.6).toFixed(2)}" data-p="par"/></g>`); }));
   if(M.rg.olhal){ const ins=Math.min(60,M.C*0.08), insY=Math.min(60,M.L*0.08); [[ins,insY],[M.C-ins,insY],[ins,M.L-insY],[M.C-ins,M.L-insY]].forEach(([x,y])=>o.push(`<circle cx="${X(x)}" cy="${SY(y,0)}" r="1.3" class="ol" data-p="olhal"/>`)); }
   if(mostrarCarga){ const cc=+cg.comp, cl=+cg.larg; o.push(R(X((M.C-cc)/2),SY((M.L-cl)/2,cl),cc*s,cl*s,'cg')); }
   o.push(cotaH(X(0),X(M.C),syTop+M.L*s+6,syTop+M.L*s,mm(M.C),'C'));
@@ -1477,6 +1551,8 @@ function desenharPlanta(p,M){
       .sp{fill:#cfd6ea;stroke:#1d2b6b;stroke-width:.25}
       .rcl{stroke:#1d2b6b;stroke-linecap:butt}
       .ol{fill:#fff;stroke:#c2410c;stroke-width:.35}
+      .pf circle{fill:#fff;stroke:#111;stroke-width:.22} .pf line{stroke:#111;stroke-width:.18}
+      .pf circle.sel{fill:#ffc58f!important;stroke:#f58220!important}
       .nb{fill:#fffaf2;stroke:#f58220;stroke-width:.3}
       .nt{font-size:2.4px;font-weight:800;fill:#c2410c;font-family:Arial,Helvetica,sans-serif}
       .nx{font-size:2.5px;fill:#111;font-family:Arial,Helvetica,sans-serif}
