@@ -129,7 +129,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 20/10 F</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 23/10 G</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -335,7 +335,6 @@ function commitContagem(i, v) {
   var b = itensBase[i];
   if (!b || v === '' || v === undefined || v === null) return;
   delete b.dig;
-  if (aba === 'chegada' && !b.extra && b.q1 === undefined) b.q1 = v;   /* a 1ª contagem fica registrada */
   b.qtd = v;
   desenharLista();
 }
@@ -688,12 +687,9 @@ function desenhar() {
     return ligarTudo();
   }
 
-  h += '<div class="aviso"><span>ℹ️</span><div><b>Conte o que desceu deste caminhão.</b> ' +
-      (temSaidaConf ? 'A lista é o que <b>saiu conferido do galpão</b>. ' : 'A lista é o checklist do caminhão. ') +
-      '<b>🙈 Conferência às cegas:</b> conte as peças de cada item e <b>digite quanto chegou</b>. ' +
-      'Ao FINALIZAR o app compara com o que saiu da empresa: o que não bater <b>apita</b> e volta marcado para contar de novo. ' +
-      'Peça avariada ou danificada: toque em <b>⚠️ Avaria</b> — a foto é obrigatória.' +
-      (qtdTerc() ? ' O material <b>🔗 terceirizado</b> (de fornecedor) está num quadro separado, confira ele também.' : '') +
+  h += '<div class="aviso"><span>👉</span><div><b>Conte cada item e coloque quanto chegou</b> — use <b>−</b> e <b>+</b> ou digite o número. ' +
+      'No fim, toque em <b>FINALIZAR</b>.' +
+      (qtdTerc() ? ' O <b>🔗 terceirizado</b> fica num quadro separado, mais abaixo.' : '') +
       '</div></div>' +
     /* 71: foto da carga como chegou — obrigatória */
     '<div class="cartao"><div class="cartao__topo"><h3>📷 Foto da carga</h3>' +
@@ -919,24 +915,20 @@ function htmlItemEdit(b, i) {
   if (aba === 'chegada' && !b.extra) {
     var temQ = b.qtd !== '' && b.qtd !== undefined && b.qtd !== null;
     var recont = !!b.recontar;   /* não bateu no FINALIZAR: conte de novo (sem mostrar o número) */
-    var cor = temQ ? 'var(--azul)' : (recont ? 'var(--laranja)' : '#D7DEE8');
-    var h2 = '<div class="item" style="border-left:5px solid ' + cor + ';border-radius:8px;padding-left:10px' + (recont ? ';background:#FFF6EC' : '') + '">' +
-      '<div style="display:flex;gap:10px;align-items:center">' +
-        thumbPeca(b.nome, 54) +
-        '<span style="flex:1;min-width:0"><b style="font-size:16px">' + esc(b.nome) + '</b>' +
-          (b.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
-          (recont && !temQ
-            ? '<span style="display:block;font-weight:900;color:var(--laranja);font-size:14px">🔁 NÃO BATEU com o que saiu da empresa — CONTE DE NOVO</span>'
-            : temQ
-              ? '<span style="display:block;font-weight:900;color:var(--azul);font-size:15px">✔ ' + (recont ? 'Recontado' : 'Contado') + ': <span style="font-size:20px">' + fmt(b.qtd) + '</span> ' + esc(b.unidade) + '</span>'
-              : '<span style="display:block;font-weight:700;color:var(--txt-3);font-size:13px">🙈 Conferência às cegas — conte as peças e digite quanto chegou</span>') +
-        '</span>' +
+    var cor = recont && !temQ ? 'var(--laranja)' : (temQ ? 'var(--azul)' : '#D7DEE8');
+    var val = temQ ? b.qtd : (b.dig || '');
+    var h2 = '<div class="item" style="display:block;border-left:5px solid ' + cor + ';border-radius:8px;padding:10px 10px 10px 12px' + (recont && !temQ ? ';background:#FFF6EC' : '') + '">' +
+      '<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">' +
+        thumbPeca(b.nome, 44) +
+        '<b style="flex:1;min-width:0;font-size:16px">' + esc(b.nome) +
+          (b.terceirizado ? ' <span class="tag tag--terc">🔗 terceirizado</span>' : '') + '</b>' +
+        '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '" style="flex:none">⚠️ Avaria</button>' +
       '</div>' +
-      '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
-        '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="' + (recont && !temQ ? 'Conte de novo' : 'Quantos chegaram?') + '" value="' + esc(temQ ? b.qtd : (b.dig || '')) + '" style="flex:2;min-width:140px;min-height:54px;font-size:22px;font-weight:800;text-align:center;border:2px solid ' + (temQ ? 'var(--azul)' : (recont ? 'var(--laranja)' : 'var(--azul)')) + ';border-radius:10px">' +
-        '<button class="btn js-contou" data-i="' + i + '" style="flex:1;min-height:54px;background:var(--azul);color:#fff;font-weight:900">✔ CONTEI</button>' +
-        (VOZ_OK ? '<button class="btn js-mic" data-i="' + i + '" title="Falar a quantidade" style="min-height:54px;max-width:64px;background:#fff;border:2px solid var(--azul);color:var(--azul);font-weight:900">🎤</button>' : '') +
-        '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '">⚠️ Avaria</button>' +
+      (recont && !temQ ? '<p style="margin:0 0 8px;font-weight:900;color:var(--laranja)">🔁 Não bateu — conte de novo</p>' : '') +
+      '<div style="display:flex;gap:8px;align-items:stretch">' +
+        '<button class="btn js-menos" data-i="' + i + '" aria-label="Diminuir" style="flex:none;width:64px;min-height:58px;font-size:30px;font-weight:900;background:#fff;border:2px solid #D7DEE8;color:var(--azul)">−</button>' +
+        '<input class="entrada qtd js-q" data-i="' + i + '" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="' + esc(val) + '" aria-label="Quanto chegou de ' + esc(b.nome) + '" style="flex:1;min-width:0;width:auto;min-height:58px;font-size:26px;font-weight:900;text-align:center;border:2px solid ' + (val !== '' ? 'var(--azul)' : (recont ? 'var(--laranja)' : '#D7DEE8')) + ';border-radius:10px">' +
+        '<button class="btn js-mais" data-i="' + i + '" aria-label="Aumentar" style="flex:none;width:64px;min-height:58px;font-size:30px;font-weight:900;background:#fff;border:2px solid #D7DEE8;color:var(--azul)">+</button>' +
       '</div>';
     if (b.avOn) {
       h2 += '<div class="av">' +
@@ -1071,6 +1063,12 @@ function ligarTudo() {
       return commitContagem(i, cmp.value);
     }
     if (t.classList.contains('js-mic')) return ouvirItem(i, t);
+    if (t.classList.contains('js-mais') || t.classList.contains('js-menos')) {
+      var bb = itensBase[i], cmpo = tela.querySelector('.js-q[data-i="' + i + '"]');
+      var atual = cmpo && cmpo.value !== '' ? num(cmpo.value) : (bb.qtd !== '' && bb.qtd !== undefined ? num(bb.qtd) : 0);
+      var novoV = t.classList.contains('js-mais') ? atual + 1 : Math.max(0, atual - 1);
+      return commitContagem(i, String(novoV));
+    }
   };
   tela.oninput = function (e) {
     var t = e.target, i = t.dataset ? t.dataset.i : undefined;
@@ -1232,6 +1230,9 @@ function montarEnvio() {
 var envioPendente = null;
 
 function enviar() {
+  if (aba === 'chegada') itensBase.forEach(function (b) {
+    if (!b.extra && b.dig !== undefined && b.dig !== '') { b.qtd = b.dig; delete b.dig; }
+  });
   var m = montarEnvio();
   if (!m) return;
   if (aba === 'chegada' && !(rascPorCg[cargaSel] || {})._fotoCarga) {
@@ -1255,7 +1256,7 @@ function enviar() {
     var rc = rascPorCg[cargaSel] || [];
     var div = itensBase.filter(function (b) { return !b.extra && num(b.qtd) !== num(b.previsto); });
     if (div.length && !rc._recontou) {
-      div.forEach(function (b) { b.recontar = true; b.qtd = ''; delete b.dig; });
+      div.forEach(function (b) { b.q1 = b.qtd; b.recontar = true; b.qtd = ''; delete b.dig; });   /* a 1ª contagem fica registrada */
       rc._recontou = true;
       desenharLista();
       var pri = document.querySelector('.js-q[data-i="' + itensBase.indexOf(div[0]) + '"]');
