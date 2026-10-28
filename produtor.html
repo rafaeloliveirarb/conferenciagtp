@@ -129,7 +129,7 @@
   <div class="carregando">Abrindo o evento...</div>
 </div>
 
-<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 23/10 G</div>
+<div class="rodape">Grupo Tendas Plenart · conferência digital · versão 28/10 H</div>
 
 <!-- janela: avaliação do carregamento -->
 <div class="modal" id="modal-av" role="dialog" aria-modal="true" aria-labelledby="av-tit">
@@ -260,6 +260,7 @@ function entraNaFila(reg) {
     carregamento_id: reg.carregamento_id, qtd_avarias: reg.qtd_avarias || 0 };
   if (reg.tipo === 'chegada') { jaFeitas.chegada[reg.carregamento_id] = marca; delete rascPorCg[reg.carregamento_id]; }
   else if (reg.tipo === 'embarque_volta') jaFeitas.voltas.push(marca);
+  else if (reg.tipo === 'chegada_fornecedor') { diretoFeitas.push(marca); delete rascPorCg['__direto']; cargaSel = null; }
   else jaFeitas.sobra = marca;
   bannerFila();
   return true;
@@ -298,6 +299,10 @@ function enviaFila() {
           jaFeitas.voltas = jaFeitas.voltas.filter(function (x) { return !(x.pendenteEnvio && x.finalizada_em === item.reg.finalizada_em); });
           jaFeitas.voltas.push(novo);
         }
+        else if (item.reg.tipo === 'chegada_fornecedor') {
+          diretoFeitas = diretoFeitas.filter(function (x) { return !(x.pendenteEnvio && x.finalizada_em === item.reg.finalizada_em); });
+          diretoFeitas.push(novo);
+        }
         else if (item.reg.tipo === 'sobra') jaFeitas.sobra = novo;
         desenhar();
       }
@@ -327,6 +332,7 @@ var saiuEmPorCg = {};       /* 74: hora que a saída foi finalizada (caminhão a
 var retConf = {};           /* 75: conferência de RETORNO feita na empresa, por carregamento de retorno */
 var todasCargas = [];       /* todos os carregamentos do evento (inclui os de retorno) */
 var voltaBase = null, voltaNova = false;   /* 75: rascunho do embarque de volta */
+var movDireto = [], fornNome = {}, diretoFeitas = [];   /* 🔗 material entregue DIRETO pelo fornecedor na obra */
 /* 76: voz — fala "vinte e oito" e o campo preenche */
 var SR_ = window.SpeechRecognition || window.webkitSpeechRecognition, VOZ_OK = !!SR_, recAtivo = null;
 
@@ -445,8 +451,19 @@ function carregar() {
           .catch(function () { return []; }),
         cli.from('estoque').select('nome,foto')
           .then(function (r) { return r.error ? [] : (r.data || []); })
+          .catch(function () { return []; }),
+        cli.from('movimentos_terceiros').select('fornecedor_id,material,unidade,tipo,quantidade,evento_id,observacao')
+          .eq('evento_id', evento.id)
+          .then(function (r) { return r.error ? [] : (r.data || []); })
+          .catch(function () { return []; }),
+        cli.from('fornecedores').select('id,nome')
+          .then(function (r) { return r.error ? [] : (r.data || []); })
           .catch(function () { return []; })
       ]).then(function (rr) {
+        (rr[7] || []).forEach(function (f) { fornNome[f.id] = f.nome; });
+        movDireto = (rr[6] || []).filter(function (m) {
+          return m.tipo === 'envio' && /DIRETO/.test(String(m.observacao || '').toUpperCase());
+        });
         (rr[5] || []).forEach(function (i) { if (i.foto) fotoPeca[chaveN(i.nome)] = i.foto; });
         produtosEv = (rr[0].data || []);
         caminhoes = (rr[3].data || []);
@@ -456,6 +473,7 @@ function carregar() {
           if (c.tipo === 'sobra') jaFeitas.sobra = c;
           else if (c.tipo === 'embarque_volta') jaFeitas.voltas.push(c);
           else if (c.tipo === 'falta_montagem') faltasEnviadas.push(c);
+          else if (c.tipo === 'chegada_fornecedor') diretoFeitas.push(c);
           else jaFeitas.chegada[c.carregamento_id] = c;
         });
         /* só os carregamentos de SAÍDA (o que vai para o evento) */
@@ -568,6 +586,63 @@ function novoRasc(b) {
   return b;
 }
 
+/* 🔗 material entregue DIRETO pelo fornecedor na obra: o que ainda falta conferir */
+function calcDireto() {
+  var por = {};
+  movDireto.forEach(function (m) {
+    var k = (m.fornecedor_id || '') + '|' + chaveN(m.material);
+    var b = por[k] || (por[k] = { fornecedor_id: m.fornecedor_id, fornecedor: fornNome[m.fornecedor_id] || 'Fornecedor',
+      material: m.material, unidade: m.unidade || 'UN', enviado: 0, conferido: 0 });
+    b.enviado += num(m.quantidade);
+  });
+  diretoFeitas.forEach(function (c) {
+    (c.itens || []).forEach(function (i) {
+      var k = (i.fornecedor_id || '') + '|' + chaveN(i.nome);
+      if (por[k]) por[k].conferido += num(i.previsto);
+    });
+  });
+  var out = [];
+  Object.keys(por).forEach(function (k) {
+    por[k].pend = Math.max(0, por[k].enviado - por[k].conferido);
+    if (por[k].pend > 0) out.push(por[k]);
+  });
+  out.sort(function (a, b) { return String(a.material).localeCompare(String(b.material), 'pt-BR'); });
+  return out;
+}
+
+function telaDireto() {
+  var dp = calcDireto();
+  if (!rascPorCg['__direto']) {
+    rascPorCg['__direto'] = dp.map(function (d) {
+      return novoRasc({ nome: d.material, unidade: d.unidade, previsto: d.pend, terceirizado: false,
+        forn: d.fornecedor, fornecedor_id: d.fornecedor_id });
+    });
+    rascPorCg['__direto']._ini = new Date().toISOString();
+  }
+  itensBase = rascPorCg['__direto'];
+  return '<button class="btn" id="voltar-cargas" style="margin-bottom:12px">‹ VER OS CAMINHÕES</button>' +
+    '<div class="cartao"><div class="cartao__corpo"><b>🔗 Direto do fornecedor</b>' +
+      '<p class="peq mut" style="margin:2px 0 0">Material que o fornecedor entregou aqui na obra, sem passar pelo galpão da Plenart.</p></div></div>' +
+    '<div class="aviso"><span>👉</span><div><b>Conte cada material e coloque quanto o fornecedor entregou</b> — use <b>−</b> e <b>+</b> ou digite. No fim, toque em <b>FINALIZAR</b>.</div></div>' +
+    '<div class="cartao"><div class="cartao__topo"><h3>📷 Foto da entrega</h3>' +
+      (itensBase._fotoCarga ? '<span class="selo">ok</span>' : '<span class="peq" style="color:#C62828;font-weight:800">obrigatória</span>') + '</div>' +
+      '<div class="cartao__corpo"><p class="peq mut" style="margin:0 0 8px">Tire 1 foto do material entregue — fica no registro de COMO chegou.</p>' +
+      '<div class="fotos">' +
+        (itensBase._fotoCarga ? '<span class="foto"><img src="' + itensBase._fotoCarga + '" class="js-ver" alt="Foto da entrega">' +
+          '<button class="foto__x" id="fc-x" aria-label="Apagar foto">✕</button></span>' : '') +
+        '<label class="btn-foto">📷 ' + (itensBase._fotoCarga ? 'TROCAR FOTO' : 'TIRAR FOTO') +
+          '<input type="file" accept="image/*" id="fc-in"></label>' +
+      '</div></div></div>' +
+    '<div class="cartao"><div class="cartao__topo"><h3>🔗 Entregue pelo fornecedor</h3>' +
+      '<span class="peq mut" id="cont-itens">' + qtdNosso() + ' itens</span></div>' +
+    '<div class="cartao__corpo"><div id="lista"></div></div></div>' +
+    '<div class="cartao"><div class="cartao__corpo" style="padding-top:2px">' +
+      campoObsNome('Ex.: entregue pelo motorista do fornecedor às 9h') +
+    '</div></div>' +
+    '<button class="btn btn--verde" id="enviar">✓ FINALIZAR CONFERÊNCIA DA ENTREGA</button>' +
+    '<p class="peq mut" style="text-align:center;margin-top:10px">Se não bater com o que o fornecedor disse que mandou, o coordenador recebe o alerta.</p>';
+}
+
 /* ---------- desenho das telas ---------- */
 function desenhar() {
   var h = '<div class="abas">' +
@@ -618,6 +693,27 @@ function desenhar() {
           '</div></div>';
       }).join('');
     }
+    var dp = calcDireto();
+    if (dp.length) {
+      h += '<div class="cartao js-direto" style="cursor:pointer;border-left:5px solid var(--laranja)">' +
+        '<div class="cartao__corpo" style="display:flex;gap:12px;align-items:center">' +
+          '<span style="font-size:26px">🔗</span>' +
+          '<span style="flex:1;min-width:0"><b>Direto do fornecedor</b>' +
+            '<span class="peq mut" style="display:block">Material que o fornecedor entrega aqui na obra, sem passar pelo galpão</span>' +
+            '<span class="peq" style="display:block;color:var(--laranja);font-weight:700">' + dp.length + ' material(is) para conferir</span>' +
+          '</span><span class="mut">›</span>' +
+        '</div></div>';
+    }
+    diretoFeitas.slice().reverse().forEach(function (f) {
+      var nd = num(f.divergencias);
+      h += '<div class="cartao"><div class="cartao__topo"><h3>🔗 Entrega direta conferida</h3><span class="selo">' + (f.pendenteEnvio ? 'no celular' : 'enviada') + '</span></div>' +
+        '<div class="cartao__corpo">' +
+        '<p class="peq mut" style="margin:0 0 6px">' + fmtData(f.finalizada_em) + (f.responsavel ? ' · ' + esc(f.responsavel) : '') + '</p>' +
+        (nd > 0 ? '<div class="aviso" style="background:#FDECEC;color:#8E1B1B"><span>🚨</span><div><b>' + nd + ' material(is) não bateram</b> com o que o fornecedor mandou — o coordenador foi avisado.</div></div>' : '') +
+        (f.itens || []).map(function (i2) { return htmlItemFeito(i2, true); }).join('') +
+        (f.observacao ? '<p class="peq" style="margin-top:10px">📝 ' + esc(f.observacao) + '</p>' : '') +
+        '</div></div>';
+    });
     h += '<button class="btn" id="btn-faltou" style="background:var(--vermelho,#C62828);background:#C62828;color:#fff;font-weight:900;margin:4px 0 12px">🆘 FALTOU MATERIAL NA MONTAGEM</button>';
     if (faltasEnviadas.length) {
       h += '<div class="cartao"><div class="cartao__topo"><h3>🆘 Faltas avisadas</h3></div><div class="cartao__corpo">' +
@@ -639,6 +735,7 @@ function desenhar() {
   }
 
   /* 2) caminhão escolhido */
+  if (cargaSel === '__direto') { tela.innerHTML = h + telaDireto(); desenharLista(); return ligarTudo(); }
   var cg = cargas.filter(function (c) { return c.id === cargaSel; })[0];
   var feita = jaFeitas.chegada[cargaSel];
   var temSaidaConf = saiuPorCg[cargaSel] && Object.keys(saiuPorCg[cargaSel]).length > 0;
@@ -921,7 +1018,7 @@ function htmlItemEdit(b, i) {
       '<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">' +
         thumbPeca(b.nome, 44) +
         '<b style="flex:1;min-width:0;font-size:16px">' + esc(b.nome) +
-          (b.terceirizado ? ' <span class="tag tag--terc">🔗 terceirizado</span>' : '') + '</b>' +
+          (b.forn ? ' <span class="tag tag--terc">🔗 ' + esc(b.forn) + '</span>' : (b.terceirizado ? ' <span class="tag tag--terc">🔗 terceirizado</span>' : '')) + '</b>' +
         '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '" style="flex:none">⚠️ Avaria</button>' +
       '</div>' +
       (recont && !temQ ? '<p style="margin:0 0 8px;font-weight:900;color:var(--laranja)">🔁 Não bateu — conte de novo</p>' : '') +
@@ -981,7 +1078,7 @@ function htmlItemFeito(i2, chegada) {
   var av = i2.avaria;
   var dif = chegada && num(i2.qtd) !== num(i2.previsto);
   var h = '<div class="item"><span class="item__n"><b>' + esc(i2.nome) +
-      (i2.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '') +
+      (i2.fornecedor ? '<span class="tag tag--terc">🔗 ' + esc(i2.fornecedor) + '</span>' : (i2.terceirizado ? '<span class="tag tag--terc">🔗 terceirizado</span>' : '')) +
       (i2.extra ? '<span class="tag tag--extra">acrescentado</span>' : '') +
       (av && num(av.qtd) > 0 ? '<span class="tag tag--av">' + fmt(av.qtd) + ' avariada(s)</span>' : '') + '</b>' +
       (chegada && !i2.extra ? '<span class="peq mut">enviado ' + fmt(i2.previsto) +
@@ -1006,6 +1103,8 @@ function ligarTudo() {
   document.querySelectorAll('.js-carga').forEach(function (c) {
     c.addEventListener('click', function () { cargaSel = c.dataset.id; desenhar(); window.scrollTo(0, 0); });
   });
+  var bDir = document.querySelector('.js-direto');
+  if (bDir) bDir.addEventListener('click', function () { cargaSel = '__direto'; desenhar(); window.scrollTo(0, 0); });
   var volt = document.getElementById('voltar-cargas');
   if (volt) volt.addEventListener('click', function () { cargaSel = null; desenhar(); window.scrollTo(0, 0); });
   var q30t = document.getElementById('q30-topo');
@@ -1186,6 +1285,7 @@ function montarEnvio() {
     var q = num(b.qtd);
     var it = { nome: b.nome, unidade: b.unidade, previsto: b.previsto, qtd: q };
     if (b.q1 !== undefined && num(b.q1) !== q) it.primeira = num(b.q1);  /* contou de novo: a 1ª contagem fica no registro */
+    if (b.forn) { it.fornecedor = b.forn; it.fornecedor_id = b.fornecedor_id || null; it.terceirizado = true; }
     if (b.extra) it.extra = true;
     if (b.terceirizado) it.terceirizado = true;
     if (b.avOn) {
@@ -1204,8 +1304,8 @@ function montarEnvio() {
 
   var reg = {
     evento_id: evento.id,
-    carregamento_id: aba === 'chegada' ? cargaSel : null,
-    tipo: aba === 'volta' ? 'embarque_volta' : aba,
+    carregamento_id: aba === 'chegada' && cargaSel !== '__direto' ? cargaSel : null,
+    tipo: aba === 'volta' ? 'embarque_volta' : (aba === 'chegada' && cargaSel === '__direto' ? 'chegada_fornecedor' : aba),
     responsavel: resp,
     itens: itens,
     observacao: (document.getElementById('obs').value || '').trim() || null,
@@ -1270,6 +1370,13 @@ function enviar() {
       if (!confirm('🔔 Depois da recontagem, ' + div.length + ' item(ns) AINDA NÃO BATEM com o que saiu da empresa:\n' +
           div.slice(0, 8).map(function (b) { return '• ' + b.nome; }).join('\n') + (div.length > 8 ? '\n…' : '') +
           '\n\nEnviar assim? O coordenador recebe o ALARME da divergência para o evento na hora.')) return;
+    }
+    if (cargaSel === '__direto') {
+      m.reg.divergencias = (m.reg.itens || []).filter(function (it) {
+        return !it.extra && num(it.qtd) !== num(it.previsto);
+      }).length;
+      gravar(m.reg, document.getElementById('enviar'));
+      return;
     }
     envioPendente = m.reg;
     abrirAvaliacao();
@@ -1429,6 +1536,7 @@ function gravar(reg, bt) {
         jaFeitas.chegada[reg.carregamento_id] = novo; delete rascPorCg[reg.carregamento_id];
       }
       else if (reg.tipo === 'embarque_volta') { jaFeitas.voltas.push(novo); voltaBase = null; voltaNova = false; }
+      else if (reg.tipo === 'chegada_fornecedor') { diretoFeitas.push(novo); delete rascPorCg['__direto']; cargaSel = null; }
       else if (reg.tipo === 'falta_montagem') {
         faltasEnviadas.unshift(novo);
         fecharFalta();
