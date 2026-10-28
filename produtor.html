@@ -326,6 +326,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 var cargas = [], cargaSel = null, caminhoes = [], sobraBase = [];
 var fotoPeca = {};          /* 63: foto da ficha do estoque, por nome */
+var embPeca = {};           /* 📦 quantas unidades vêm no palete/caixa, por nome (ficha do estoque) */
 var faltasEnviadas = [];    /* 64: faltas já avisadas pela montagem */
 var saiuPorCg = {};         /* 62: o que SAIU CONFERIDO do galpão, por caminhão */
 var saiuEmPorCg = {};       /* 74: hora que a saída foi finalizada (caminhão a caminho) */
@@ -337,10 +338,11 @@ var movDireto = [], fornNome = {}, diretoFeitas = [];   /* 🔗 material entregu
 var SR_ = window.SpeechRecognition || window.webkitSpeechRecognition, VOZ_OK = !!SR_, recAtivo = null;
 
 /* CHEGADA ÀS CEGAS: o produtor conta e digita; o que saiu da empresa só aparece depois de enviar */
-function commitContagem(i, v) {
+function commitContagem(i, v, manterEmb) {
   var b = itensBase[i];
   if (!b || v === '' || v === undefined || v === null) return;
   delete b.dig;
+  if (!manterEmb) delete b.emb;   /* digitou na mão = contou por UNIDADE */
   b.qtd = v;
   desenharLista();
 }
@@ -449,8 +451,12 @@ function carregar() {
         cli.from('q30_areas').select('dados').eq('evento_id', evento.id)
           .then(function (r) { return r.error ? [] : (r.data || []); })
           .catch(function () { return []; }),
-        cli.from('estoque').select('nome,foto')
-          .then(function (r) { return r.error ? [] : (r.data || []); })
+        cli.from('estoque').select('nome,foto,por_embalagem,embalagem')
+          .then(function (r) {
+            if (!r.error) return r.data || [];
+            /* banco antigo sem as colunas de embalagem: busca só nome e foto */
+            return cli.from('estoque').select('nome,foto').then(function (r2) { return r2.error ? [] : (r2.data || []); }, function () { return []; });
+          })
           .catch(function () { return []; }),
         cli.from('movimentos_terceiros').select('fornecedor_id,material,unidade,tipo,quantidade,evento_id,observacao')
           .eq('evento_id', evento.id)
@@ -464,7 +470,10 @@ function carregar() {
         movDireto = (rr[6] || []).filter(function (m) {
           return m.tipo === 'envio' && /DIRETO/.test(String(m.observacao || '').toUpperCase());
         });
-        (rr[5] || []).forEach(function (i) { if (i.foto) fotoPeca[chaveN(i.nome)] = i.foto; });
+        (rr[5] || []).forEach(function (i) {
+          if (i.foto) fotoPeca[chaveN(i.nome)] = i.foto;
+          if (num(i.por_embalagem) > 1) embPeca[chaveN(i.nome)] = { por: num(i.por_embalagem), tipo: String(i.embalagem || 'PALETE').toLowerCase() };
+        });
         produtosEv = (rr[0].data || []);
         caminhoes = (rr[3].data || []);
         areasQ30 = ((rr[4] || [])[0] || {}).dados || [];
@@ -583,6 +592,7 @@ function qtdTerc() { return itensBase.filter(function (b) { return b.terceirizad
 
 function novoRasc(b) {
   b.qtd = ''; b.avOn = false; b.avQtd = ''; b.avDesc = ''; b.avFotos = [];
+  delete b.emb; b.embOn = false; b.embTipo = ''; b.embPor = ''; b.embQtd = ''; b.embSoltas = '';
   return b;
 }
 
@@ -1006,6 +1016,58 @@ function desenharLista() {
   if (ct) ct.textContent = qtdTerc() + ' itens';
 }
 
+function embDe(nome) { return embPeca[chaveN(nome)] || null; }
+/* 📦 forma da contagem: "2 paletes de 70 + 3 soltas = 143" */
+function embResumo(e, un) {
+  if (!e || !num(e.fechados)) return '';
+  var t = String(e.tipo || 'PALETE').toLowerCase();
+  return '📦 ' + fmt(e.fechados) + ' ' + t + (num(e.fechados) > 1 ? 's' : '') + ' de ' + fmt(e.por) +
+    (num(e.soltas) ? ' + ' + fmt(e.soltas) + ' solta(s)' : '') + ' = ' + fmt(num(e.fechados) * num(e.por) + num(e.soltas)) + ' ' + esc(un || 'UN');
+}
+/* 📦 o produtor diz COMO contou: por unidade (digita direto), por caixa ou por palete (fechados + soltas) */
+function embBloco(b, i) {
+  var cad = embDe(b.nome);
+  var h = '';
+  if (b.emb && num(b.emb.fechados) && !b.embOn) h += '<p class="peq" style="width:100%;margin:8px 0 0;font-weight:800;color:var(--azul)">' + embResumo(b.emb, b.unidade) + '</p>';
+  h += '<button type="button" class="js-embtog" data-i="' + i + '" style="display:block;width:100%;margin-top:8px;background:#F4F8FE;border:1px dashed #BFD6F5;border-radius:10px' + (b.embOn ? ' 10px 0 0' : '') + ';padding:9px 12px;font:inherit;font-size:14px;font-weight:800;color:var(--azul);text-align:left;cursor:pointer">📦 Contei por caixa ou palete' + (cad ? ' — ' + fmt(cad.por) + ' por ' + esc(cad.tipo) : '') + ' <span style="float:right">' + (b.embOn ? '▴' : '▾') + '</span></button>';
+  if (b.embOn) {
+    var tipos = ['PALETE', 'CAIXA'];
+    if (cad && tipos.indexOf(String(cad.tipo).toUpperCase()) < 0) tipos.push(String(cad.tipo).toUpperCase());
+    var tipoSel = (b.embTipo || (cad ? String(cad.tipo).toUpperCase() : 'PALETE'));
+    var porV = b.embPor !== '' && b.embPor !== undefined ? b.embPor : (cad ? String(cad.por) : '');
+    var tot = num(b.embQtd) * num(porV) + num(b.embSoltas);
+    h += '<div style="width:100%;border:1px dashed #BFD6F5;border-top:0;border-radius:0 0 10px 10px;padding:10px;background:#FBFDFF;box-sizing:border-box">' +
+      '<div style="display:flex;gap:8px"><label style="flex:1;min-width:0"><span class="peq" style="font-weight:800;display:block;margin-bottom:3px">Contei por</span><select class="entrada js-eq2-tipo" data-i="' + i + '" style="width:100%;box-sizing:border-box">' + tipos.map(function (o) { return '<option' + (o === tipoSel ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select></label>' +
+      '<label style="flex:1;min-width:0"><span class="peq" style="font-weight:800;display:block;margin-bottom:3px">Quantas ' + esc(b.unidade || 'UN') + ' por ' + esc(tipoSel.toLowerCase()) + '</span><input class="entrada qtd js-eq2-por" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="ex.: 70" value="' + esc(porV) + '" style="width:100%;box-sizing:border-box"></label></div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px"><label style="flex:1;min-width:0"><span class="peq" style="font-weight:800;display:block;margin-bottom:3px">' + esc(tipoSel) + 'S fechados</span><input class="entrada qtd js-eq2-qtd" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.embQtd === undefined ? '' : b.embQtd) + '" style="width:100%;box-sizing:border-box"></label>' +
+      '<label style="flex:1;min-width:0"><span class="peq" style="font-weight:800;display:block;margin-bottom:3px">Soltas (' + esc(b.unidade || 'UN') + ')</span><input class="entrada qtd js-eq2-soltas" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.embSoltas === undefined ? '' : b.embSoltas) + '" style="width:100%;box-sizing:border-box"></label></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><b class="js-eq2-total" data-i="' + i + '" style="flex:1;font-size:17px">= ' + fmt(tot) + ' ' + esc(b.unidade || 'UN') + '</b>' +
+      '<button type="button" class="js-embusar" data-i="' + i + '" style="flex:none;background:var(--verde);color:#fff;border:0;border-radius:10px;padding:11px 16px;font:inherit;font-weight:900;cursor:pointer">✔ USAR ESSA CONTA</button></div></div>';
+  }
+  return h;
+}
+/* 🚚 volta/sobra: quanto SAIU conferido pelo conferente e quanto o produtor já declarou de volta */
+function saldoVolta(nome) {
+  var k = chaveN(nome), saiu = 0, tem = false, pidK = {};
+  produtosEv.forEach(function (p) { pidK[p.id] = chaveN(p.nome); });
+  Object.keys(saiuPorCg).forEach(function (cg) {
+    var m = saiuPorCg[cg] || {};
+    Object.keys(m).forEach(function (pid) { if (pidK[pid] === k) { saiu += num(m[pid]); tem = true; } });
+  });
+  if (!tem) return null;
+  var volt = 0;
+  (jaFeitas.sobra ? [jaFeitas.sobra] : []).concat(jaFeitas.voltas || []).forEach(function (dcl) {
+    (dcl.itens || []).forEach(function (it2) { if (chaveN(it2.nome) === k) volt += num(it2.qtd); });
+  });
+  return { saiu: saiu, voltou: volt };
+}
+function saldoTxt(sd, atual) {
+  var ainda = sd.saiu - sd.voltou - num(atual);
+  var fim2 = ainda > 0 ? '<b style="color:#A85600">ainda aí: ' + fmt(ainda) + '</b>'
+    : (ainda === 0 ? '<b style="color:var(--verde)">✔ tudo de volta</b>'
+    : '<b style="color:#C62828">' + fmt(-ainda) + ' a mais do que saiu</b>');
+  return '🚚 saiu da empresa: <b>' + fmt(sd.saiu) + '</b>' + (sd.voltou ? ' · já declarado: <b>' + fmt(sd.voltou) + '</b>' : '') + ' · ' + fim2;
+}
 function htmlItemEdit(b, i) {
   /* 62: na CHEGADA o produtor CONTA e DIGITA o que realmente veio.
      O "devia chegar" só aparece DEPOIS que ele digita (conferência de verdade, não um toque de confirmar). */
@@ -1026,7 +1088,7 @@ function htmlItemEdit(b, i) {
         '<button class="btn js-menos" data-i="' + i + '" aria-label="Diminuir" style="flex:none;width:64px;min-height:58px;font-size:30px;font-weight:900;background:#fff;border:2px solid #D7DEE8;color:var(--azul)">−</button>' +
         '<input class="entrada qtd js-q" data-i="' + i + '" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="' + esc(val) + '" aria-label="Quanto chegou de ' + esc(b.nome) + '" style="flex:1;min-width:0;width:auto;min-height:58px;font-size:26px;font-weight:900;text-align:center;border:2px solid ' + (val !== '' ? 'var(--azul)' : (recont ? 'var(--laranja)' : '#D7DEE8')) + ';border-radius:10px">' +
         '<button class="btn js-mais" data-i="' + i + '" aria-label="Aumentar" style="flex:none;width:64px;min-height:58px;font-size:30px;font-weight:900;background:#fff;border:2px solid #D7DEE8;color:var(--azul)">+</button>' +
-      '</div>';
+      '</div>' + embBloco(b, i);
     if (b.avOn) {
       h2 += '<div class="av">' +
         '<div class="av__linha"><span class="av__rot" style="flex:1">Quantas peças avariadas?</span>' +
@@ -1054,7 +1116,12 @@ function htmlItemEdit(b, i) {
     '<span class="item__acoes">' +
       '<button class="btn-av js-avtog' + (b.avOn ? ' on' : '') + '" data-i="' + i + '" aria-pressed="' + b.avOn + '">⚠️ Avaria</button>' +
       '<input class="entrada qtd js-q" data-i="' + i + '" type="number" inputmode="numeric" min="0" placeholder="0" value="' + esc(b.qtd) + '" aria-label="Quantidade de ' + esc(b.nome) + '">' +
-    '</span>';
+    '</span>' +
+    (function () {
+      if (aba !== 'sobra' && aba !== 'volta') return '';
+      var sd = saldoVolta(b.nome);
+      return sd ? '<span class="peq js-saldo" data-i="' + i + '" style="display:block;width:100%;margin-top:4px">' + saldoTxt(sd, b.qtd) + '</span>' : '';
+    })() + embBloco(b, i);
   if (b.avOn) {
     h += '<div class="av">' +
       '<div class="av__linha"><span class="av__rot" style="flex:1">Quantas peças avariadas?</span>' +
@@ -1082,7 +1149,8 @@ function htmlItemFeito(i2, chegada) {
       (i2.extra ? '<span class="tag tag--extra">acrescentado</span>' : '') +
       (av && num(av.qtd) > 0 ? '<span class="tag tag--av">' + fmt(av.qtd) + ' avariada(s)</span>' : '') + '</b>' +
       (chegada && !i2.extra ? '<span class="peq mut">enviado ' + fmt(i2.previsto) +
-        (i2.primeira !== undefined ? ' · 1ª contagem: ' + fmt(i2.primeira) : '') + '</span>' : '') + '</span>' +
+        (i2.primeira !== undefined ? ' · 1ª contagem: ' + fmt(i2.primeira) : '') + '</span>' : '') +
+      (i2.emb && num(i2.emb.fechados) ? '<span class="peq mut">' + embResumo(i2.emb, i2.unidade) + '</span>' : '') + '</span>' +
     '<b style="' + (dif ? 'color:var(--laranja)' : '') + '">' + fmt(i2.qtd) + ' ' + esc(i2.unidade || 'UN') + '</b>';
   if (av && num(av.qtd) > 0) {
     h += '<div class="av">' +
@@ -1162,6 +1230,18 @@ function ligarTudo() {
       return commitContagem(i, cmp.value);
     }
     if (t.classList.contains('js-mic')) return ouvirItem(i, t);
+    if (t.classList.contains('js-embtog')) { itensBase[i].embOn = !itensBase[i].embOn; return desenharLista(); }
+    if (t.classList.contains('js-embusar')) {
+      var eb9 = itensBase[i], em9 = embDe(eb9.nome);
+      var tipo9 = tela.querySelector('.js-eq2-tipo[data-i="' + i + '"]');
+      var por9 = num(tela.querySelector('.js-eq2-por[data-i="' + i + '"]').value || (em9 ? em9.por : 0));
+      var fe9 = num(eb9.embQtd), so9 = num(eb9.embSoltas);
+      if (fe9 > 0 && por9 <= 0) { alert('Diga quantas ' + (eb9.unidade || 'UN') + ' vêm em cada caixa/palete.'); return; }
+      var tot9b = fe9 * por9 + so9;
+      eb9.emb = fe9 > 0 ? { tipo: (tipo9 ? tipo9.value : (em9 ? String(em9.tipo).toUpperCase() : 'PALETE')), por: por9, fechados: fe9, soltas: so9 } : null;
+      eb9.embOn = false; eb9.embQtd = ''; eb9.embSoltas = '';
+      return commitContagem(i, String(tot9b), true);
+    }
     if (t.classList.contains('js-mais') || t.classList.contains('js-menos')) {
       var bb = itensBase[i], cmpo = tela.querySelector('.js-q[data-i="' + i + '"]');
       var atual = cmpo && cmpo.value !== '' ? num(cmpo.value) : (bb.qtd !== '' && bb.qtd !== undefined ? num(bb.qtd) : 0);
@@ -1177,11 +1257,27 @@ function ligarTudo() {
       if (aba === 'chegada' && !itensBase[i].extra) itensBase[i].dig = t.value;
       else itensBase[i].qtd = t.value;
     }
+    if (t.classList.contains('js-eq2-qtd') || t.classList.contains('js-eq2-soltas') || t.classList.contains('js-eq2-por')) {
+      if (t.classList.contains('js-eq2-qtd')) itensBase[i].embQtd = t.value;
+      else if (t.classList.contains('js-eq2-soltas')) itensBase[i].embSoltas = t.value;
+      else itensBase[i].embPor = t.value;
+      var elT = tela.querySelector('.js-eq2-total[data-i="' + i + '"]'), elP = tela.querySelector('.js-eq2-por[data-i="' + i + '"]');
+      var porT = num(elP ? elP.value : 0);
+      if (elT) elT.textContent = '= ' + fmt(num(itensBase[i].embQtd) * porT + num(itensBase[i].embSoltas)) + ' ' + (itensBase[i].unidade || 'UN');
+    }
+    if (t.classList.contains('js-q') && (aba === 'sobra' || aba === 'volta')) {
+      var sdV = saldoVolta(itensBase[i].nome), elS = tela.querySelector('.js-saldo[data-i="' + i + '"]');
+      if (sdV && elS) elS.innerHTML = saldoTxt(sdV, t.value);
+    }
     if (t.classList.contains('js-avq')) itensBase[i].avQtd = t.value;
     if (t.classList.contains('js-avd')) itensBase[i].avDesc = t.value;
   };
   tela.onchange = function (e) {
     var t = e.target;
+    if (t.classList.contains('js-eq2-tipo') && t.dataset.i !== undefined && itensBase[t.dataset.i]) {
+      itensBase[t.dataset.i].embTipo = t.value;
+      return desenharLista();
+    }
     /* chegada: terminou de digitar (saiu do campo / Enter) = contagem feita */
     if (t.classList.contains('js-q') && aba === 'chegada' && t.dataset.i !== undefined) {
       var bq = itensBase[t.dataset.i];
@@ -1287,6 +1383,7 @@ function montarEnvio() {
     if (b.q1 !== undefined && num(b.q1) !== q) it.primeira = num(b.q1);  /* contou de novo: a 1ª contagem fica no registro */
     if (b.forn) { it.fornecedor = b.forn; it.fornecedor_id = b.fornecedor_id || null; it.terceirizado = true; }
     if (b.extra) it.extra = true;
+    if (b.emb && num(b.emb.fechados) > 0) it.emb = { tipo: b.emb.tipo, por: num(b.emb.por), fechados: num(b.emb.fechados), soltas: num(b.emb.soltas) };
     if (b.terceirizado) it.terceirizado = true;
     if (b.avOn) {
       var aq = num(b.avQtd);
